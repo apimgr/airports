@@ -1,0 +1,116 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>📍 Find Nearby Airports</h1>
+    <p>Locate airports near specific coordinates</p>
+</div>
+
+<div class="nearby-container">
+    <div class="nearby-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="latitude">Latitude</label>
+                <input type="number" id="latitude" step="0.0001" placeholder="40.6398"
+                       value="{{.Lat}}" required>
+            </div>
+            <div class="form-group">
+                <label for="longitude">Longitude</label>
+                <input type="number" id="longitude" step="0.0001" placeholder="-73.7789"
+                       value="{{.Lon}}" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="radius">Radius</label>
+                <input type="number" id="radius" min="1" max="500" value="{{if .Radius}}{{.Radius}}{{else}}50{{end}}">
+            </div>
+            <div class="form-group">
+                <label for="units">Units</label>
+                <select id="units">
+                    <option value="imperial" {{if eq .Units "imperial"}}selected{{end}}>Miles (Imperial)</option>
+                    <option value="metric" {{if eq .Units "metric"}}selected{{end}}>Kilometers (Metric)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="limit">Max Results</label>
+                <input type="number" id="limit" min="1" max="100" value="{{if .Limit}}{{.Limit}}{{else}}20{{end}}">
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button onclick="findNearby()" class="btn-primary">Find Airports</button>
+            <button onclick="useMyLocation()" class="btn-secondary">Use My Location</button>
+        </div>
+    </div>
+
+    <div id="nearby-results">
+        {{if .Airports}}
+            <div class="results-info">
+                Found {{len .Airports}} airports within {{.DisplayRadius}} {{.RadiusUnit}}
+            </div>
+
+            <div class="results-list">
+                {{range .Airports}}
+                <div class="airport-result-card" onclick="viewAirport('{{.ICAO}}')">
+                    <div class="airport-result-header">
+                        <div>
+                            <h3>{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</h3>
+                            <div class="airport-name">{{.Name}}</div>
+                        </div>
+                        <div class="distance-badge">
+                            {{printf "%.2f" .Distance}} {{.DistanceUnit}}
+                        </div>
+                    </div>
+                    <div class="airport-result-details">
+                        <span>📍 {{.City}}, {{.Country}}</span>
+                        <span>✈️ {{.Elevation}} ft</span>
+                        <span>🌐 {{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+        {{end}}
+    </div>
+</div>
+
+<script>
+function findNearby() {
+    const lat = document.getElementById('latitude').value;
+    const lon = document.getElementById('longitude').value;
+    const radius = document.getElementById('radius').value;
+    const units = document.getElementById('units').value;
+    const limit = document.getElementById('limit').value;
+
+    if (!lat || !lon) {
+        showToast('Please enter both latitude and longitude', 'error');
+        return;
+    }
+
+    window.location = `/nearby?lat=${lat}&lon=${lon}&radius=${radius}&units=${units}&limit=${limit}`;
+}
+
+function useMyLocation() {
+    if (!navigator.geolocation) {
+        showToast('Geolocation is not supported by your browser', 'error');
+        return;
+    }
+
+    showToast('Getting your location...', 'info');
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            document.getElementById('latitude').value = position.coords.latitude.toFixed(4);
+            document.getElementById('longitude').value = position.coords.longitude.toFixed(4);
+            showToast('Location detected!', 'success');
+        },
+        (error) => {
+            showToast('Unable to get your location: ' + error.message, 'error');
+        }
+    );
+}
+
+function viewAirport(code) {
+    window.location = `/airport/${code}`;
+}
+</script>
+{{end}}

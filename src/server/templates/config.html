@@ -1,0 +1,271 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>⚙️ Server Configuration</h1>
+    <p>Configure server settings stored in database</p>
+</div>
+
+<div class="config-container">
+    {{range $category, $settings := .Settings}}
+    <div class="config-section">
+        <h2 style="text-transform: capitalize;">{{$category}}</h2>
+
+        <div class="settings-list">
+            {{range $settings}}
+            <div class="setting-item" data-key="{{.Key}}">
+                <div class="setting-header">
+                    <label for="{{.Key}}">{{.Key}}</label>
+                    <span class="setting-type">{{.Type}}</span>
+                </div>
+                <div class="setting-description">{{.Description}}</div>
+
+                {{if eq .Type "boolean"}}
+                <label class="toggle">
+                    <input type="checkbox" id="{{.Key}}"
+                           data-key="{{.Key}}"
+                           data-type="{{.Type}}"
+                           {{if eq .Value "true"}}checked{{end}}
+                           onchange="updateSetting(this)">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">{{if eq .Value "true"}}Enabled{{else}}Disabled{{end}}</span>
+                </label>
+
+                {{else if eq .Type "number"}}
+                <input type="number"
+                       id="{{.Key}}"
+                       data-key="{{.Key}}"
+                       data-type="{{.Type}}"
+                       value="{{.Value}}"
+                       onchange="updateSetting(this)"
+                       class="setting-input">
+
+                {{else}}
+                <input type="text"
+                       id="{{.Key}}"
+                       data-key="{{.Key}}"
+                       data-type="{{.Type}}"
+                       value="{{.Value}}"
+                       onchange="updateSetting(this)"
+                       class="setting-input">
+                {{end}}
+
+                <div class="setting-updated">Last updated: {{.UpdatedAt.Format "Jan 2, 2006 3:04 PM"}}</div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+
+<div class="config-actions">
+    <button onclick="reloadConfig()" class="btn-primary">Reload Configuration</button>
+    <button onclick="resetDefaults()" class="btn-secondary">Reset to Defaults</button>
+    <button onclick="exportConfig()" class="btn-secondary">Export Settings</button>
+</div>
+
+<style>
+.config-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+}
+
+.config-section {
+    background: var(--bg-secondary);
+    padding: var(--space-xl);
+    border-radius: 12px;
+}
+
+.config-section h2 {
+    margin-bottom: var(--space-lg);
+    color: var(--accent-primary);
+    text-transform: capitalize;
+}
+
+.settings-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.setting-item {
+    padding: var(--space-lg);
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    transition: border-color var(--transition-fast);
+}
+
+.setting-item.updated {
+    border-color: var(--accent-success);
+}
+
+.setting-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.setting-header label {
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.setting-type {
+    background: var(--bg-primary);
+    padding: var(--space-xs) var(--space-md);
+    border-radius: 12px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.setting-description {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: var(--space-md);
+}
+
+.setting-input {
+    width: 100%;
+    padding: var(--space-md);
+    background: var(--bg-primary);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.setting-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.setting-updated {
+    margin-top: var(--space-sm);
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+}
+
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    cursor: pointer;
+}
+
+.toggle input[type="checkbox"] {
+    display: none;
+}
+
+.toggle-slider {
+    position: relative;
+    width: 50px;
+    height: 26px;
+    background: var(--bg-primary);
+    border-radius: 13px;
+    transition: background var(--transition-fast);
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: transform var(--transition-fast);
+}
+
+.toggle input:checked + .toggle-slider {
+    background: var(--accent-primary);
+}
+
+.toggle input:checked + .toggle-slider::before {
+    transform: translateX(24px);
+    background: white;
+}
+
+.toggle-label {
+    font-weight: bold;
+    min-width: 80px;
+}
+
+.config-actions {
+    display: flex;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+    flex-wrap: wrap;
+}
+</style>
+
+<script>
+function updateSetting(element) {
+    const key = element.dataset.key;
+    const type = element.dataset.type;
+    let value;
+
+    if (type === 'boolean') {
+        value = element.checked ? 'true' : 'false';
+        const label = element.parentElement.querySelector('.toggle-label');
+        label.textContent = element.checked ? 'Enabled' : 'Disabled';
+    } else {
+        value = element.value;
+    }
+
+    fetch('/config/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value, type })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            showToast(`Updated ${key}`, 'success');
+            const item = element.closest('.setting-item');
+            item.classList.add('updated');
+            setTimeout(() => item.classList.remove('updated'), 2000);
+        } else {
+            showToast('Failed to update setting', 'error');
+        }
+    })
+    .catch(err => {
+        showToast('Error updating setting: ' + err.message, 'error');
+    });
+}
+
+function reloadConfig() {
+    window.location.reload();
+}
+
+function resetDefaults() {
+    if (confirm('Reset all settings to default values? This cannot be undone.')) {
+        fetch('/config/reset', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Settings reset to defaults', 'success');
+                setTimeout(() => window.location.reload(), 1500);
+            } else {
+                showToast('Failed to reset settings', 'error');
+            }
+        });
+    }
+}
+
+function exportConfig() {
+    fetch('/config/export')
+    .then(r => r.json())
+    .then(data => {
+        const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'airports-config.json';
+        a.click();
+        showToast('Configuration exported', 'success');
+    });
+}
+</script>
+{{end}}

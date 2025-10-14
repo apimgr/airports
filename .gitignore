@@ -1,0 +1,217 @@
+# ============================================
+# Binaries & Build Artifacts
+# ============================================
+binaries/
+release/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+dist/
+build/
+
+# ============================================
+# Runtime Data & Configuration
+# ============================================
+
+# Local runtime directories (when not running as system service)
+/config/
+/data/
+/logs/
+
+# Admin credentials (generated on first run)
+admin_credentials
+*_credentials
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Log files
+*.log
+*.log.*
+*.log.gz
+
+# PID files
+*.pid
+
+# Unix sockets
+*.sock
+
+# ============================================
+# Downloaded/Generated Data
+# ============================================
+
+# GeoIP databases (downloaded on first run)
+**/geoip/*.mmdb
+GeoLite2-*.mmdb
+
+# Backup files
+backups/
+*.backup
+*.bak
+
+# Cache files
+cache/
+*.cache
+
+# ============================================
+# Operating System Files
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================
+# IDE & Editor Files
+# ============================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (IntelliJ, GoLand, etc)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# Go Specific
+# ============================================
+
+# Dependency directories
+vendor/
+
+# Go workspace file (Go 1.18+)
+go.work
+go.work.sum
+
+# Test coverage
+coverage.out
+coverage.html
+*.coverprofile
+*.out
+
+# Go build cache
+.cache/
+
+# ============================================
+# Environment & Secrets
+# ============================================
+
+# Environment files (should not exist, but ignore anyway)
+.env
+.env.*
+!.env.example
+
+# Secret files
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Kubernetes secrets
+*-secret.yaml
+*-secret.yml
+
+# ============================================
+# Temporary Files
+# ============================================
+
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# ============================================
+# Docker
+# ============================================
+
+# Docker volumes (local testing)
+rootfs/
+
+# Docker override files
+docker-compose.override.yml
+
+# ============================================
+# CI/CD
+# ============================================
+
+# Test results
+test-results/
+*.xml
+
+# Artifacts
+artifacts/
+
+# ============================================
+# Other
+# ============================================
+
+# Node modules (if using any JS tooling)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Python (if using any Python scripts)
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+env/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Debug files
+debug
+debug.test
+__debug_bin
