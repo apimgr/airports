@@ -1,0 +1,91 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>🔍 Search Airports</h1>
+    <p>Search by airport code, name, city, or country</p>
+</div>
+
+<div class="search-container">
+    <div class="search-box">
+        <input type="text" id="search-input" placeholder="Enter airport code, name, or city..."
+               value="{{.Query}}" onkeyup="handleSearchKey(event)">
+        <button onclick="performSearch()">Search</button>
+    </div>
+
+    <div class="search-filters">
+        <label>
+            <input type="checkbox" id="filter-iata" checked> Only airports with IATA codes
+        </label>
+        <label>
+            Results per page:
+            <select id="limit" onchange="performSearch()">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </label>
+    </div>
+</div>
+
+<div id="search-results">
+    {{if .Results}}
+        <div class="results-info">
+            Found {{len .Results}} airports {{if .Query}}for "{{.Query}}"{{end}}
+        </div>
+
+        <div class="results-grid">
+            {{range .Results}}
+            <div class="airport-card" onclick="viewAirport('{{.ICAO}}')">
+                <div class="airport-header">
+                    <h3>{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</h3>
+                    <span class="country-badge">{{.Country}}</span>
+                </div>
+                <div class="airport-name">{{.Name}}</div>
+                <div class="airport-location">
+                    📍 {{.City}}{{if .State}}, {{.State}}{{end}}
+                </div>
+                <div class="airport-details">
+                    <span>{{.Elevation}} ft</span>
+                    <span>{{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    {{else if .Query}}
+        <div class="no-results">
+            <h3>No airports found</h3>
+            <p>Try searching with different keywords</p>
+        </div>
+    {{else}}
+        <div class="search-help">
+            <h3>Search Examples:</h3>
+            <ul>
+                <li><strong>JFK</strong> - Search by IATA code</li>
+                <li><strong>KJFK</strong> - Search by ICAO code</li>
+                <li><strong>New York</strong> - Search by city name</li>
+                <li><strong>Kennedy</strong> - Search by airport name</li>
+                <li><strong>International</strong> - Search by keyword</li>
+            </ul>
+        </div>
+    {{end}}
+</div>
+
+<script>
+function handleSearchKey(event) {
+    if (event.key === 'Enter') {
+        performSearch();
+    }
+}
+
+function performSearch() {
+    const query = document.getElementById('search-input').value.trim();
+    if (query) {
+        window.location = `/search?q=${encodeURIComponent(query)}`;
+    }
+}
+
+function viewAirport(code) {
+    window.location = `/airport/${code}`;
+}
+</script>
+{{end}}

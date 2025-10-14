@@ -1,0 +1,79 @@
+# Testing/Debugging Docker Compose Configuration
+# Uses /tmp/airports/rootfs for ephemeral storage
+#
+# Usage:
+#   docker-compose -f docker-compose.test.yml up -d
+#   docker-compose -f docker-compose.test.yml down
+#   sudo rm -rf /tmp/airports/rootfs
+
+services:
+  airports:
+    build: .
+    container_name: airports-test
+    restart: "no"
+
+    environment:
+      # Directory paths (Docker defaults)
+      - CONFIG_DIR=/config
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
+
+      # Server configuration
+      - PORT=80                    # Internal port
+      - ADDRESS=0.0.0.0
+
+      # Database configuration
+      - DATABASE_URL=sqlite:/data/airports.db
+
+      # Admin credentials for testing
+      - ADMIN_USER=administrator
+      - ADMIN_PASSWORD=testpass123
+      # - ADMIN_TOKEN=test-token-here
+
+    volumes:
+      # Testing: Ephemeral storage in /tmp
+      - /tmp/airports/rootfs/config:/config
+      - /tmp/airports/rootfs/data:/data
+      - /tmp/airports/rootfs/logs:/logs
+
+    ports:
+      # Testing: localhost only
+      - "127.0.0.1:8080:80"
+
+    networks:
+      - airports-test
+
+    healthcheck:
+      test: ["CMD", "/airports", "--status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Optional: PostgreSQL for testing
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: airports-postgres-test
+  #   restart: "no"
+  #
+  #   environment:
+  #     POSTGRES_DB: airports
+  #     POSTGRES_USER: airports
+  #     POSTGRES_PASSWORD: testpass
+  #
+  #   volumes:
+  #     - /tmp/airports/rootfs/db/postgres:/var/lib/postgresql/data
+  #
+  #   networks:
+  #     - airports-test
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U airports"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  airports-test:
+    name: airports-test
+    driver: bridge

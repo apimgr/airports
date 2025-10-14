@@ -1,0 +1,62 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(tree:*)",
+      "Bash(go:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(echo:*)",
+      "Bash(make:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(cat:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(incus:*)",
+      "Bash(git:*)",
+      "Bash(pkill:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Bash(ls:*)",
+      "Bash(pwd:*)",
+      "Bash(cd:*)",
+      "Read(//tmp/**)",
+      "Read(/root/Projects/github/apimgr/airports/**)",
+      "Write(/root/Projects/github/apimgr/airports/**)",
+      "Edit(/root/Projects/github/apimgr/airports/**)",
+      "Bash(for:*)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(head:*)",
+      "Bash(done)",
+      "Bash(timeout:*)",
+      "Bash(./airports --version)",
+      "Bash(./binaries/airports:*)",
+      "Bash(while [ ! -f binaries/airports ])",
+      "Bash(do sleep:*)",
+      "Bash(VERSION=1.0.0 make build:*)"
+    ],
+    "deny": [
+      "Bash(rm:-rf /)",
+      "Bash(rm:-rf /*)",
+      "Bash(rm:-rf ~)",
+      "Bash(rm:-rf ~/)"
+    ],
+    "ask": []
+  },
+  "project": {
+    "name": "airports",
+    "description": "Airport location information API server with admin authentication",
+    "version": "1.0.0",
+    "repository": "github.com/apimgr/airports"
+  },
+  "preferences": {
+    "auto_commit": false,
+    "commit_message_template": "{{type}}: {{message}}\n\n{{details}}"
+  }
+}
