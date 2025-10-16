@@ -1,0 +1,96 @@
+# MkDocs configuration for Airports API
+site_name: Airports API Documentation
+site_description: Global airport location information API with GeoIP integration
+site_author: casapps
+site_url: https://airports.readthedocs.io
+
+# Repository
+repo_name: apimgr/airports
+repo_url: https://github.com/apimgr/airports
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2024 casapps
+
+# Theme - Dracula
+theme:
+  name: material
+  custom_dir: overrides
+  palette:
+    # Dracula color scheme
+    scheme: dracula
+    primary: deep purple
+    accent: pink
+  font:
+    text: Roboto
+    code: Fira Code
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/airport
+
+# Navigation
+nav:
+  - Home: index.md
+  - API Reference: API.md
+  - Server Guide: SERVER.md
+  - GitHub: https://github.com/apimgr/airports
+
+# Extensions
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+  - md_in_html
+  - def_list
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+  - minify:
+      minify_html: true
+
+# Extra CSS for Dracula theme customization
+extra_css:
+  - stylesheets/dracula.css
+
+# Extra JavaScript
+extra_javascript:
+  - javascripts/extra.js
+
+# Social links
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/apimgr/airports
+  version:
+    provider: mike

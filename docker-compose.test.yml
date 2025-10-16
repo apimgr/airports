@@ -1,0 +1,67 @@
+# Development/Testing Docker Compose Configuration
+# Uses /tmp for ephemeral storage
+# External port: 64181:80 (random unused port in 64xxx range)
+
+services:
+  airports:
+    image: airports:dev
+    container_name: airports-test
+    restart: "no"
+
+    environment:
+      - CONFIG_DIR=/config
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
+      - PORT=80
+      - ADDRESS=0.0.0.0
+      - DB_PATH=/data/db/airports.db
+      - ADMIN_USER=administrator
+      - ADMIN_PASSWORD=testpass123
+      - DEV=true
+
+    volumes:
+      - /tmp/airports/rootfs/config/airports:/config
+      - /tmp/airports/rootfs/data/airports:/data
+      - /tmp/airports/rootfs/logs/airports:/logs
+
+    ports:
+      - "64181:80"
+
+    networks:
+      - airports
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Optional: PostgreSQL for testing
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: airports-postgres-test
+  #   restart: "no"
+  #
+  #   environment:
+  #     POSTGRES_DB: airports_test
+  #     POSTGRES_USER: airports
+  #     POSTGRES_PASSWORD: testpass
+  #
+  #   volumes:
+  #     - /tmp/airports/rootfs/db/postgres:/var/lib/postgresql/data
+  #
+  #   networks:
+  #     - airports
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U airports"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  airports:
+    name: airports
+    external: false
+    driver: bridge

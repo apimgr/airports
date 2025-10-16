@@ -1,0 +1,46 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>📊 Database Statistics</h1>
+    <p>Comprehensive airport database coverage</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.TotalAirports}}</div>
+        <div class="stat-label">Total Airports</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.Countries}}</div>
+        <div class="stat-label">Countries</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.Cities}}</div>
+        <div class="stat-label">Cities</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.WithIATA}}</div>
+        <div class="stat-label">With IATA Codes</div>
+    </div>
+</div>
+
+<div class="countries-section">
+    <h2>Airports by Country</h2>
+    <div class="countries-grid">
+        {{range $country, $count := .Countries}}
+        <div class="country-item" onclick="searchCountry('{{$country}}')">
+            <span class="country-code">{{$country}}</span>
+            <span class="country-count">{{$count}} airports</span>
+        </div>
+        {{end}}
+    </div>
+</div>
+
+<script>
+function searchCountry(country) {
+    window.location = `/search?q=${country}`;
+}
+</script>
+{{end}}

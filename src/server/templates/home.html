@@ -1,0 +1,139 @@
+{{define "content"}}
+<div class="hero">
+    <h1>✈️ Global Airports Database</h1>
+    <p class="hero-subtitle">Search, locate, and explore 29,000+ airports worldwide</p>
+
+    <div class="search-hero">
+        <input type="text" id="quick-search" placeholder="Search by airport code, name, or city..."
+               onkeyup="quickSearch(event)">
+        <button onclick="performSearch()">Search</button>
+    </div>
+    <div id="quick-results" class="quick-results"></div>
+</div>
+
+<div class="features-grid">
+    <div class="feature-card" onclick="window.location='/search'">
+        <div class="feature-icon">🔍</div>
+        <h3>Search Airports</h3>
+        <p>Find airports by ICAO/IATA code, name, city, or country</p>
+    </div>
+
+    <div class="feature-card" onclick="window.location='/nearby'">
+        <div class="feature-icon">📍</div>
+        <h3>Find Nearby</h3>
+        <p>Locate airports near coordinates or your current location</p>
+    </div>
+
+    <div class="feature-card" onclick="detectLocation()">
+        <div class="feature-icon">🌍</div>
+        <h3>GeoIP Lookup</h3>
+        <p>Discover airports near your IP location</p>
+    </div>
+
+    <div class="feature-card" onclick="window.location='/stats'">
+        <div class="feature-icon">📊</div>
+        <h3>Statistics</h3>
+        <p>Explore database statistics and coverage</p>
+    </div>
+</div>
+
+<div class="api-section">
+    <h2>API Endpoints</h2>
+    <div class="endpoint-list">
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports</code>
+            <span class="endpoint-desc">List all airports (paginated)</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/{code}</code>
+            <span class="endpoint-desc">Get airport by ICAO/IATA code</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/search?q=query</code>
+            <span class="endpoint-desc">Search airports</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/nearby?lat=&lon=&radius=</code>
+            <span class="endpoint-desc">Find nearby airports (supports units=imperial/metric)</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/geoip/{ip}</code>
+            <span class="endpoint-desc">Lookup IP location</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/geoip/airports/nearby</code>
+            <span class="endpoint-desc">Airports near your IP location</span>
+        </div>
+    </div>
+</div>
+
+<script>
+let searchTimeout;
+
+function quickSearch(event) {
+    clearTimeout(searchTimeout);
+    const query = event.target.value.trim();
+
+    if (query.length < 2) {
+        document.getElementById('quick-results').innerHTML = '';
+        return;
+    }
+
+    searchTimeout = setTimeout(() => {
+        fetch(`/api/v1/airports/search?q=${encodeURIComponent(query)}&limit=5`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.data.length > 0) {
+                    const html = data.data.map(a => `
+                        <div class="quick-result-item" onclick="viewAirport('${a.icao}')">
+                            <strong>${a.icao}${a.iata ? ' / ' + a.iata : ''}</strong>
+                            <span>${a.name}</span>
+                            <span class="result-location">${a.city}, ${a.country}</span>
+                        </div>
+                    `).join('');
+                    document.getElementById('quick-results').innerHTML = html;
+                } else {
+                    document.getElementById('quick-results').innerHTML =
+                        '<div class="no-results">No airports found</div>';
+                }
+            });
+    }, 300);
+}
+
+function performSearch() {
+    const query = document.getElementById('quick-search').value.trim();
+    if (query) {
+        window.location = `/search?q=${encodeURIComponent(query)}`;
+    }
+}
+
+function viewAirport(code) {
+    window.location = `/airport/${code}`;
+}
+
+function detectLocation() {
+    fetch('/api/v1/geoip/airports/nearby')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const loc = data.data.location;
+                showModal('Your Location', `
+                    <p><strong>IP:</strong> ${loc.ip}</p>
+                    <p><strong>Location:</strong> ${loc.city || 'Unknown'}, ${loc.country_name || loc.country}</p>
+                    <p><strong>Coordinates:</strong> ${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}</p>
+                    <p><strong>Nearby Airports:</strong> ${data.data.nearby_airports.length}</p>
+                    <button onclick="window.location='/nearby?lat=${loc.latitude}&lon=${loc.longitude}'">
+                        View Nearby Airports
+                    </button>
+                `);
+            }
+        });
+}
+</script>
+{{end}}

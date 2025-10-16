@@ -1,0 +1,136 @@
+# GitHub Actions - Binary Release
+# Builds binaries for all platforms and creates GitHub release
+# Triggers: push to main, monthly schedule
+
+name: Binary Release
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # Run monthly on the 1st at 3:00 AM UTC
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Run tests
+        run: make test
+
+  build-and-release:
+    name: Build and Release Binaries
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from release.txt
+        id: version
+        run: |
+          VERSION=$(cat release.txt 2>/dev/null || echo "0.0.1")
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build all platforms
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }} make build
+
+      - name: List built binaries
+        run: |
+          echo "Built binaries:"
+          ls -lh release/
+
+      - name: Delete existing release if exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          echo "Checking for existing release ${VERSION}..."
+          gh release delete ${VERSION} -y 2>/dev/null || echo "No existing release found"
+          git push --delete origin ${VERSION} 2>/dev/null || echo "No existing tag found"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          COMMIT=${{ github.sha }}
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          gh release create ${VERSION} \
+            ./releases/* \
+            --title "Airports API ${VERSION}" \
+            --notes "## Release ${VERSION}
+
+**Commit**: \`${COMMIT}\`
+**Built**: ${BUILD_DATE}
+**Triggered by**: ${{ github.event_name }}
+
+### 📦 Downloads
+
+Select the binary for your platform:
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| **Linux** | x86_64 | [airports-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-amd64) |
+| **Linux** | ARM64 | [airports-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-arm64) |
+| **macOS** | Intel | [airports-macos-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-macos-amd64) |
+| **macOS** | Apple Silicon | [airports-macos-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-macos-arm64) |
+| **Windows** | x86_64 | [airports-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-windows-amd64.exe) |
+| **Windows** | ARM64 | [airports-windows-arm64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-windows-arm64.exe) |
+| **FreeBSD** | x86_64 | [airports-bsd-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-bsd-amd64) |
+| **FreeBSD** | ARM64 | [airports-bsd-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-bsd-arm64) |
+
+### 🐳 Docker Images
+
+\`\`\`bash
+docker pull ghcr.io/${{ github.repository }}:${VERSION}
+docker pull ghcr.io/${{ github.repository }}:latest
+\`\`\`
+
+### 📚 Documentation
+
+- [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/API.md)
+- [Server Administration Guide](https://github.com/${{ github.repository }}/blob/main/docs/SERVER.md)
+- [ReadTheDocs](https://airports.readthedocs.io)
+
+### ✨ Quick Start
+
+\`\`\`bash
+# Download and run
+curl -L -o airports https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-amd64
+chmod +x airports
+./airports
+\`\`\`
+"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.version.outputs.VERSION }}
+          path: releases/*
+          retention-days: 90

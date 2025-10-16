@@ -1,0 +1,97 @@
+{{define "content"}}
+{{if .Airport}}
+<div class="airport-detail">
+    <div class="airport-detail-header">
+        <div>
+            <h1>{{.Airport.ICAO}}{{if .Airport.IATA}} / {{.Airport.IATA}}{{end}}</h1>
+            <h2>{{.Airport.Name}}</h2>
+        </div>
+        <span class="country-badge-large">{{.Airport.Country}}</span>
+    </div>
+
+    <div class="detail-grid">
+        <div class="detail-card">
+            <h3>📍 Location</h3>
+            <div class="detail-item">
+                <span class="detail-label">City:</span>
+                <span class="detail-value">{{.Airport.City}}</span>
+            </div>
+            {{if .Airport.State}}
+            <div class="detail-item">
+                <span class="detail-label">State:</span>
+                <span class="detail-value">{{.Airport.State}}</span>
+            </div>
+            {{end}}
+            <div class="detail-item">
+                <span class="detail-label">Country:</span>
+                <span class="detail-value">{{.Airport.Country}}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Coordinates:</span>
+                <span class="detail-value">{{printf "%.6f" .Airport.Lat}}, {{printf "%.6f" .Airport.Lon}}</span>
+            </div>
+        </div>
+
+        <div class="detail-card">
+            <h3>✈️ Airport Information</h3>
+            <div class="detail-item">
+                <span class="detail-label">ICAO Code:</span>
+                <span class="detail-value">{{.Airport.ICAO}}</span>
+            </div>
+            {{if .Airport.IATA}}
+            <div class="detail-item">
+                <span class="detail-label">IATA Code:</span>
+                <span class="detail-value">{{.Airport.IATA}}</span>
+            </div>
+            {{end}}
+            <div class="detail-item">
+                <span class="detail-label">Elevation:</span>
+                <span class="detail-value">{{.Airport.Elevation}} feet ({{.ElevationMeters}} meters)</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">Timezone:</span>
+                <span class="detail-value">{{.Airport.Tz}}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="action-buttons">
+        <button onclick="findNearby()" class="btn-primary">Find Nearby Airports</button>
+        <button onclick="viewOnMap()" class="btn-secondary">View on Map</button>
+        <button onclick="copyJSON()" class="btn-secondary">Copy JSON</button>
+    </div>
+
+    <div class="json-section">
+        <h3>API Response</h3>
+        <pre id="json-data">{{.JSON}}</pre>
+    </div>
+</div>
+{{else}}
+<div class="error-page">
+    <h1>❌ Airport Not Found</h1>
+    <p>The airport code "{{.Code}}" was not found in our database.</p>
+    <button onclick="window.location='/search'">Search Airports</button>
+</div>
+{{end}}
+
+<script>
+function findNearby() {
+    const lat = {{.Airport.Lat}};
+    const lon = {{.Airport.Lon}};
+    window.location = `/nearby?lat=${lat}&lon=${lon}&radius=100`;
+}
+
+function viewOnMap() {
+    const lat = {{.Airport.Lat}};
+    const lon = {{.Airport.Lon}};
+    window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=12`, '_blank');
+}
+
+function copyJSON() {
+    const jsonText = document.getElementById('json-data').textContent;
+    navigator.clipboard.writeText(jsonText).then(() => {
+        showToast('JSON copied to clipboard!', 'success');
+    });
+}
+</script>
+{{end}}

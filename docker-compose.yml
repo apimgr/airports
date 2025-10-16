@@ -1,0 +1,110 @@
+# Production Docker Compose Configuration
+# Uses ./rootfs for persistent storage
+# External port: 172.17.0.1:64180:80 (Docker bridge network)
+
+services:
+  airports:
+    image: ghcr.io/apimgr/airports:latest
+    container_name: airports
+    restart: unless-stopped
+
+    environment:
+      - CONFIG_DIR=/config
+      - DATA_DIR=/data
+      - LOGS_DIR=/logs
+      - PORT=80
+      - ADDRESS=0.0.0.0
+      - DB_PATH=/data/db/airports.db
+      # Uncomment and set for first deployment
+      #- ADMIN_USER=administrator
+      #- ADMIN_PASSWORD=changeme
+      #- ADMIN_TOKEN=your-token-here
+
+    volumes:
+      - ./rootfs/config/airports:/config
+      - ./rootfs/data/airports:/data
+      - ./rootfs/logs/airports:/logs
+
+    ports:
+      - "172.17.0.1:64180:80"
+
+    networks:
+      - airports
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Optional: PostgreSQL database
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: airports-postgres
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     POSTGRES_DB: airports
+  #     POSTGRES_USER: airports
+  #     POSTGRES_PASSWORD: changeme
+  #
+  #   volumes:
+  #     - ./rootfs/db/postgres:/var/lib/postgresql/data
+  #
+  #   networks:
+  #     - airports
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U airports"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # Optional: MySQL/MariaDB database
+  # mariadb:
+  #   image: mariadb:11-alpine
+  #   container_name: airports-mariadb
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     MYSQL_DATABASE: airports
+  #     MYSQL_USER: airports
+  #     MYSQL_PASSWORD: changeme
+  #     MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+  #
+  #   volumes:
+  #     - ./rootfs/db/mariadb:/var/lib/mysql
+  #
+  #   networks:
+  #     - airports
+  #
+  #   healthcheck:
+  #     test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # Optional: Redis cache
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: airports-redis
+  #   restart: unless-stopped
+  #
+  #   volumes:
+  #     - ./rootfs/db/redis:/data
+  #
+  #   networks:
+  #     - airports
+  #
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 3
+
+networks:
+  airports:
+    name: airports
+    external: false
+    driver: bridge
