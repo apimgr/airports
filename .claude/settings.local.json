@@ -1,6 +1,11 @@
 {
+  "model": "sonnet[1m]",
   "permissions": {
     "allow": [
+      "Read(**)",
+      "Write(**)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
       "Bash(mkdir:*)",
       "Bash(tree:*)",
       "Bash(go:*)",
@@ -26,58 +31,39 @@
       "Bash(ls:*)",
       "Bash(pwd:*)",
       "Bash(cd:*)",
-      "Read(//tmp/**)",
-      "Read(/root/Projects/github/apimgr/airports/**)",
-      "Write(/root/Projects/github/apimgr/airports/**)",
-      "Edit(/root/Projects/github/apimgr/airports/**)",
-      "Bash(for:*)",
-      "Bash(do echo \"=== $file ===\")",
       "Bash(head:*)",
-      "Bash(done)",
       "Bash(timeout:*)",
-      "Bash(./airports --version)",
-      "Bash(./binaries/airports:*)",
-      "Bash(while [ ! -f binaries/airports ])",
-      "Bash(do sleep:*)",
-      "Bash(VERSION=1.0.0 make build:*)",
-      "Read(//root/Projects/github/apimgr/**)",
+      "Bash(do:*)",
       "Bash(ln:*)",
       "Bash(test:*)",
-      "Bash(do echo -e \"\\n$project:\")",
       "Bash(do)",
-      "Bash(/root/Projects/github/apimgr/citylist/binaries/citylist:*)",
-      "Bash(/root/Projects/github/apimgr/zipcodes/binaries/zipcodes:*)",
-      "Bash(/root/Projects/github/apimgr/$project/binaries/$project:*)",
-      "Bash(./binaries/airports-clean:*)",
-      "Bash(do ls -d /root/Projects/github/apimgr/$project/releases)",
-      "Bash(./binaries/citylist:*)",
-      "Bash(./binaries/zipcodes:*)",
-      "Bash(./binaries/zipcodes-new:*)",
-      "WebSearch",
-      "WebFetch(domain:github.com)",
       "Bash(sort:*)",
-      "Bash(do grep -q \"^## $i\\.\" /root/Projects/github/apimgr/SPEC.md)",
       "Bash(paste:*)",
-      "Read(///**)",
-      "Bash(csplit:*)",
-      "Bash(do echo \"=== Section $i ===\")"
+      "Bash(*:*)"
     ],
     "deny": [
-      "Bash(rm:-rf /)",
-      "Bash(rm:-rf /*)",
-      "Bash(rm:-rf ~)",
-      "Bash(rm:-rf ~/)"
+      "Bash(git commit:*)"
     ],
     "ask": []
   },
-  "project": {
-    "name": "airports",
-    "description": "Airport location information API server with admin authentication",
-    "version": "1.0.0",
-    "repository": "github.com/apimgr/airports"
-  },
   "preferences": {
-    "auto_commit": false,
-    "commit_message_template": "{{type}}: {{message}}\n\n{{details}}"
+    "auto_commit": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write(**)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if grep -qi 'anthropic\\|claude' \"$file\" 2>/dev/null; then echo 'Error: File contains vendor names (Anthropic/Claude)' >&2; exit 1; fi"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "MAX_THINKING_TOKENS": "1000"
   }
 }
+
