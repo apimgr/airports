@@ -7,7 +7,13 @@ import (
 	"runtime"
 )
 
+const (
+	// Organization name for directory structure
+	OrgName = "apimgr"
+)
+
 // GetDefaultDirs returns OS-specific default directories based on privileges
+// Uses {org}/{name} structure: /etc/apimgr/airports/, ~/.config/apimgr/airports/
 func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 	// Check if running as root/admin
 	isRoot := false
@@ -20,23 +26,23 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 	}
 
 	if isRoot {
-		// Running with elevated privileges
+		// Running with elevated privileges - use system directories with org/name structure
 		switch runtime.GOOS {
 		case "windows":
 			programData := os.Getenv("ProgramData")
 			if programData == "" {
 				programData = "C:\\ProgramData"
 			}
-			configDir = filepath.Join(programData, projectName, "config")
-			dataDir = filepath.Join(programData, projectName, "data")
-			logsDir = filepath.Join(programData, projectName, "logs")
+			configDir = filepath.Join(programData, OrgName, projectName)
+			dataDir = filepath.Join(programData, OrgName, projectName, "data")
+			logsDir = filepath.Join(programData, OrgName, projectName, "logs")
 		default: // Linux, BSD, macOS
-			configDir = filepath.Join("/etc", projectName)
-			dataDir = filepath.Join("/var/lib", projectName)
-			logsDir = filepath.Join("/var/log", projectName)
+			configDir = filepath.Join("/etc", OrgName, projectName)
+			dataDir = filepath.Join("/var/lib", OrgName, projectName)
+			logsDir = filepath.Join("/var/log", OrgName, projectName)
 		}
 	} else {
-		// Running as regular user
+		// Running as regular user - use user directories with org/name structure
 		var homeDir string
 		currentUser, err := user.Current()
 		if err == nil {
@@ -58,15 +64,15 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 			if localAppData == "" {
 				localAppData = filepath.Join(homeDir, "AppData", "Local")
 			}
-			configDir = filepath.Join(appData, projectName)
-			dataDir = filepath.Join(localAppData, projectName)
-			logsDir = filepath.Join(localAppData, projectName, "logs")
+			configDir = filepath.Join(appData, OrgName, projectName)
+			dataDir = filepath.Join(localAppData, OrgName, projectName)
+			logsDir = filepath.Join(localAppData, OrgName, projectName, "logs")
 		case "darwin": // macOS
-			configDir = filepath.Join(homeDir, "Library", "Application Support", projectName)
-			dataDir = filepath.Join(homeDir, "Library", "Application Support", projectName, "data")
-			logsDir = filepath.Join(homeDir, "Library", "Logs", projectName)
+			configDir = filepath.Join(homeDir, ".config", OrgName, projectName)
+			dataDir = filepath.Join(homeDir, ".local", "share", OrgName, projectName)
+			logsDir = filepath.Join(homeDir, ".local", "share", OrgName, projectName, "logs")
 		default: // Linux, BSD
-			// Follow XDG Base Directory specification
+			// Follow XDG Base Directory specification with org/name structure
 			xdgConfig := os.Getenv("XDG_CONFIG_HOME")
 			if xdgConfig == "" {
 				xdgConfig = filepath.Join(homeDir, ".config")
@@ -75,14 +81,10 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 			if xdgData == "" {
 				xdgData = filepath.Join(homeDir, ".local", "share")
 			}
-			xdgCache := os.Getenv("XDG_CACHE_HOME")
-			if xdgCache == "" {
-				xdgCache = filepath.Join(homeDir, ".cache")
-			}
 
-			configDir = filepath.Join(xdgConfig, projectName)
-			dataDir = filepath.Join(xdgData, projectName)
-			logsDir = filepath.Join(xdgCache, projectName, "logs")
+			configDir = filepath.Join(xdgConfig, OrgName, projectName)
+			dataDir = filepath.Join(xdgData, OrgName, projectName)
+			logsDir = filepath.Join(xdgData, OrgName, projectName, "logs")
 		}
 	}
 
@@ -106,4 +108,20 @@ func EnsureDirs(configDir, dataDir, logsDir string) error {
 		return err
 	}
 	return nil
+}
+
+// IsRunningInContainer checks if running inside a container (tini as PID 1)
+func IsRunningInContainer() bool {
+	// Check if PID 1 is tini (container init system)
+	data, err := os.ReadFile("/proc/1/comm")
+	if err != nil {
+		return false
+	}
+	comm := string(data)
+	return comm == "tini\n" || comm == "tini"
+}
+
+// GetBackupDir returns the default backup directory
+func GetBackupDir(projectName string) string {
+	return filepath.Join("/mnt/Backups", OrgName, projectName)
 }

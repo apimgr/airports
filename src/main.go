@@ -1,21 +1,29 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/apimgr/airports/src/airports"
-	"github.com/apimgr/airports/src/database"
+	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
 	"github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/scheduler"
@@ -30,58 +38,88 @@ var (
 	Version   = "dev"
 	Commit    = "unknown"
 	BuildDate = "unknown"
+
+	// Project info
+	ProjectName = "airports"
+	ProjectOrg  = "apimgr"
 )
 
 func main() {
 	// Command line flags
 	portFlag := flag.String("port", "", "HTTP port")
+	addressFlag := flag.String("address", "", "Listen address")
+	configDirFlag := flag.String("config", "", "Configuration directory")
+	dataDirFlag := flag.String("data", "", "Data directory")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	showStatus := flag.Bool("status", false, "Show server status and exit")
-	devMode := flag.Bool("dev", false, "Run in development mode")
 	showHelp := flag.Bool("help", false, "Show help message")
+
+	// Service commands
+	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
+
+	// Maintenance commands
+	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update")
 
 	flag.Parse()
 
-	// Port priority: Flag > ENV > Default (8080)
-	port := *portFlag
-	if port == "" {
-		port = getEnv("PORT", "8080")
-	}
-
-	// Handle flags
+	// Handle help (can run without privileges)
 	if *showHelp {
 		printHelp()
 		return
 	}
 
+	// Handle version (can run without privileges)
 	if *showVersion {
-		fmt.Println(Version)
+		fmt.Printf("%s\n", Version)
 		return
 	}
 
+	// Handle status (can run without privileges)
 	if *showStatus {
-		// TODO: Implement status check
-		fmt.Println("✅ Server: Not running")
-		os.Exit(1)
+		exitCode := checkStatus()
+		os.Exit(exitCode)
+	}
+
+	// Handle service commands
+	if *serviceCmd != "" {
+		if err := handleServiceCommand(*serviceCmd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle maintenance commands
+	if *maintenanceCmd != "" {
+		// Get optional file location from remaining args
+		var fileLocation string
+		if flag.NArg() > 0 {
+			fileLocation = flag.Arg(0)
+		}
+		if err := handleMaintenanceCommand(*maintenanceCmd, fileLocation); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Start server
-	if err := run(port, *devMode); err != nil {
+	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(port string, devMode bool) error {
-	log.Printf("Starting airports API server v%s", Version)
+func run(portFlag, addressFlag, configDirFlag, dataDirFlag string) error {
+	log.Printf("Starting %s API server v%s", ProjectName, Version)
 	log.Printf("Commit: %s, Built: %s", Commit, BuildDate)
 
 	// Get OS-specific default directories
-	defaultConfigDir, defaultDataDir, defaultLogsDir := paths.GetDefaultDirs("airports")
+	defaultConfigDir, defaultDataDir, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
 
-	// Allow overrides via environment variables
-	configDir := getEnv("CONFIG_DIR", defaultConfigDir)
-	dataDir := getEnv("DATA_DIR", defaultDataDir)
-	logsDir := getEnv("LOGS_DIR", defaultLogsDir)
+	// Allow overrides via flags or environment variables
+	configDir := firstNonEmpty(configDirFlag, os.Getenv("CONFIG_DIR"), defaultConfigDir)
+	dataDir := firstNonEmpty(dataDirFlag, os.Getenv("DATA_DIR"), defaultDataDir)
+	logsDir := firstNonEmpty(os.Getenv("LOGS_DIR"), defaultLogsDir)
 
 	// Ensure directories exist
 	if err := paths.EnsureDirs(configDir, dataDir, logsDir); err != nil {
@@ -92,97 +130,36 @@ func run(port string, devMode bool) error {
 	log.Printf("Data directory: %s", dataDir)
 	log.Printf("Logs directory: %s", logsDir)
 
-	// Initialize database
-	log.Println("Initializing database...")
+	// Load configuration from YAML file (.yml per BASE.md)
+	configPath := filepath.Join(configDir, "server.yml")
+	log.Printf("Loading configuration from: %s", configPath)
 
-	var dbConfig database.Config
-	var err error
-
-	// Check for connection string first
-	connStr := getEnv("DATABASE_URL", "")
-	if connStr != "" {
-		dbConfig, err = database.ParseConnectionString(connStr)
-		if err != nil {
-			return fmt.Errorf("failed to parse DATABASE_URL: %w", err)
-		}
-		log.Printf("Using database connection string (type: %s)", dbConfig.Type)
-	} else {
-		// Use individual environment variables with data directory default
-		dbType := getEnv("DB_TYPE", "sqlite")
-		dbPath := getEnv("DB_PATH", fmt.Sprintf("%s/db/airports.db", dataDir))
-
-		// Ensure db directory exists
-		dbDir := fmt.Sprintf("%s/db", dataDir)
-		if err := paths.EnsureDir(dbDir); err != nil {
-			return fmt.Errorf("failed to create database directory: %w", err)
-		}
-
-		dbConfig = database.Config{
-			Type: dbType,
-			Path: dbPath,
-		}
-	}
-
-	if err := database.Initialize(dbConfig); err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer database.Close()
-	log.Println("Database initialized successfully")
-
-	// Initialize admin authentication
-	log.Println("Initializing admin authentication...")
-	adminUser := getEnv("ADMIN_USER", "")
-	adminPass := getEnv("ADMIN_PASSWORD", "")
-	adminToken := getEnv("ADMIN_TOKEN", "")
-
-	creds, err := database.InitializeAdminAuth(adminUser, adminPass, adminToken)
+	cfg, err := config.Load(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to initialize admin auth: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	log.Println("Admin authentication initialized")
+	log.Println("Configuration loaded successfully")
 
-	// Port resolution priority: Flag > DB > ENV (first run only) > Random
+	// Determine port: Flag > Config > ENV > Random
+	port := firstNonEmpty(portFlag, cfg.Server.Port, os.Getenv("PORT"))
 	if port == "" {
-		// No flag provided, check database
-		if storedPort := database.GetSettingValue("server.http_port", ""); storedPort != "" {
-			port = storedPort
-			log.Printf("Using port from database: %s", port)
-		} else {
-			// No port in DB, check ENV (first run only)
-			envPort := getEnv("PORT", "")
-			if envPort != "" {
-				port = envPort
-				log.Printf("Using port from environment: %s", port)
-			} else {
-				// No ENV, find random unused port
-				port, err = findRandomPort()
-				if err != nil {
-					return fmt.Errorf("failed to find available port: %w", err)
-				}
-				log.Printf("Selected random available port: %s", port)
-			}
-			// Save to database for persistence
-			if err := database.SetSetting("server.http_port", port, "number", "server", "HTTP server port"); err != nil {
-				log.Printf("Warning: Failed to save port to database: %v", err)
-			} else {
-				log.Printf("Port %s saved to database for future use", port)
-			}
+		port, err = findRandomPort()
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %w", err)
 		}
-	} else {
-		log.Printf("Using port from command line flag: %s", port)
+		log.Printf("Selected random available port: %s", port)
+		// Save to config for persistence
+		if err := config.SetPort(port); err != nil {
+			log.Printf("Warning: Failed to save port to config: %v", err)
+		}
 	}
 
-	// Save credentials to file if this is first initialization (after port is determined)
-	if creds.Token != "" {
-		if err := database.SaveCredentialsToFile(creds, configDir, port); err != nil {
-			log.Printf("Warning: Failed to save credentials file: %v", err)
-		} else {
-			log.Printf("⚠️  ADMIN CREDENTIALS SAVED TO: %s/admin_credentials", configDir)
-			log.Printf("⚠️  Username: %s", creds.Username)
-			log.Printf("⚠️  API Token: %s", creds.Token)
-			log.Printf("⚠️  Access URL: %s", getAccessibleURL(port))
-			log.Printf("⚠️  Save these credentials securely! They will not be shown again.")
-		}
+	// Determine listen address
+	address := firstNonEmpty(addressFlag, cfg.Server.Address, os.Getenv("ADDRESS"), "0.0.0.0")
+
+	// Check if running in container
+	if paths.IsRunningInContainer() {
+		log.Println("Running in container environment")
 	}
 
 	// Load airport data
@@ -194,22 +171,34 @@ func run(port string, devMode bool) error {
 	stats := airportSvc.Stats()
 	log.Printf("Loaded %d airports from %d countries", stats["total_airports"], stats["countries"])
 
-	// Load GeoIP data
+	// Load GeoIP data (optional - continue without if fails)
 	log.Println("Loading GeoIP databases...")
 	geoipSvc, err := geoip.NewService(configDir)
 	if err != nil {
-		return fmt.Errorf("failed to load GeoIP: %w", err)
+		log.Printf("Warning: GeoIP initialization failed: %v", err)
+		log.Println("GeoIP features will be unavailable")
+		geoipSvc = nil
+	} else {
+		defer geoipSvc.Close()
+		log.Println("GeoIP databases loaded successfully")
 	}
-	defer geoipSvc.Close()
-	log.Println("GeoIP databases loaded successfully")
 
 	// Initialize scheduler
 	sched := scheduler.New()
 
-	// Add GeoIP weekly update task (Sunday at 3:00 AM)
-	sched.AddTask("geoip-update", "0 3 * * 0", func() error {
-		return geoipSvc.UpdateDatabases()
-	})
+	// Add GeoIP update task based on config (only if GeoIP loaded successfully)
+	if geoipSvc != nil && cfg.Server.Schedule.Enabled {
+		schedule := "0 3 * * 0" // Default: Sunday at 3:00 AM
+		switch cfg.Server.Schedule.GeoIPUpdate {
+		case "daily":
+			schedule = "0 3 * * *"
+		case "weekly":
+			schedule = "0 3 * * 0"
+		}
+		sched.AddTask("geoip-update", schedule, func() error {
+			return geoipSvc.UpdateDatabases()
+		})
+	}
 
 	// Start scheduler
 	sched.Start()
@@ -217,9 +206,9 @@ func run(port string, devMode bool) error {
 	log.Println("Scheduler started")
 
 	// Create HTTP server
-	srv := server.New(airportSvc, geoipSvc, devMode)
+	srv := server.New(airportSvc, geoipSvc, cfg)
 	httpServer := &http.Server{
-		Addr:         ":" + port,
+		Addr:         address + ":" + port,
 		Handler:      srv.Router(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -228,7 +217,11 @@ func run(port string, devMode bool) error {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Server listening on %s", getAccessibleURL(port))
+		url := getAccessibleURL(port)
+		log.Printf("Server listening on %s", url)
+		fmt.Printf("\n  %s Airports API Server v%s\n", getEmoji("plane"), Version)
+		fmt.Printf("  %s %s\n\n", getEmoji("link"), url)
+
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
 		}
@@ -241,7 +234,7 @@ func run(port string, devMode bool) error {
 
 	log.Println("Shutting down server...")
 
-	// Graceful shutdown
+	// Graceful shutdown with 30 second timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -254,109 +247,518 @@ func run(port string, devMode bool) error {
 }
 
 func printHelp() {
-	fmt.Println("airports - Airport location information API server")
+	fmt.Printf("%s - Airport location information API server\n", ProjectName)
 	fmt.Println()
-	fmt.Println("Usage: airports [OPTIONS]")
+	fmt.Printf("Usage: %s [OPTIONS]\n", ProjectName)
 	fmt.Println()
 	fmt.Println("Options:")
-	fmt.Println("  --help            Show this help message")
-	fmt.Println("  --version         Show version information")
-	fmt.Println("  --status          Show server status and exit with code")
-	fmt.Println("  --port PORT       Set port (default: 8080)")
-	fmt.Println("  --address ADDR    Listen address (default: 0.0.0.0)")
-	fmt.Println("  --config DIR      Config directory (OS-specific default)")
-	fmt.Println("  --data DIR        Data directory (OS-specific default)")
-	fmt.Println("  --logs DIR        Logs directory (OS-specific default)")
-	fmt.Println("  --dev             Run in development mode")
+	fmt.Println("  --help                Show this help message")
+	fmt.Println("  --version             Show version information")
+	fmt.Println("  --status              Show server status and exit with code")
+	fmt.Println("  --port PORT           Set port (default: random 64xxx)")
+	fmt.Println("  --address ADDR        Listen address (default: 0.0.0.0)")
+	fmt.Println("  --config DIR          Configuration directory")
+	fmt.Println("  --data DIR            Data directory")
+	fmt.Println()
+	fmt.Println("Service Commands:")
+	fmt.Println("  --service start       Start the service")
+	fmt.Println("  --service stop        Stop the service")
+	fmt.Println("  --service restart     Restart the service")
+	fmt.Println("  --service reload      Reload configuration")
+	fmt.Println("  --service status      Show service status")
+	fmt.Println("  --service --install   Install as system service")
+	fmt.Println("  --service --uninstall Remove system service")
+	fmt.Println("  --service --disable   Disable system service")
+	fmt.Println("  --service --help      Show service help")
+	fmt.Println()
+	fmt.Println("Maintenance Commands:")
+	fmt.Println("  --maintenance backup [file]   Backup config and data")
+	fmt.Println("  --maintenance restore [file]  Restore from backup")
+	fmt.Println("  --maintenance update          Check and install updates")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  CONFIG_DIR        Config directory path")
-	fmt.Println("  DATA_DIR          Data directory path")
-	fmt.Println("  LOGS_DIR          Logs directory path")
-	fmt.Println("  PORT              Server port")
-	fmt.Println("  ADDRESS           Listen address")
+	fmt.Println("  CONFIG_DIR            Configuration directory path")
+	fmt.Println("  DATA_DIR              Data directory path")
+	fmt.Println("  LOGS_DIR              Logs directory path")
+	fmt.Println("  PORT                  Server port")
+	fmt.Println("  ADDRESS               Listen address")
 	fmt.Println()
-	fmt.Println("  DATABASE_URL      Database connection string")
-	fmt.Println("                    Examples:")
-	fmt.Println("                      sqlite:/data/db/airports.db")
-	fmt.Println("                      mysql://user:pass@<host>:3306/dbname")
-	fmt.Println("                      postgres://user:pass@<host>:5432/dbname")
-	fmt.Println("  DB_TYPE           Database type (sqlite, mysql, postgres)")
-	fmt.Println("  DB_PATH           SQLite database file path (default: {DATA_DIR}/db/airports.db)")
-	fmt.Println()
-	fmt.Println("  ADMIN_USER        Admin username (default: administrator, first run only)")
-	fmt.Println("  ADMIN_PASSWORD    Admin password (default: random, first run only)")
-	fmt.Println("  ADMIN_TOKEN       Admin API token (default: random, first run only)")
+	fmt.Println("Configuration:")
+	fmt.Printf("  Root: /etc/%s/%s/server.yaml\n", ProjectOrg, ProjectName)
+	fmt.Printf("  User: ~/.config/%s/%s/server.yaml\n", ProjectOrg, ProjectName)
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  airports                          # Start with OS defaults")
-	fmt.Println("  airports --port 8080              # Start on port 8080")
-	fmt.Println("  airports --data /var/lib/airports # Use custom data directory")
-	fmt.Println("  airports --dev                    # Start in development mode")
-	fmt.Println()
-	fmt.Println("Admin Panel:")
-	fmt.Println("  Web UI:  http://<your-host>:<port>/admin")
-	fmt.Println("  API:     http://<your-host>:<port>/api/v1/admin")
-	fmt.Println()
-	fmt.Println("Actual URL will be shown when server starts.")
-	fmt.Println("Credentials are saved to {CONFIG_DIR}/admin_credentials on first run.")
+	fmt.Printf("  %s                          # Start with defaults\n", ProjectName)
+	fmt.Printf("  %s --port 8080              # Start on port 8080\n", ProjectName)
+	fmt.Printf("  %s --maintenance backup     # Create backup\n", ProjectName)
+	fmt.Printf("  %s --service --install      # Install as service\n", ProjectName)
 }
 
-// getEnv gets an environment variable with a default value
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func checkStatus() int {
+	// Try to connect to health endpoint
+	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
+	configPath := filepath.Join(configDir, "server.yaml")
+
+	cfg, err := config.Load(configPath)
+	if err != nil || cfg.Server.Port == "" {
+		fmt.Println("Status: Not configured")
+		return 1
 	}
-	return defaultValue
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/healthz", cfg.Server.Port))
+	if err != nil {
+		fmt.Printf("Status: Not running (port %s)\n", cfg.Server.Port)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var health map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&health)
+		fmt.Printf("Status: Running on port %s\n", cfg.Server.Port)
+		if data, ok := health["data"].(map[string]interface{}); ok {
+			if status, ok := data["status"].(string); ok {
+				fmt.Printf("Health: %s\n", status)
+			}
+		}
+		return 0
+	}
+
+	fmt.Printf("Status: Unhealthy (HTTP %d)\n", resp.StatusCode)
+	return 1
 }
 
-// findRandomPort finds an available port in the 64000-64999 range
+func handleServiceCommand(cmd string) error {
+	switch cmd {
+	case "start":
+		return serviceControl("start")
+	case "stop":
+		return serviceControl("stop")
+	case "restart":
+		return serviceControl("restart")
+	case "reload":
+		return serviceControl("reload")
+	case "status":
+		return serviceControl("status")
+	case "--install":
+		return installService()
+	case "--uninstall":
+		return uninstallService()
+	case "--disable":
+		return disableService()
+	case "--help":
+		printServiceHelp()
+		return nil
+	default:
+		return fmt.Errorf("unknown service command: %s", cmd)
+	}
+}
+
+func serviceControl(action string) error {
+	switch runtime.GOOS {
+	case "linux":
+		// Try systemctl first, then runit
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			cmd := exec.Command("systemctl", action, ProjectName)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+		if _, err := exec.LookPath("sv"); err == nil {
+			cmd := exec.Command("sv", action, ProjectName)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			return cmd.Run()
+		}
+		return fmt.Errorf("no supported service manager found (systemd or runit)")
+	case "darwin":
+		cmd := exec.Command("launchctl", action, fmt.Sprintf("com.%s.%s", ProjectOrg, ProjectName))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case "windows":
+		var scAction string
+		switch action {
+		case "start":
+			scAction = "start"
+		case "stop":
+			scAction = "stop"
+		case "restart":
+			// Windows doesn't have restart, do stop then start
+			exec.Command("sc", "stop", ProjectName).Run()
+			time.Sleep(2 * time.Second)
+			scAction = "start"
+		case "status":
+			scAction = "query"
+		default:
+			return fmt.Errorf("unsupported action for Windows: %s", action)
+		}
+		cmd := exec.Command("sc", scAction, ProjectName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+func installService() error {
+	fmt.Printf("Installing %s service...\n", ProjectName)
+	// This would be handled by the install scripts
+	fmt.Println("Please use the installation scripts in the scripts/ directory")
+	fmt.Printf("  Linux:   scripts/linux.sh\n")
+	fmt.Printf("  macOS:   scripts/macos.sh\n")
+	fmt.Printf("  Windows: scripts/windows.ps1\n")
+	return nil
+}
+
+func uninstallService() error {
+	fmt.Printf("Uninstalling %s service...\n", ProjectName)
+	switch runtime.GOOS {
+	case "linux":
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			exec.Command("systemctl", "stop", ProjectName).Run()
+			exec.Command("systemctl", "disable", ProjectName).Run()
+			os.Remove(fmt.Sprintf("/etc/systemd/system/%s.service", ProjectName))
+			exec.Command("systemctl", "daemon-reload").Run()
+			fmt.Println("Service uninstalled")
+			return nil
+		}
+	}
+	return fmt.Errorf("manual uninstallation required for this platform")
+}
+
+func disableService() error {
+	switch runtime.GOOS {
+	case "linux":
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			return exec.Command("systemctl", "disable", ProjectName).Run()
+		}
+	}
+	return fmt.Errorf("unsupported on this platform")
+}
+
+func printServiceHelp() {
+	fmt.Println("Service Commands:")
+	fmt.Println()
+	fmt.Println("  start       Start the service")
+	fmt.Println("  stop        Stop the service")
+	fmt.Println("  restart     Restart the service")
+	fmt.Println("  reload      Reload configuration")
+	fmt.Println("  status      Show service status")
+	fmt.Println("  --install   Install as system service")
+	fmt.Println("  --uninstall Remove system service")
+	fmt.Println("  --disable   Disable system service")
+	fmt.Println()
+	fmt.Println("Supported service managers:")
+	fmt.Println("  Linux:   systemd, runit")
+	fmt.Println("  macOS:   launchd")
+	fmt.Println("  Windows: Windows Service Manager")
+	fmt.Println("  BSD:     rc.d")
+}
+
+func handleMaintenanceCommand(cmd, fileLocation string) error {
+	switch cmd {
+	case "backup":
+		return createBackup(fileLocation)
+	case "restore":
+		return restoreBackup(fileLocation)
+	case "update":
+		return checkAndUpdate()
+	default:
+		return fmt.Errorf("unknown maintenance command: %s", cmd)
+	}
+}
+
+func createBackup(fileLocation string) error {
+	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
+
+	// Default backup location
+	if fileLocation == "" {
+		backupDir := paths.GetBackupDir(ProjectName)
+		if err := os.MkdirAll(backupDir, 0755); err != nil {
+			return fmt.Errorf("failed to create backup directory: %w", err)
+		}
+		timestamp := time.Now().Format("20060102150405")
+		fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s.tar.gz", timestamp))
+	}
+
+	fmt.Printf("Creating backup: %s\n", fileLocation)
+
+	// Create tar.gz archive
+	file, err := os.Create(fileLocation)
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	defer file.Close()
+
+	gzWriter := gzip.NewWriter(file)
+	defer gzWriter.Close()
+
+	tarWriter := tar.NewWriter(gzWriter)
+	defer tarWriter.Close()
+
+	// Add config directory
+	if err := addDirToTar(tarWriter, configDir, "config"); err != nil {
+		return fmt.Errorf("failed to backup config: %w", err)
+	}
+
+	// Add data directory
+	if err := addDirToTar(tarWriter, dataDir, "data"); err != nil {
+		return fmt.Errorf("failed to backup data: %w", err)
+	}
+
+	fmt.Printf("Backup created successfully: %s\n", fileLocation)
+	return nil
+}
+
+func addDirToTar(tw *tar.Writer, srcDir, prefix string) error {
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.Join(prefix, relPath)
+
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			_, err = io.Copy(tw, file)
+			return err
+		}
+		return nil
+	})
+}
+
+func restoreBackup(fileLocation string) error {
+	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
+
+	// If no file specified, find most recent backup
+	if fileLocation == "" {
+		backupDir := paths.GetBackupDir(ProjectName)
+		entries, err := os.ReadDir(backupDir)
+		if err != nil {
+			return fmt.Errorf("no backups found in %s", backupDir)
+		}
+
+		var latest string
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".tar.gz") {
+				if latest == "" || entry.Name() > latest {
+					latest = entry.Name()
+				}
+			}
+		}
+		if latest == "" {
+			return fmt.Errorf("no backup files found")
+		}
+		fileLocation = filepath.Join(backupDir, latest)
+	}
+
+	fmt.Printf("Restoring from: %s\n", fileLocation)
+
+	file, err := os.Open(fileLocation)
+	if err != nil {
+		return fmt.Errorf("failed to open backup file: %w", err)
+	}
+	defer file.Close()
+
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("failed to read backup: %w", err)
+	}
+	defer gzReader.Close()
+
+	tarReader := tar.NewReader(gzReader)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar: %w", err)
+		}
+
+		var destDir string
+		if strings.HasPrefix(header.Name, "config/") {
+			destDir = configDir
+			header.Name = strings.TrimPrefix(header.Name, "config/")
+		} else if strings.HasPrefix(header.Name, "data/") {
+			destDir = dataDir
+			header.Name = strings.TrimPrefix(header.Name, "data/")
+		} else {
+			continue
+		}
+
+		destPath := filepath.Join(destDir, header.Name)
+
+		if header.Typeflag == tar.TypeDir {
+			os.MkdirAll(destPath, 0755)
+		} else {
+			os.MkdirAll(filepath.Dir(destPath), 0755)
+			outFile, err := os.Create(destPath)
+			if err != nil {
+				return err
+			}
+			io.Copy(outFile, tarReader)
+			outFile.Close()
+		}
+	}
+
+	fmt.Println("Restore completed successfully")
+	return nil
+}
+
+func checkAndUpdate() error {
+	fmt.Println("Checking for updates...")
+
+	// Get latest release from GitHub
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to parse release info: %w", err)
+	}
+
+	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	if latestVersion == Version {
+		fmt.Printf("Already running latest version: %s\n", Version)
+		return nil
+	}
+
+	fmt.Printf("New version available: %s (current: %s)\n", latestVersion, Version)
+
+	// Find correct asset for this platform
+	assetName := fmt.Sprintf("%s-%s-%s", ProjectName, runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS == "windows" {
+		assetName += ".exe"
+	}
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == assetName {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no binary available for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	fmt.Printf("Downloading %s...\n", assetName)
+
+	// Download to temp file
+	tmpFile, err := os.CreateTemp("", ProjectName+"-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	dlResp, err := http.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("failed to download update: %w", err)
+	}
+	defer dlResp.Body.Close()
+
+	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
+		return fmt.Errorf("failed to save update: %w", err)
+	}
+	tmpFile.Close()
+
+	// Get current binary path
+	currentPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get current binary path: %w", err)
+	}
+
+	// Replace binary
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		return fmt.Errorf("failed to set permissions: %w", err)
+	}
+
+	if err := os.Rename(tmpFile.Name(), currentPath); err != nil {
+		return fmt.Errorf("failed to replace binary: %w", err)
+	}
+
+	fmt.Printf("Updated to version %s\n", latestVersion)
+	fmt.Println("Please restart the service to apply the update")
+	return nil
+}
+
+// Helper functions
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func findRandomPort() (string, error) {
 	rand.Seed(time.Now().UnixNano())
 
-	// Try up to 100 times to find an available port
 	for i := 0; i < 100; i++ {
-		port := 64000 + rand.Intn(1000) // 64000-64999
-
-		// Try to listen on the port
+		port := 64000 + rand.Intn(1000)
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err == nil {
-			// Port is available, close and return it
 			ln.Close()
 			return fmt.Sprintf("%d", port), nil
 		}
 	}
 
-	return "", fmt.Errorf("could not find available port in range 64000-64999 after 100 attempts")
+	return "", fmt.Errorf("could not find available port in range 64000-64999")
 }
 
-// getAccessibleURL returns the most relevant URL for accessing the server
-// Priority: FQDN > hostname > public IP > private IP
 func getAccessibleURL(port string) string {
-	// Try to get hostname
 	hostname, err := os.Hostname()
 	if err == nil && hostname != "" && hostname != "localhost" {
-		// Try to resolve hostname to see if it's a valid FQDN
 		if addrs, err := net.LookupHost(hostname); err == nil && len(addrs) > 0 {
 			return fmt.Sprintf("http://%s:%s", hostname, port)
 		}
 	}
 
-	// Try to get outbound IP (most likely accessible IP)
 	if ip := getOutboundIP(); ip != "" {
 		return fmt.Sprintf("http://%s:%s", ip, port)
 	}
 
-	// Fallback to hostname if we have one
 	if hostname != "" && hostname != "localhost" {
 		return fmt.Sprintf("http://%s:%s", hostname, port)
 	}
 
-	// Last resort: use a generic message
 	return fmt.Sprintf("http://<your-host>:%s", port)
 }
 
-// getOutboundIP gets the preferred outbound IP of this machine
 func getOutboundIP() string {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
@@ -366,4 +768,25 @@ func getOutboundIP() string {
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String()
+}
+
+func getEmoji(name string) string {
+	emojis := map[string]string{
+		"plane":    "✈️",
+		"link":     "🔗",
+		"check":    "✓",
+		"cross":    "✗",
+		"warning":  "⚠️",
+		"info":     "ℹ️",
+		"success":  "✅",
+		"error":    "❌",
+		"folder":   "📁",
+		"file":     "📄",
+		"gear":     "⚙️",
+		"rocket":   "🚀",
+	}
+	if e, ok := emojis[name]; ok {
+		return e
+	}
+	return ""
 }

@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     ./src
 
 # ============================================
-# Runtime stage - Alpine with minimal tools
+# Runtime stage - Alpine with tini
 # ============================================
 FROM alpine:latest
 
@@ -38,12 +38,12 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
-# Install runtime dependencies (curl, bash)
+# Install runtime dependencies (tini as PID 1)
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
+    tini \
     curl \
-    bash \
     && rm -rf /var/cache/apk/*
 
 # Copy binary to /usr/local/bin
@@ -52,16 +52,15 @@ COPY --from=builder /build/airports /usr/local/bin/airports
 # Make binary executable
 RUN chmod +x /usr/local/bin/airports
 
-# Environment variables
+# Environment variables - uses /etc/apimgr/airports/ path structure
 ENV PORT=80 \
     CONFIG_DIR=/config \
     DATA_DIR=/data \
     LOGS_DIR=/logs \
-    ADDRESS=0.0.0.0 \
-    DB_PATH=/data/db/airports.db
+    ADDRESS=0.0.0.0
 
-# Create directories
-RUN mkdir -p /config /data /data/db /logs && \
+# Create directories with apimgr organization structure
+RUN mkdir -p /config /data /logs && \
     chown -R 65534:65534 /config /data /logs
 
 # Metadata labels (OCI standard)
@@ -91,6 +90,8 @@ USER 65534:65534
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["/usr/local/bin/airports", "--status"]
 
-# Run
-ENTRYPOINT ["/usr/local/bin/airports"]
-CMD ["--port", "80"]
+# Use tini as init system (proper PID 1 signal handling)
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Run airports server
+CMD ["/usr/local/bin/airports", "--port", "80"]
