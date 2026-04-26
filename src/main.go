@@ -25,6 +25,7 @@ import (
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
+	"github.com/apimgr/airports/src/mode"
 	"github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/scheduler"
 	"github.com/apimgr/airports/src/server"
@@ -50,6 +51,7 @@ func main() {
 	addressFlag := flag.String("address", "", "Listen address")
 	configDirFlag := flag.String("config", "", "Configuration directory")
 	dataDirFlag := flag.String("data", "", "Data directory")
+	modeFlag := flag.String("mode", "", "Application mode: production, development")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	showStatus := flag.Bool("status", false, "Show server status and exit")
 	showHelp := flag.Bool("help", false, "Show help message")
@@ -58,7 +60,10 @@ func main() {
 	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
 
 	// Maintenance commands
-	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update")
+	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup")
+
+	// Update command
+	updateCmd := flag.String("update", "", "Update commands: check, yes, branch")
 
 	flag.Parse()
 
@@ -78,6 +83,29 @@ func main() {
 	if *showStatus {
 		exitCode := checkStatus()
 		os.Exit(exitCode)
+	}
+
+	// Handle mode flag (sets mode and exits)
+	if *modeFlag != "" {
+		if err := setApplicationMode(*modeFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle update command
+	if *updateCmd != "" {
+		// Get optional branch from remaining args
+		var branch string
+		if flag.NArg() > 0 {
+			branch = flag.Arg(0)
+		}
+		if err := handleUpdateCommand(*updateCmd, branch); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Handle service commands
@@ -255,10 +283,16 @@ func printHelp() {
 	fmt.Println("  --help                Show this help message")
 	fmt.Println("  --version             Show version information")
 	fmt.Println("  --status              Show server status and exit with code")
+	fmt.Println("  --mode MODE           Set application mode (production, development)")
 	fmt.Println("  --port PORT           Set port (default: random 64xxx)")
 	fmt.Println("  --address ADDR        Listen address (default: 0.0.0.0)")
 	fmt.Println("  --config DIR          Configuration directory")
 	fmt.Println("  --data DIR            Data directory")
+	fmt.Println()
+	fmt.Println("Update Commands:")
+	fmt.Println("  --update check        Check for updates")
+	fmt.Println("  --update yes          Install available updates")
+	fmt.Println("  --update branch NAME  Set update branch (stable, beta, daily)")
 	fmt.Println()
 	fmt.Println("Service Commands:")
 	fmt.Println("  --service start       Start the service")
@@ -275,6 +309,8 @@ func printHelp() {
 	fmt.Println("  --maintenance backup [file]   Backup config and data")
 	fmt.Println("  --maintenance restore [file]  Restore from backup")
 	fmt.Println("  --maintenance update          Check and install updates")
+	fmt.Println("  --maintenance mode [MODE]     Show or set application mode")
+	fmt.Println("  --maintenance setup           Run initial setup wizard")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  CONFIG_DIR            Configuration directory path")
@@ -282,10 +318,11 @@ func printHelp() {
 	fmt.Println("  LOGS_DIR              Logs directory path")
 	fmt.Println("  PORT                  Server port")
 	fmt.Println("  ADDRESS               Listen address")
+	fmt.Println("  MODE                  Application mode (production, development)")
 	fmt.Println()
 	fmt.Println("Configuration:")
-	fmt.Printf("  Root: /etc/%s/%s/server.yaml\n", ProjectOrg, ProjectName)
-	fmt.Printf("  User: ~/.config/%s/%s/server.yaml\n", ProjectOrg, ProjectName)
+	fmt.Printf("  Root: /etc/%s/%s/server.yml\n", ProjectOrg, ProjectName)
+	fmt.Printf("  User: ~/.config/%s/%s/server.yml\n", ProjectOrg, ProjectName)
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Printf("  %s                          # Start with defaults\n", ProjectName)
@@ -465,6 +502,14 @@ func handleMaintenanceCommand(cmd, fileLocation string) error {
 		return restoreBackup(fileLocation)
 	case "update":
 		return checkAndUpdate()
+	case "mode":
+		// fileLocation is actually the mode value (production/development)
+		if fileLocation == "" {
+			return showCurrentMode()
+		}
+		return setApplicationMode(fileLocation)
+	case "setup":
+		return runInitialSetup()
 	default:
 		return fmt.Errorf("unknown maintenance command: %s", cmd)
 	}
@@ -789,4 +834,172 @@ func getEmoji(name string) string {
 		return e
 	}
 	return ""
+}
+
+// setApplicationMode sets the application mode (production/development)
+func setApplicationMode(modeStr string) error {
+	// Validate the mode
+	parsedMode, err := mode.ParseMode(modeStr)
+	if err != nil {
+		return err
+	}
+
+	// Get config path
+	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
+	configPath := filepath.Join(configDir, "server.yml")
+
+	// Load existing config
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Update mode
+	cfg.Server.Mode = string(parsedMode)
+
+	// Save config
+	if err := config.Save(configPath, cfg); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Also set in runtime
+	if err := mode.Set(modeStr); err != nil {
+		return err
+	}
+
+	fmt.Printf("Application mode set to: %s\n", parsedMode)
+	fmt.Println("Restart the service for the change to take full effect")
+	return nil
+}
+
+// showCurrentMode displays the current application mode
+func showCurrentMode() error {
+	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
+	configPath := filepath.Join(configDir, "server.yml")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	currentMode := cfg.Server.Mode
+	if currentMode == "" {
+		currentMode = "production"
+	}
+
+	fmt.Printf("Current mode: %s\n", currentMode)
+	return nil
+}
+
+// runInitialSetup runs the initial setup wizard
+func runInitialSetup() error {
+	fmt.Printf("Running %s initial setup...\n\n", ProjectName)
+
+	// Get config path
+	configDir, dataDir, logsDir := paths.GetDefaultDirs(ProjectName)
+
+	// Create directories
+	fmt.Println("Creating directories...")
+	if err := paths.EnsureDirs(configDir, dataDir, logsDir); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+	fmt.Printf("  Config: %s\n", configDir)
+	fmt.Printf("  Data:   %s\n", dataDir)
+	fmt.Printf("  Logs:   %s\n", logsDir)
+
+	// Create default config
+	configPath := filepath.Join(configDir, "server.yml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		fmt.Println("\nCreating default configuration...")
+		cfg, err := config.Load(configPath) // This creates default if not exists
+		if err != nil {
+			return fmt.Errorf("failed to create config: %w", err)
+		}
+		fmt.Printf("  Config file: %s\n", configPath)
+		fmt.Printf("  Default port: %s\n", cfg.Server.Port)
+	} else {
+		fmt.Printf("\nConfiguration already exists: %s\n", configPath)
+	}
+
+	fmt.Println("\nSetup complete!")
+	fmt.Printf("Start the server: %s\n", ProjectName)
+	fmt.Printf("Or install as service: %s --service --install\n", ProjectName)
+	return nil
+}
+
+// handleUpdateCommand handles the --update command with subcommands
+func handleUpdateCommand(cmd, branch string) error {
+	switch cmd {
+	case "check":
+		return checkForUpdate()
+	case "yes":
+		return checkAndUpdate()
+	case "branch":
+		if branch == "" {
+			return fmt.Errorf("branch name required: stable, beta, or daily")
+		}
+		return setUpdateBranch(branch)
+	default:
+		return fmt.Errorf("unknown update command: %s (expected: check, yes, branch)", cmd)
+	}
+}
+
+// checkForUpdate checks for updates without installing
+func checkForUpdate() error {
+	fmt.Println("Checking for updates...")
+
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName     string `json:"tag_name"`
+		PublishedAt string `json:"published_at"`
+		Body        string `json:"body"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to parse release info: %w", err)
+	}
+
+	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	if latestVersion == Version {
+		fmt.Printf("You are running the latest version: %s\n", Version)
+		return nil
+	}
+
+	fmt.Printf("New version available: %s (current: %s)\n", latestVersion, Version)
+	fmt.Printf("Published: %s\n", release.PublishedAt)
+	if release.Body != "" {
+		fmt.Printf("\nRelease notes:\n%s\n", release.Body)
+	}
+	fmt.Printf("\nRun '%s --update yes' to install the update\n", ProjectName)
+	return nil
+}
+
+// setUpdateBranch sets the update branch preference
+func setUpdateBranch(branch string) error {
+	validBranches := map[string]bool{"stable": true, "beta": true, "daily": true}
+	if !validBranches[branch] {
+		return fmt.Errorf("invalid branch: %s (expected: stable, beta, or daily)", branch)
+	}
+
+	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
+	configPath := filepath.Join(configDir, "server.yml")
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	cfg.Server.UpdateBranch = branch
+
+	if err := config.Save(configPath, cfg); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Printf("Update branch set to: %s\n", branch)
+	return nil
 }

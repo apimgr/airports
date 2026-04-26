@@ -1,40 +1,27 @@
-# GitHub Actions - Docker Release
-# Builds and pushes multi-arch Docker images to ghcr.io
-# Triggers: push to main, monthly schedule
-
-name: Docker Release
+name: Docker Build
 
 on:
   push:
-    branches:
-      - main
-  schedule:
-    # Run monthly on the 1st at 3:00 AM UTC
-    - cron: '0 3 1 * *'
+    branches: ['**']  # ALL branches
+    tags:
+      - 'v*'
+      - '*.*.*'
   workflow_dispatch:
 
 env:
+  PROJECT: airports
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
-    name: Build and Push Docker Images
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Read version from release.txt
-        id: version
-        run: |
-          VERSION=$(cat release.txt 2>/dev/null || echo "0.0.1")
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building Docker images for version: ${VERSION}"
+      - uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -42,52 +29,65 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.VERSION }}
-            type=sha,prefix={{branch}}-
-          labels: |
-            org.opencontainers.image.title=Airports API Server
-            org.opencontainers.image.description=Global airport location information API with GeoIP integration
-            org.opencontainers.image.vendor=apimgr
-            org.opencontainers.image.licenses=MIT
+      - name: Set build info
+        run: |
+          echo "GIT_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "YYMM=$(date +"%y%m")" >> $GITHUB_ENV
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "VERSION=${VERSION#v}" >> $GITHUB_ENV  # Strip 'v' prefix
+            echo "IS_TAG=true" >> $GITHUB_ENV
+          else
+            echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+            echo "IS_TAG=false" >> $GITHUB_ENV
+          fi
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Build and push Docker images
+      - name: Determine tags
+        id: tags
+        run: |
+          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.GIT_COMMIT }}"
+
+          if [[ "${{ env.IS_TAG }}" == "true" ]]; then
+            # Release tag - version, latest, YYMM
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
+          else
+            # All pushes get devel tag
+            TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
+
+            # Beta branch also gets beta tag
+            if [[ "${{ github.ref }}" == refs/heads/beta ]]; then
+              TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
+            fi
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
-            VERSION=${{ steps.version.outputs.VERSION }}
-            COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Image digest
-        run: |
-          echo "Images pushed:"
-          echo "  - ghcr.io/${{ github.repository }}:latest"
-          echo "  - ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}"
-          echo "  - ghcr.io/${{ github.repository }}:${{ github.ref_name }}-${{ github.sha }}"
-
-      - name: Verify images
-        run: |
-          echo "Verifying images were pushed successfully..."
-          docker manifest inspect ghcr.io/${{ github.repository }}:latest
-          docker manifest inspect ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+            VERSION="${{ env.VERSION }}"
+            BUILD_DATE="${{ env.BUILD_DATE }}"
+            COMMIT_ID="${{ env.COMMIT_ID }}"
+          labels: |
+            org.opencontainers.image.title="${{ env.PROJECT }}"
+            org.opencontainers.image.version="${{ env.VERSION }}"
+            org.opencontainers.image.created="${{ env.BUILD_DATE }}"
+            org.opencontainers.image.revision="${{ env.COMMIT_ID }}"
+            org.opencontainers.image.source="${{ github.server_url }}/${{ github.repository }}"

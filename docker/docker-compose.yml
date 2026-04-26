@@ -1,0 +1,25 @@
+name: airports
+
+services:
+  airports:
+    image: ghcr.io/apimgr/airports:latest
+    container_name: airports
+    restart: unless-stopped
+    environment:
+      # Hardcoded with sane defaults - NO .env files
+      - MODE=production
+      - TZ=America/New_York
+      # ENABLE_TOR=true is default, no need to specify
+    ports:
+      # Production: bound to Docker bridge only
+      - "172.17.0.1:64580:80"
+    volumes:
+      - ./rootfs/config/airports:/config
+      - ./rootfs/data/airports:/data
+    networks:
+      - airports
+
+networks:
+  airports:
+    name: airports
+    external: false

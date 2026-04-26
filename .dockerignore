@@ -1,0 +1,24 @@
+# Git
+.git/
+.gitignore
+
+# GitHub/Gitea workflows
+.github/
+.gitea/
+
+# Entire docker directory
+docker/
+
+# Runtime volume data (NEVER include in image)
+rootfs/
+
+# Build output
+binaries/
+releases/
+
+# IDE
+.idea/
+.vscode/
+
+# Docs
+*.md

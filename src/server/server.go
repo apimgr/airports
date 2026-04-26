@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/airports/src/admin"
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
@@ -16,12 +17,20 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// Build info (set from main)
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
+)
+
 // Server holds application dependencies
 type Server struct {
-	airports *airports.Service
-	geoip    *geoip.Service
-	config   *config.Config
-	router   *chi.Mux
+	airports     *airports.Service
+	geoip        *geoip.Service
+	config       *config.Config
+	router       *chi.Mux
+	adminHandler *admin.Handler
 }
 
 // Response is the standard API response format
@@ -46,10 +55,23 @@ func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Conf
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
+	// Create admin handler
+	adminHandler := admin.NewHandler(
+		cfg.Server.Admin.Username,
+		cfg.Server.Admin.Password,
+		cfg.Server.Admin.APIToken,
+		cfg.Server.Session.Timeout,
+		cfg.Server.SSL.Enabled,
+		Version,
+		Commit,
+		BuildDate,
+	)
+
 	s := &Server{
-		airports: airportSvc,
-		geoip:    geoipSvc,
-		config:   cfg,
+		airports:     airportSvc,
+		geoip:        geoipSvc,
+		config:       cfg,
+		adminHandler: adminHandler,
 	}
 
 	s.setupRouter()
@@ -173,6 +195,9 @@ func (s *Server) setupRouter() {
 	if s.config.Server.Metrics.Enabled {
 		r.Get(s.config.Server.Metrics.Endpoint, s.handleMetrics)
 	}
+
+	// Admin routes (session auth for web, bearer token for API)
+	s.adminHandler.RegisterRoutes(r)
 
 	s.router = r
 }

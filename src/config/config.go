@@ -23,11 +23,27 @@ type ServerConfig struct {
 	Port          string          `yaml:"port"`           // Single port (HTTP) or dual (8090,64453)
 	FQDN          string          `yaml:"fqdn"`           // Fully qualified domain name
 	Address       string          `yaml:"address"`        // Listen address
+	Mode          string          `yaml:"mode"`           // Application mode: production or development
+	UpdateBranch  string          `yaml:"update_branch"`  // Update branch: stable, beta, or daily
+	Admin         AdminConfig     `yaml:"admin"`          // Admin panel configuration
+	Session       SessionConfig   `yaml:"session"`        // Session settings
 	Schedule      ScheduleConfig  `yaml:"schedule"`       // Task scheduling
 	SSL           SSLConfig       `yaml:"ssl"`            // SSL/TLS configuration
 	GeoIP         GeoIPConfig     `yaml:"geoip"`          // GeoIP settings
 	Metrics       MetricsConfig   `yaml:"metrics"`        // Metrics/observability
 	Logging       LoggingConfig   `yaml:"logging"`        // Logging settings
+}
+
+// AdminConfig contains admin panel settings
+type AdminConfig struct {
+	Username string `yaml:"username"` // Admin username
+	Password string `yaml:"password"` // Admin password (hashed)
+	APIToken string `yaml:"api_token"` // Static API token
+}
+
+// SessionConfig contains session settings
+type SessionConfig struct {
+	Timeout int `yaml:"timeout"` // Session timeout in seconds
 }
 
 // ScheduleConfig contains scheduler settings
@@ -114,9 +130,19 @@ var (
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:    "",  // Will be set to random 64xxx port
-			FQDN:    "",
-			Address: "0.0.0.0",
+			Port:         "",  // Will be set to random 64xxx port
+			FQDN:         "",
+			Address:      "0.0.0.0",
+			Mode:         "production",
+			UpdateBranch: "stable",
+			Admin: AdminConfig{
+				Username: "admin",
+				Password: "", // Set on first run
+				APIToken: "", // Set on first run
+			},
+			Session: SessionConfig{
+				Timeout: 3600, // 1 hour
+			},
 			Schedule: ScheduleConfig{
 				Enabled:       true,
 				CertRenewal:   "daily",
@@ -242,8 +268,22 @@ func Get() *Config {
 	return current
 }
 
-// Save saves the current configuration to file
-func Save() error {
+// Save saves the specified configuration to the specified path
+func Save(path string, cfg *Config) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if cfg == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+	current = cfg
+	if path != "" {
+		configPath = path
+	}
+	return saveConfig(cfg, path)
+}
+
+// SaveCurrent saves the current configuration to file
+func SaveCurrent() error {
 	mu.Lock()
 	defer mu.Unlock()
 	if current == nil || configPath == "" {
@@ -290,6 +330,8 @@ server:
   port: "%s"                    # Single port (HTTP) or dual port (8090,64453 - second is HTTPS)
   fqdn: "%s"                    # Fully qualified domain name
   address: "%s"                 # Listen address (0.0.0.0 for all interfaces)
+  mode: "%s"                    # Application mode: production or development
+  update_branch: "%s"           # Update branch: stable, beta, or daily
 
   schedule:                     # Task scheduling
     enabled: %t
@@ -344,6 +386,8 @@ web-security:
 		cfg.Server.Port,
 		cfg.Server.FQDN,
 		cfg.Server.Address,
+		cfg.Server.Mode,
+		cfg.Server.UpdateBranch,
 		cfg.Server.Schedule.Enabled,
 		cfg.Server.Schedule.CertRenewal,
 		cfg.Server.Schedule.Notifications,
