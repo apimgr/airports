@@ -20,9 +20,9 @@ services:
       - DEV=true
 
     volumes:
-      - /tmp/airports/rootfs/config/airports:/config
-      - /tmp/airports/rootfs/data/airports:/data
-      - /tmp/airports/rootfs/logs/airports:/logs
+      - /tmp/airports/volumes/config/airports:/config
+      - /tmp/airports/volumes/data/airports:/data
+      - /tmp/airports/volumes/logs/airports:/logs
 
     ports:
       - "64181:80"
@@ -49,7 +49,7 @@ services:
   #     POSTGRES_PASSWORD: testpass
   #
   #   volumes:
-  #     - /tmp/airports/rootfs/db/postgres:/var/lib/postgresql/data
+  #     - /tmp/airports/volumes/db/postgres:/var/lib/postgresql/data
   #
   #   networks:
   #     - airports

@@ -1,5 +1,5 @@
 # Production Docker Compose Configuration
-# Uses ./rootfs for persistent storage
+# Uses ./volumes for persistent storage
 # External port: 172.17.0.1:64180:80 (Docker bridge network)
 
 services:
@@ -21,9 +21,9 @@ services:
       #- ADMIN_TOKEN=your-token-here
 
     volumes:
-      - ./rootfs/config/airports:/config
-      - ./rootfs/data/airports:/data
-      - ./rootfs/logs/airports:/logs
+      - ./volumes/config/airports:/config
+      - ./volumes/data/airports:/data
+      - ./volumes/logs/airports:/logs
 
     ports:
       - "172.17.0.1:64180:80"
@@ -50,7 +50,7 @@ services:
   #     POSTGRES_PASSWORD: changeme
   #
   #   volumes:
-  #     - ./rootfs/db/postgres:/var/lib/postgresql/data
+  #     - ./volumes/db/postgres:/var/lib/postgresql/data
   #
   #   networks:
   #     - airports
@@ -74,7 +74,7 @@ services:
   #     MYSQL_RANDOM_ROOT_PASSWORD: "yes"
   #
   #   volumes:
-  #     - ./rootfs/db/mariadb:/var/lib/mysql
+  #     - ./volumes/db/mariadb:/var/lib/mysql
   #
   #   networks:
   #     - airports
@@ -92,7 +92,7 @@ services:
   #   restart: unless-stopped
   #
   #   volumes:
-  #     - ./rootfs/db/redis:/data
+  #     - ./volumes/db/redis:/data
   #
   #   networks:
   #     - airports
