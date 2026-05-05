@@ -139,7 +139,7 @@ curl -O https://raw.githubusercontent.com/apimgr/airports/main/docker-compose.ym
 docker-compose up -d
 
 # Check credentials
-cat ./rootfs/config/airports/admin_credentials
+cat ./volumes/config/airports/admin_credentials
 
 # View logs
 docker-compose logs -f
@@ -159,7 +159,7 @@ curl http://localhost:64181/api/v1
 
 # Cleanup
 docker-compose -f docker-compose.test.yml down
-sudo rm -rf /tmp/airports/rootfs
+sudo rm -rf /tmp/airports/volumes
 ```
 
 ### Docker Run
@@ -383,7 +383,7 @@ airports/
 │       └── templates/          # Embedded templates
 ├── binaries/                   # Built binaries (gitignored)
 ├── release/                    # Release artifacts (gitignored)
-├── rootfs/                     # Docker volumes (gitignored)
+├── volumes/                     # Docker volumes (gitignored)
 │   ├── config/airports/
 │   ├── data/airports/
 │   └── logs/airports/
