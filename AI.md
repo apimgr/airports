@@ -623,6 +623,41 @@ if cacheSize > 1024*1024*1024 {
 | **Secret scanning is mandatory** | Public repos run automated secret scanning on push/PR and treat findings as blockers |
 | **Release outputs are verifiable** | Releases publish checksums, SBOM, release notes, and provenance/attestation when the host platform supports it |
 
+### Workflow Permissions
+
+Set `contents: read` at the workflow level as the read-only baseline. Grant write permissions only on the specific job that performs the release or publish step — never workflow-wide.
+
+| Permission | Scope | Why |
+|------------|-------|-----|
+| `contents: read` | All jobs (baseline) | Checkout |
+| `contents: write` | Release job only | Create GitHub release, upload assets |
+| `packages: write` | Release job only | Push images to `ghcr.io` |
+| `id-token: write` | Release job only | OIDC token for Sigstore/cosign artifact signing |
+| `attestations: write` | Release job only | GitHub artifact attestation (SBOM, provenance) |
+
+```yaml
+# Workflow-level: read-only baseline
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Inherits read-only — no overrides needed
+    runs-on: ubuntu-latest
+    ...
+
+  release:
+    needs: build
+    permissions:
+      contents: write      # create GitHub release + upload assets
+      packages: write      # push to ghcr.io
+      id-token: write      # OIDC token for cosign signing
+      attestations: write  # GitHub artifact attestations (SBOM, provenance)
+    ...
+```
+
+Third-party registry publishing uses repository secrets, not GitHub token permissions (e.g. `NODE_AUTH_TOKEN` for npm).
+
 ### Public Repository Governance
 
 - The default branch MUST be protected
