@@ -9948,7 +9948,7 @@ data:
 ├── geoip/
 │   ├── asn.mmdb                 # ASN lookups (AS number, organization)
 │   ├── country.mmdb             # Country code lookups
-│   ├── city.mmdb                # City, region, coordinates, timezone
+│   ├── city.mmdb                # City, country, state, postcode, coordinates, timezone
 │   ├── whois.mmdb               # WHOIS data (registrant, org)
 │   └── .last_updated            # Timestamp file
 ├── blocklists/
@@ -9969,7 +9969,7 @@ data:
 |----------|------|----------|----------|
 | ASN | `asn.mmdb` | AS number, AS organization | Network provider identification |
 | Country | `country.mmdb` | Country code (ISO 3166-1) | Geo-blocking, compliance |
-| City | `city.mmdb` | City, region, postal, lat/lon, timezone | Location-based features |
+| City | `city.mmdb` | City, country, state1/state2, postcode, lat/lon, timezone | Location-based features |
 | WHOIS | `whois.mmdb` | Registrant info, combined with ASN | Abuse detection, attribution |
 
 **Benefits of ip-location-db:**
@@ -30148,7 +30148,7 @@ server:
       asn: true
       # Country lookup - country code (ISO 3166-1)
       country: true
-      # City lookup - city, region, postal, coordinates, timezone
+      # City lookup - city, country_code, state1, state2, postcode, lat/lon, timezone
       city: true
       # WHOIS lookup - registrant info combined with ASN
       whois: true
@@ -30157,6 +30157,8 @@ server:
 ## Database Sources (ip-location-db)
 
 All databases from [sapics/ip-location-db](https://github.com/sapics/ip-location-db) - no API key required.
+
+**Go library:** use `github.com/oschwald/maxminddb-golang` — NOT `geoip2-golang`. ip-location-db embeds custom `database_type` strings (`asn ipv4`, `city ipv6`, `country ipvAll`, etc.) that `geoip2.Open()` rejects with `InvalidDatabaseError`. Field names, type strings, and Go struct definitions are in `~/.claude/memory/security_conventions.md`.
 
 | Database | File | CDN URL |
 |----------|------|---------|
@@ -30171,7 +30173,7 @@ All databases from [sapics/ip-location-db](https://github.com/sapics/ip-location
 |----------|------------------|
 | ASN | `autonomous_system_number`, `autonomous_system_organization` |
 | Country | `country_code` (ISO 3166-1 alpha-2) |
-| City | `city`, `region`, `postal_code`, `latitude`, `longitude`, `timezone` |
+| City | `city`, `country_code`, `state1`, `state2`, `postcode`, `latitude`, `longitude`, `timezone` |
 | WHOIS | `registrant_org`, `asn`, `country_code` (combined lookup) |
 
 ## GeoIP Configuration (config file)
