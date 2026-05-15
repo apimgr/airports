@@ -15,8 +15,8 @@ func TestNewService(t *testing.T) {
 	}
 	defer svc.Close()
 
-	if svc.cityDB == nil {
-		t.Error("City database not loaded")
+	if svc.cityIPv4DB == nil && svc.cityIPv6DB == nil {
+		t.Error("City database (v4/v6) not loaded")
 	}
 
 	if svc.countryDB == nil {

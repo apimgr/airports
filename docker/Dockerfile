@@ -1,8 +1,9 @@
 # =============================================================================
-# Build Stage - Compile Go binary
+# Build Stage - Compile Go binary (cross-compile via BuildKit args)
 # =============================================================================
-FROM golang:alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
+ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 ARG BUILD_DATE
@@ -14,80 +15,82 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build
+# Copy source and build server + client
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
-    -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${VCS_REF}' -X 'main.BuildDate=${BUILD_DATE}'" \
-    -o /app ./src
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${VCS_REF}' -X 'main.BuildDate=${BUILD_DATE}'" \
+        -o /out/airports ./src && \
+    if [ -d src/client ]; then \
+        CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+        go build \
+            -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${VCS_REF}' -X 'main.BuildDate=${BUILD_DATE}'" \
+            -o /out/airports-cli ./src/client; \
+    fi
 
 # =============================================================================
 # Runtime Stage - Minimal Alpine image
 # =============================================================================
 FROM alpine:latest
 
-# ARGs for build-time values (set by docker build --build-arg)
 ARG VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
 ARG LICENSE=MIT
 
-# Static Labels
 LABEL maintainer="apimgr <apimgr@casjay.pro>" \
       org.opencontainers.image.vendor="apimgr" \
       org.opencontainers.image.authors="apimgr" \
       org.opencontainers.image.title="airports" \
       org.opencontainers.image.base.name="airports" \
-      org.opencontainers.image.description="Containerized version of airports" \
+      org.opencontainers.image.description="Airports API - global airport information service" \
       org.opencontainers.image.url="https://github.com/apimgr/airports" \
       org.opencontainers.image.source="https://github.com/apimgr/airports" \
       org.opencontainers.image.documentation="https://github.com/apimgr/airports" \
       org.opencontainers.image.vcs-type="Git" \
       com.github.containers.toolbox="false"
 
-# Dynamic Labels (from ARGs)
 LABEL org.opencontainers.image.licenses="${LICENSE}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.schema-version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
-# Install required packages including Tor
+# Required runtime packages per spec
 RUN apk add --no-cache \
-    curl \
-    bash \
-    tini \
-    tor
+        git \
+        curl \
+        bash \
+        tini \
+        tor
 
-# Create directories with proper structure
+# Runtime data layout (filled by entrypoint.sh / app at first run)
 RUN mkdir -p /config /data/db /data/logs /data/tor /data/geoip /data/backup
 
-# Copy binary from builder stage (multi-stage build)
-COPY --from=builder /app /usr/local/bin/airports
+# Copy server (always present) and client (optional)
+COPY --from=builder /out/airports     /usr/local/bin/airports
+COPY --from=builder /out/             /tmp/builder-out/
+RUN if [ -f /tmp/builder-out/airports-cli ]; then \
+        cp /tmp/builder-out/airports-cli /usr/local/bin/airports-cli; \
+    fi && rm -rf /tmp/builder-out
 
-# Copy entrypoint script from ./docker/rootfs/
+# Container filesystem overlay (entrypoint.sh, service configs, etc.)
 COPY docker/rootfs/ /
 
-# Copy Dockerfile to image (for reference and backup)
-COPY docker/Dockerfile /root/Dockerfile
-
-# Make all binaries/scripts in /usr/local/bin executable (755)
 RUN chmod 755 /usr/local/bin/*
 
-# Set environment
-ENV MODE=development \
+ENV MODE=production \
     TZ=America/New_York \
-    ENABLE_TOR=true
+    ENABLE_TOR=true \
+    PORT=80 \
+    ADDRESS=0.0.0.0
 
-# Expose internal port (always 80)
 EXPOSE 80
 
-# Stop signal for graceful shutdown
 STOPSIGNAL SIGRTMIN+3
 
-# Health check (long start period for services that need initialization)
-HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
+HEALTHCHECK --start-period=30s --interval=30s --timeout=15s --retries=3 \
     CMD /usr/local/bin/airports --status || exit 1
 
-# Use tini as init with signal propagation
-# -p SIGTERM: propagate SIGTERM to child processes
+# tini propagates SIGTERM and reaps zombies; entrypoint handles startup
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

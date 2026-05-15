@@ -1,11 +1,15 @@
 package airports
 
 import (
+	_ "embed"
 	"testing"
 )
 
+//go:embed testdata/airports_sample.json
+var testAirportsJSON []byte
+
 func TestLoadAirports(t *testing.T) {
-	data, err := LoadAirports()
+	data, err := LoadAirports(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to load airports: %v", err)
 	}
@@ -18,7 +22,7 @@ func TestLoadAirports(t *testing.T) {
 }
 
 func TestBuildIndexes(t *testing.T) {
-	data, err := LoadAirports()
+	data, err := LoadAirports(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to load airports: %v", err)
 	}
@@ -37,7 +41,7 @@ func TestBuildIndexes(t *testing.T) {
 }
 
 func TestNewService(t *testing.T) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -52,7 +56,7 @@ func TestNewService(t *testing.T) {
 }
 
 func TestGetByCode(t *testing.T) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -83,7 +87,7 @@ func TestGetByCode(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -109,7 +113,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestGetNearby(t *testing.T) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -131,7 +135,7 @@ func TestGetNearby(t *testing.T) {
 }
 
 func TestGetInBoundingBox(t *testing.T) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -160,7 +164,7 @@ func TestHaversine(t *testing.T) {
 
 func BenchmarkLoadAirports(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, err := LoadAirports()
+		_, err := LoadAirports(testAirportsJSON)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -168,7 +172,7 @@ func BenchmarkLoadAirports(b *testing.B) {
 }
 
 func BenchmarkSearch(b *testing.B) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -180,7 +184,7 @@ func BenchmarkSearch(b *testing.B) {
 }
 
 func BenchmarkGetByCode(b *testing.B) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -192,7 +196,7 @@ func BenchmarkGetByCode(b *testing.B) {
 }
 
 func BenchmarkGetNearby(b *testing.B) {
-	svc, err := NewService()
+	svc, err := NewService(testAirportsJSON)
 	if err != nil {
 		b.Fatal(err)
 	}

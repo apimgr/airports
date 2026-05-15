@@ -1,0 +1,123 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - devel
+      - dev
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROJECTNAME: airports
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container: golang:alpine
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install required tools
+        run: apk add --no-cache git bash
+
+      - name: go vet
+        env:
+          CGO_ENABLED: 0
+        run: go vet ./...
+
+      - name: go build (host)
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags "-s -w" -o /tmp/airports ./src
+          if [ -d src/client ]; then go build -ldflags "-s -w" -o /tmp/airports-cli ./src/client; fi
+
+      - name: Verify static binary (no CGO, no dynamic links)
+        run: |
+          file /tmp/airports
+          if ldd /tmp/airports 2>&1 | grep -q "not a dynamic"; then
+            echo "OK: static binary"
+          else
+            ldd /tmp/airports || true
+            echo "FAIL: dynamic links found in supposedly static binary"
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    container: golang:alpine
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install required tools
+        run: apk add --no-cache git bash
+
+      - name: Run tests with coverage
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go test -timeout 5m -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: coverage
+          path: coverage.out
+
+  repo-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate required root files
+        run: |
+          set -e
+          for f in AI.md IDEA.md CLAUDE.md README.md LICENSE.md Makefile go.mod go.sum release.txt .gitignore .dockerignore; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING REQUIRED FILE: $f"
+              exit 1
+            fi
+          done
+          echo "OK: all required root files present"
+
+      - name: Validate forbidden files NOT in root
+        run: |
+          set -e
+          fail=0
+          for forbidden in Dockerfile docker-compose.yml docker-compose.test.yml CHANGELOG.md AUDIT.md COMPLIANCE.md SUMMARY.md NOTES.md REPORT.md ANALYSIS.md .env .env.example; do
+            if [ -e "$forbidden" ]; then
+              echo "FORBIDDEN ROOT FILE FOUND: $forbidden"
+              fail=1
+            fi
+          done
+          if [ $fail -ne 0 ]; then exit 1; fi
+          echo "OK: no forbidden files in root"
+
+      - name: Validate Dockerfile location
+        run: |
+          test -f docker/Dockerfile || { echo "MISSING docker/Dockerfile"; exit 1; }
+          test -f docker/docker-compose.yml || { echo "MISSING docker/docker-compose.yml"; exit 1; }
+          echo "OK: docker files in correct location"
+
+      - name: Validate release.txt is semver
+        run: |
+          v=$(cat release.txt | tr -d '[:space:]')
+          if ! printf '%s' "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "release.txt not semver: '$v'"
+            exit 1
+          fi
+          echo "OK: release.txt = $v"

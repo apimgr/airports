@@ -147,10 +147,9 @@ coverage.html
 # Environment & Secrets
 # ============================================
 
-# Environment files (should not exist, but ignore anyway)
+# Environment files (FORBIDDEN per spec - hardcode sane defaults in docker-compose)
 .env
 .env.*
-!.env.example
 
 # Secret files
 *.pem

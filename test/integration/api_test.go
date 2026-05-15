@@ -1,15 +1,20 @@
 package integration
 
 import (
+	_ "embed"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/apimgr/airports/src/airports"
+	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
 	"github.com/apimgr/airports/src/server"
 )
+
+//go:embed testdata/airports_sample.json
+var testAirportsJSON []byte
 
 type Response struct {
 	Success bool            `json:"success"`
@@ -17,7 +22,7 @@ type Response struct {
 }
 
 func setupTestServer(t *testing.T) *httptest.Server {
-	airportSvc, err := airports.NewService()
+	airportSvc, err := airports.NewService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create airport service: %v", err)
 	}
@@ -29,7 +34,7 @@ func setupTestServer(t *testing.T) *httptest.Server {
 		t.Fatalf("Failed to create geoip service: %v", err)
 	}
 
-	srv := server.New(airportSvc, geoipSvc, false)
+	srv := server.New(airportSvc, geoipSvc, &config.Config{})
 	return httptest.NewServer(srv.Router())
 }
 

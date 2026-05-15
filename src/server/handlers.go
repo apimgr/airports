@@ -324,8 +324,8 @@ func (s *Server) handleGetCountriesText(w http.ResponseWriter, r *http.Request) 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Countries with airports: %d\n\n", len(countries)))
 
-	for _, c := range countries {
-		sb.WriteString(fmt.Sprintf("%s\n", c))
+	for name, count := range countries {
+		sb.WriteString(fmt.Sprintf("%s\t%d\n", name, count))
 	}
 
 	s.respondText(w, http.StatusOK, sb.String())
