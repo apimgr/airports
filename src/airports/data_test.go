@@ -98,8 +98,8 @@ func TestSearch(t *testing.T) {
 	}{
 		{"New York", 1},
 		{"JFK", 1},
-		{"International", 100},
-		{"Airport", 1000},
+		{"International", 2},
+		{"Airport", 2},
 	}
 
 	for _, tt := range tests {

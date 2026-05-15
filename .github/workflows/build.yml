@@ -69,7 +69,7 @@ jobs:
         env:
           CGO_ENABLED: 0
         run: |
-          go test -timeout 5m -coverprofile=coverage.out ./...
+          go test -short -timeout 5m -coverprofile=coverage.out ./...
           go tool cover -func=coverage.out | tail -1
 
       - name: Upload coverage artifact

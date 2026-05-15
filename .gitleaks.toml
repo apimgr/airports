@@ -1,0 +1,9 @@
+[allowlist]
+description = "Allowlist for documentation false positives"
+
+# Paths that contain intentional example tokens (docs, spec, readme)
+paths = [
+    "AI.md",
+    "docs/",
+    "README.md",
+]

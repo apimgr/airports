@@ -8,6 +8,9 @@ import (
 )
 
 func TestNewService(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires network: downloads GeoIP databases")
+	}
 	tmpDir := t.TempDir()
 	svc, err := NewService(tmpDir)
 	if err != nil {
@@ -35,6 +38,9 @@ func TestNewService(t *testing.T) {
 }
 
 func TestLookup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires network: downloads GeoIP databases")
+	}
 	tmpDir := t.TempDir()
 	svc, err := NewService(tmpDir)
 	if err != nil {
@@ -77,6 +83,9 @@ func TestLookup(t *testing.T) {
 }
 
 func TestLookupString(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires network: downloads GeoIP databases")
+	}
 	tmpDir := t.TempDir()
 	svc, err := NewService(tmpDir)
 	if err != nil {
@@ -147,6 +156,9 @@ func TestExtractIPFromRequest(t *testing.T) {
 }
 
 func BenchmarkLookup(b *testing.B) {
+	if testing.Short() {
+		b.Skip("requires network: downloads GeoIP databases")
+	}
 	tmpDir := b.TempDir()
 	svc, err := NewService(tmpDir)
 	if err != nil {

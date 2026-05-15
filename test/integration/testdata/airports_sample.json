@@ -1,4 +1,26 @@
-[
-  {"id":"3797","ident":"KJFK","type":"large_airport","name":"John F Kennedy International Airport","latitude_deg":40.639801,"longitude_deg":-73.7789,"elevation_ft":13,"continent":"NA","iso_country":"US","iso_region":"US-NY","municipality":"New York","scheduled_service":"yes","gps_code":"KJFK","iata_code":"JFK","local_code":"JFK","home_link":"","wikipedia_link":""},
-  {"id":"3631","ident":"KLAX","type":"large_airport","name":"Los Angeles International Airport","latitude_deg":33.94250107,"longitude_deg":-118.4079971,"elevation_ft":125,"continent":"NA","iso_country":"US","iso_region":"US-CA","municipality":"Los Angeles","scheduled_service":"yes","gps_code":"KLAX","iata_code":"LAX","local_code":"LAX","home_link":"","wikipedia_link":""}
-]
+{
+  "KJFK": {
+    "icao": "KJFK",
+    "iata": "JFK",
+    "name": "John F Kennedy International Airport",
+    "city": "New York",
+    "state": "NY",
+    "country": "US",
+    "elevation": 13,
+    "lat": 40.639801,
+    "lon": -73.7789,
+    "tz": "America/New_York"
+  },
+  "KLAX": {
+    "icao": "KLAX",
+    "iata": "LAX",
+    "name": "Los Angeles International Airport",
+    "city": "Los Angeles",
+    "state": "CA",
+    "country": "US",
+    "elevation": 125,
+    "lat": 33.94250107,
+    "lon": -118.4079971,
+    "tz": "America/Los_Angeles"
+  }
+}

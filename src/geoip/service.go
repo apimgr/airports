@@ -9,32 +9,70 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/oschwald/geoip2-golang"
+	"github.com/oschwald/maxminddb-golang"
 )
 
 const (
 	// sapics/ip-location-db databases via jsdelivr CDN (daily updates)
-	cityIPv4URL  = "https://cdn.jsdelivr.net/npm/@ip-location-db/geolite2-city-mmdb/geolite2-city-ipv4.mmdb"
-	cityIPv6URL  = "https://cdn.jsdelivr.net/npm/@ip-location-db/geolite2-city-mmdb/geolite2-city-ipv6.mmdb"
-	countryURL   = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
-	asnURL       = "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb"
+	cityIPv4URL = "https://cdn.jsdelivr.net/npm/@ip-location-db/geolite2-city-mmdb/geolite2-city-ipv4.mmdb"
+	cityIPv6URL = "https://cdn.jsdelivr.net/npm/@ip-location-db/geolite2-city-mmdb/geolite2-city-ipv6.mmdb"
+	countryURL  = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
+	asnURL      = "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb"
 )
+
+// mmdb record structs for ip-location-db format (GeoLite2-compatible fields,
+// but with custom DatabaseType strings that geoip2-golang rejects at Open time;
+// we use maxminddb directly to bypass that type check).
+
+type mmdbCity struct {
+	City struct {
+		Names map[string]string `maxminddb:"names"`
+	} `maxminddb:"city"`
+	Country struct {
+		IsoCode string            `maxminddb:"iso_code"`
+		Names   map[string]string `maxminddb:"names"`
+	} `maxminddb:"country"`
+	Location struct {
+		Latitude  float64 `maxminddb:"latitude"`
+		Longitude float64 `maxminddb:"longitude"`
+		TimeZone  string  `maxminddb:"time_zone"`
+	} `maxminddb:"location"`
+	Postal struct {
+		Code string `maxminddb:"code"`
+	} `maxminddb:"postal"`
+	Subdivisions []struct {
+		IsoCode string            `maxminddb:"iso_code"`
+		Names   map[string]string `maxminddb:"names"`
+	} `maxminddb:"subdivisions"`
+}
+
+type mmdbCountry struct {
+	Country struct {
+		IsoCode string            `maxminddb:"iso_code"`
+		Names   map[string]string `maxminddb:"names"`
+	} `maxminddb:"country"`
+}
+
+type mmdbASN struct {
+	Number uint   `maxminddb:"autonomous_system_number"`
+	Org    string `maxminddb:"autonomous_system_organization"`
+}
 
 // Service manages GeoIP lookups
 type Service struct {
-	cityIPv4DB *geoip2.Reader // City database for IPv4 addresses
-	cityIPv6DB *geoip2.Reader // City database for IPv6 addresses
-	countryDB  *geoip2.Reader // Country database (combined IPv4/IPv6)
-	asnDB      *geoip2.Reader // ASN database (combined IPv4/IPv6)
+	cityIPv4DB *maxminddb.Reader // City database for IPv4 addresses
+	cityIPv6DB *maxminddb.Reader // City database for IPv6 addresses
+	countryDB  *maxminddb.Reader // Country database (combined IPv4/IPv6)
+	asnDB      *maxminddb.Reader // ASN database (combined IPv4/IPv6)
 	dataDir    string
 }
 
 // GeoLocation contains geolocation information for an IP
 type GeoLocation struct {
 	IP          string  `json:"ip"`
-	Country     string  `json:"country"`            // ISO code (US, CA, etc.)
+	Country     string  `json:"country"`              // ISO code (US, CA, etc.)
 	CountryName string  `json:"country_name"`
-	Region      string  `json:"region,omitempty"`   // State/Province code
+	Region      string  `json:"region,omitempty"`     // State/Province code
 	RegionName  string  `json:"region_name,omitempty"`
 	City        string  `json:"city,omitempty"`
 	Latitude    float64 `json:"latitude,omitempty"`
@@ -58,7 +96,6 @@ func NewService(configDir string) (*Service, error) {
 
 	s := &Service{dataDir: geoipDir}
 
-	// Check if databases exist, download if not
 	cityIPv4Path := filepath.Join(geoipDir, "geolite2-city-ipv4.mmdb")
 	cityIPv6Path := filepath.Join(geoipDir, "geolite2-city-ipv6.mmdb")
 	countryPath := filepath.Join(geoipDir, "geo-whois-asn-country.mmdb")
@@ -71,7 +108,6 @@ func NewService(configDir string) (*Service, error) {
 		}
 	}
 
-	// Load databases
 	if err := s.LoadDatabases(); err != nil {
 		return nil, err
 	}
@@ -86,26 +122,22 @@ func (s *Service) LoadDatabases() error {
 	countryPath := filepath.Join(s.dataDir, "geo-whois-asn-country.mmdb")
 	asnPath := filepath.Join(s.dataDir, "asn.mmdb")
 
-	// Close existing databases if any
 	s.Close()
 
-	// Load City IPv4 database
-	cityIPv4DB, err := geoip2.Open(cityIPv4Path)
+	cityIPv4DB, err := maxminddb.Open(cityIPv4Path)
 	if err != nil {
 		return fmt.Errorf("failed to load city IPv4 database: %w", err)
 	}
 	s.cityIPv4DB = cityIPv4DB
 
-	// Load City IPv6 database
-	cityIPv6DB, err := geoip2.Open(cityIPv6Path)
+	cityIPv6DB, err := maxminddb.Open(cityIPv6Path)
 	if err != nil {
 		s.cityIPv4DB.Close()
 		return fmt.Errorf("failed to load city IPv6 database: %w", err)
 	}
 	s.cityIPv6DB = cityIPv6DB
 
-	// Load Country database (fallback)
-	countryDB, err := geoip2.Open(countryPath)
+	countryDB, err := maxminddb.Open(countryPath)
 	if err != nil {
 		s.cityIPv4DB.Close()
 		s.cityIPv6DB.Close()
@@ -113,8 +145,7 @@ func (s *Service) LoadDatabases() error {
 	}
 	s.countryDB = countryDB
 
-	// Load ASN database
-	asnDB, err := geoip2.Open(asnPath)
+	asnDB, err := maxminddb.Open(asnPath)
 	if err != nil {
 		s.cityIPv4DB.Close()
 		s.cityIPv6DB.Close()
@@ -128,18 +159,21 @@ func (s *Service) LoadDatabases() error {
 
 // DownloadDatabases downloads all GeoIP databases from sapics/ip-location-db via jsdelivr CDN
 func (s *Service) DownloadDatabases() error {
-	databases := map[string]string{
-		"geolite2-city-ipv4.mmdb":      cityIPv4URL,
-		"geolite2-city-ipv6.mmdb":      cityIPv6URL,
-		"geo-whois-asn-country.mmdb":   countryURL,
-		"asn.mmdb":                     asnURL,
+	databases := []struct {
+		filename string
+		url      string
+	}{
+		{"geolite2-city-ipv4.mmdb", cityIPv4URL},
+		{"geolite2-city-ipv6.mmdb", cityIPv6URL},
+		{"geo-whois-asn-country.mmdb", countryURL},
+		{"asn.mmdb", asnURL},
 	}
 
-	for filename, url := range databases {
-		path := filepath.Join(s.dataDir, filename)
-		fmt.Printf("  Downloading %s...\n", filename)
-		if err := downloadFile(path, url); err != nil {
-			return fmt.Errorf("failed to download %s: %w", filename, err)
+	for _, db := range databases {
+		path := filepath.Join(s.dataDir, db.filename)
+		fmt.Printf("  Downloading %s...\n", db.filename)
+		if err := downloadFile(path, db.url); err != nil {
+			return fmt.Errorf("failed to download %s: %w", db.filename, err)
 		}
 	}
 
@@ -151,42 +185,40 @@ func (s *Service) DownloadDatabases() error {
 func (s *Service) UpdateDatabases() error {
 	fmt.Println("Updating GeoIP databases...")
 
-	// Download to temporary files first
 	tempDir := filepath.Join(s.dataDir, ".tmp")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	databases := map[string]string{
-		"geolite2-city-ipv4.mmdb":      cityIPv4URL,
-		"geolite2-city-ipv6.mmdb":      cityIPv6URL,
-		"geo-whois-asn-country.mmdb":   countryURL,
-		"asn.mmdb":                     asnURL,
+	databases := []struct {
+		filename string
+		url      string
+	}{
+		{"geolite2-city-ipv4.mmdb", cityIPv4URL},
+		{"geolite2-city-ipv6.mmdb", cityIPv6URL},
+		{"geo-whois-asn-country.mmdb", countryURL},
+		{"asn.mmdb", asnURL},
 	}
 
-	// Download all databases to temp directory
-	for filename, url := range databases {
-		tempPath := filepath.Join(tempDir, filename)
-		fmt.Printf("  Downloading %s...\n", filename)
-		if err := downloadFile(tempPath, url); err != nil {
-			return fmt.Errorf("failed to download %s: %w", filename, err)
+	for _, db := range databases {
+		tempPath := filepath.Join(tempDir, db.filename)
+		fmt.Printf("  Downloading %s...\n", db.filename)
+		if err := downloadFile(tempPath, db.url); err != nil {
+			return fmt.Errorf("failed to download %s: %w", db.filename, err)
 		}
 	}
 
-	// Close current databases
 	s.Close()
 
-	// Move temp files to final location
-	for filename := range databases {
-		tempPath := filepath.Join(tempDir, filename)
-		finalPath := filepath.Join(s.dataDir, filename)
+	for _, db := range databases {
+		tempPath := filepath.Join(tempDir, db.filename)
+		finalPath := filepath.Join(s.dataDir, db.filename)
 		if err := os.Rename(tempPath, finalPath); err != nil {
-			return fmt.Errorf("failed to move %s: %w", filename, err)
+			return fmt.Errorf("failed to move %s: %w", db.filename, err)
 		}
 	}
 
-	// Reload databases
 	if err := s.LoadDatabases(); err != nil {
 		return fmt.Errorf("failed to reload databases: %w", err)
 	}
@@ -205,69 +237,51 @@ func (s *Service) Lookup(ip net.IP) (*GeoLocation, error) {
 		return nil, fmt.Errorf("GeoIP databases not loaded")
 	}
 
-	// Determine which city database to use based on IP version
-	var cityDB *geoip2.Reader
+	// Choose city DB by IP version
+	var cityDB *maxminddb.Reader
 	if ip.To4() != nil {
-		// IPv4 address
 		cityDB = s.cityIPv4DB
 	} else {
-		// IPv6 address
 		cityDB = s.cityIPv6DB
 	}
 
-	// Try city lookup first (most detailed)
+	// Try city lookup first
 	if cityDB != nil {
-		city, err := cityDB.City(ip)
-		if err == nil {
+		var record mmdbCity
+		if err := cityDB.Lookup(ip, &record); err == nil && record.Country.IsoCode != "" {
 			location := &GeoLocation{
 				IP:          ip.String(),
-				Country:     city.Country.IsoCode,
-				CountryName: city.Country.Names["en"],
-				Latitude:    city.Location.Latitude,
-				Longitude:   city.Location.Longitude,
-				TimeZone:    city.Location.TimeZone,
+				Country:     record.Country.IsoCode,
+				CountryName: record.Country.Names["en"],
+				Latitude:    record.Location.Latitude,
+				Longitude:   record.Location.Longitude,
+				TimeZone:    record.Location.TimeZone,
+				PostalCode:  record.Postal.Code,
 			}
-
-			// City info
-			if city.City.Names != nil {
-				location.City = city.City.Names["en"]
+			if record.City.Names != nil {
+				location.City = record.City.Names["en"]
 			}
-
-			// Region/State info
-			if len(city.Subdivisions) > 0 {
-				location.Region = city.Subdivisions[0].IsoCode
-				if city.Subdivisions[0].Names != nil {
-					location.RegionName = city.Subdivisions[0].Names["en"]
-				}
+			if len(record.Subdivisions) > 0 {
+				location.Region = record.Subdivisions[0].IsoCode
+				location.RegionName = record.Subdivisions[0].Names["en"]
 			}
-
-			// Postal code
-			if city.Postal.Code != "" {
-				location.PostalCode = city.Postal.Code
-			}
-
-			// Add ASN information
 			s.addASNInfo(ip, location)
-
 			return location, nil
 		}
 	}
 
 	// Fallback to country lookup
-	country, err := s.countryDB.Country(ip)
-	if err != nil {
+	var countryRecord mmdbCountry
+	if err := s.countryDB.Lookup(ip, &countryRecord); err != nil {
 		return nil, fmt.Errorf("geolocation failed: %w", err)
 	}
 
 	location := &GeoLocation{
 		IP:          ip.String(),
-		Country:     country.Country.IsoCode,
-		CountryName: country.Country.Names["en"],
+		Country:     countryRecord.Country.IsoCode,
+		CountryName: countryRecord.Country.Names["en"],
 	}
-
-	// Add ASN information
 	s.addASNInfo(ip, location)
-
 	return location, nil
 }
 
@@ -276,10 +290,10 @@ func (s *Service) addASNInfo(ip net.IP, location *GeoLocation) {
 	if s.asnDB == nil {
 		return
 	}
-	asn, err := s.asnDB.ASN(ip)
-	if err == nil {
-		location.ASN = asn.AutonomousSystemNumber
-		location.ASNOrg = asn.AutonomousSystemOrganization
+	var record mmdbASN
+	if err := s.asnDB.Lookup(ip, &record); err == nil {
+		location.ASN = record.Number
+		location.ASNOrg = record.Org
 	}
 }
 
@@ -294,48 +308,28 @@ func (s *Service) LookupString(ipStr string) (*GeoLocation, error) {
 
 // Close closes all GeoIP databases
 func (s *Service) Close() error {
-	var errs []error
-
 	if s.cityIPv4DB != nil {
-		if err := s.cityIPv4DB.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		s.cityIPv4DB.Close()
 		s.cityIPv4DB = nil
 	}
-
 	if s.cityIPv6DB != nil {
-		if err := s.cityIPv6DB.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		s.cityIPv6DB.Close()
 		s.cityIPv6DB = nil
 	}
-
 	if s.countryDB != nil {
-		if err := s.countryDB.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		s.countryDB.Close()
 		s.countryDB = nil
 	}
-
 	if s.asnDB != nil {
-		if err := s.asnDB.Close(); err != nil {
-			errs = append(errs, err)
-		}
+		s.asnDB.Close()
 		s.asnDB = nil
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors closing GeoIP databases: %v", errs)
-	}
-
 	return nil
 }
 
 // ExtractIPFromRequest extracts the real client IP from request headers
 func ExtractIPFromRequest(remoteAddr, xForwardedFor, xRealIP string) string {
-	// Check X-Forwarded-For header (proxy)
 	if xForwardedFor != "" {
-		// Take first IP from comma-separated list
 		for idx := 0; idx < len(xForwardedFor); idx++ {
 			if xForwardedFor[idx] == ',' {
 				return xForwardedFor[:idx]
@@ -343,53 +337,38 @@ func ExtractIPFromRequest(remoteAddr, xForwardedFor, xRealIP string) string {
 		}
 		return xForwardedFor
 	}
-
-	// Check X-Real-IP header
 	if xRealIP != "" {
 		return xRealIP
 	}
-
-	// Use remote address (strip port)
 	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		return host
 	}
-
 	return remoteAddr
 }
-
-// Helper functions
 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-func downloadFile(filepath string, url string) error {
-	// Create the file
-	out, err := os.Create(filepath)
+func downloadFile(dest string, url string) error {
+	out, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Minute,
-	}
-
-	// Get the data
+	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Check server response
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	// Write the body to file
 	_, err = io.Copy(out, resp.Body)
 	return err
 }
