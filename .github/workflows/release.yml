@@ -25,7 +25,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: 'stable'
           cache: true
 
       - name: Run tests
@@ -62,7 +62,7 @@ jobs:
       - name: List built binaries
         run: |
           echo "Built binaries:"
-          ls -lh release/
+          ls -lh binaries/
 
       - name: Delete existing release if exists
         env:
@@ -82,7 +82,7 @@ jobs:
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           gh release create ${VERSION} \
-            ./releases/* \
+            ./binaries/* \
             --title "Airports API ${VERSION}" \
             --notes "## Release ${VERSION}
 
@@ -132,5 +132,5 @@ chmod +x airports
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ steps.version.outputs.VERSION }}
-          path: releases/*
+          path: binaries/*
           retention-days: 90
