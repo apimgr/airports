@@ -1,124 +1,160 @@
-# ============================================
-# Variables
-# ============================================
-PROJECTNAME = airports
-PROJECTORG = apimgr
+# ============================================================================
+# Makefile for airports
+# ----------------------------------------------------------------------------
+# All Go work runs inside Docker (golang:alpine). The host stays clean.
+# CGO_ENABLED=0 is enforced everywhere - pure Go static binaries only.
+# Targets:
+#   make dev      - Quick development build to ${TMPDIR}/${PROJECT_ORG}/...
+#   make local    - Production build to binaries/ (host platform, with version)
+#   make build    - Full release: 8 platforms in binaries/
+#   make test     - Unit tests (in Docker)
+#   make docker   - Multi-arch Docker build & push to ghcr.io
+#   make clean    - Remove build artifacts
+# ============================================================================
+
+PROJECT_NAME    := airports
+PROJECT_ORG     := apimgr
+CLIENT_NAME     := airports-cli
 
 # VERSION can be overridden: make build VERSION=1.2.3
-# Otherwise, read from release.txt or default to 0.0.1
-VERSION ?= $(shell cat release.txt 2>/dev/null || echo "0.0.1")
+VERSION         ?= $(shell cat release.txt 2>/dev/null || echo "0.0.1")
+COMMIT          := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE      := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+OFFICIAL_SITE   ?= $(shell cat site.txt 2>/dev/null || echo "")
 
-COMMIT = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS = -ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildDate=$(BUILD_DATE) -w -s"
+LDFLAGS         := -s -w \
+                   -X 'main.Version=$(VERSION)' \
+                   -X 'main.CommitID=$(COMMIT)' \
+                   -X 'main.BuildDate=$(BUILD_DATE)' \
+                   -X 'main.OfficialSite=$(OFFICIAL_SITE)'
 
-# Detect host OS and architecture
-HOSTOS := $(shell go env GOOS)
-HOSTARCH := $(shell go env GOARCH)
+# Host detection (used by make local)
+HOSTOS          := $(shell go env GOOS 2>/dev/null || uname -s | tr '[:upper:]' '[:lower:]')
+HOSTARCH        := $(shell go env GOARCH 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-# ============================================
-# Main Targets
-# ============================================
-.PHONY: build releases test docker clean
-.DEFAULT_GOAL := build
+# Build temp dir (for `make dev`)
+TMPDIR          ?= /tmp
+DEV_DIR_BASE    := $(TMPDIR)/$(PROJECT_ORG)
 
-# Build all binaries for all platforms
-build:
-	@echo "Building $(PROJECTNAME) $(VERSION) for all platforms..."
+# Docker image to build inside
+GO_IMAGE        := golang:alpine
+
+# Whether the optional client lives at src/client/
+HAS_CLIENT      := $(shell test -d src/client && echo yes || echo no)
+
+# ----------------------------------------------------------------------------
+.PHONY: help dev local build test docker docker-dev clean release
+.DEFAULT_GOAL := help
+
+help:
+	@echo "airports Makefile targets:"
+	@echo "  make dev       - Quick dev build to $(DEV_DIR_BASE)/$(PROJECT_NAME)-XXXXXX/"
+	@echo "  make local     - Production build for host ($(HOSTOS)/$(HOSTARCH)) -> binaries/"
+	@echo "  make build     - Full release: 8 platforms -> binaries/"
+	@echo "  make test      - Unit tests (in Docker)"
+	@echo "  make docker    - Multi-arch Docker build & push to ghcr.io"
+	@echo "  make docker-dev- Local dev Docker image (not pushed)"
+	@echo "  make clean     - Remove build artifacts"
+
+# ----------------------------------------------------------------------------
+# make dev: quick build to a fresh temp dir for active development
+# ----------------------------------------------------------------------------
+dev:
+	@mkdir -p $(DEV_DIR_BASE)
+	@DEV_DIR=$$(mktemp -d $(DEV_DIR_BASE)/$(PROJECT_NAME)-XXXXXX); \
+	echo "Building $(PROJECT_NAME) (dev) -> $$DEV_DIR"; \
+	docker run --rm \
+		-v $$(pwd):/workspace -w /workspace \
+		-v $$DEV_DIR:/out \
+		-e CGO_ENABLED=0 \
+		$(GO_IMAGE) sh -c '\
+			go build -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
+			if [ -d src/client ]; then go build -ldflags "$(LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
+		'; \
+	echo "Build dir: $$DEV_DIR"
+
+# ----------------------------------------------------------------------------
+# make local: production-style build for host platform only
+# ----------------------------------------------------------------------------
+local:
 	@mkdir -p binaries
-	@docker run --rm -v $$(pwd):/workspace -w /workspace golang:alpine sh -c ' \
-		apk add --no-cache git binutils > /dev/null 2>&1 && \
-		echo "  → Linux AMD64" && \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-linux-amd64 ./src && \
-		strip binaries/$(PROJECTNAME)-linux-amd64 2>/dev/null || true && \
-		echo "  → Linux ARM64" && \
-		GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-linux-arm64 ./src && \
-		echo "  → Windows AMD64" && \
-		GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-windows-amd64.exe ./src && \
-		echo "  → Windows ARM64" && \
-		GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-windows-arm64.exe ./src && \
-		echo "  → macOS AMD64" && \
-		GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-macos-amd64 ./src && \
-		echo "  → macOS ARM64" && \
-		GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-macos-arm64 ./src && \
-		echo "  → FreeBSD AMD64" && \
-		GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-bsd-amd64 ./src && \
-		strip binaries/$(PROJECTNAME)-bsd-amd64 2>/dev/null || true && \
-		echo "  → FreeBSD ARM64" && \
-		GOOS=freebsd GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-bsd-arm64 ./src && \
-		echo "  → Host ($(HOSTOS)/$(HOSTARCH))" && \
-		GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) CGO_ENABLED=0 go build $(LDFLAGS) -o binaries/$(PROJECTNAME) ./src && \
-		(ldd binaries/$(PROJECTNAME) 2>&1 | grep -q musl && strip binaries/$(PROJECTNAME) 2>/dev/null || true) \
-	'
-	@echo ""
-	@echo "✓ Built $(PROJECTNAME) $(VERSION)"
-	@echo "  Binaries: $$(ls -1 binaries/ | wc -l) files"
-	@echo "  Host binary: binaries/$(PROJECTNAME)"
+	@echo "Building $(PROJECT_NAME) $(VERSION) for host ($(HOSTOS)/$(HOSTARCH))..."
+	@docker run --rm \
+		-v $$(pwd):/workspace -w /workspace \
+		-e GOOS=$(HOSTOS) -e GOARCH=$(HOSTARCH) -e CGO_ENABLED=0 \
+		$(GO_IMAGE) sh -c '\
+			go build -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
+			if [ -d src/client ]; then go build -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
+		'
+	@echo "Built: binaries/$(PROJECT_NAME)"
 
-# Create GitHub release
-release:
-	@echo "Creating GitHub release $(VERSION)..."
-	@mkdir -p releases
-	@echo "Copying platform binaries to releases/..."
-	@cp binaries/$(PROJECTNAME)-linux-amd64 releases/ 2>/dev/null || { echo "Error: Build first with 'make build'"; exit 1; }
-	@cp binaries/$(PROJECTNAME)-linux-arm64 releases/
-	@cp binaries/$(PROJECTNAME)-windows-amd64.exe releases/
-	@cp binaries/$(PROJECTNAME)-windows-arm64.exe releases/
-	@cp binaries/$(PROJECTNAME)-macos-amd64 releases/
-	@cp binaries/$(PROJECTNAME)-macos-arm64 releases/
-	@cp binaries/$(PROJECTNAME)-bsd-amd64 releases/
-	@cp binaries/$(PROJECTNAME)-bsd-arm64 releases/
-	@echo "Creating source archives (no VCS files)..."
-	@git archive --format=tar.gz --prefix=$(PROJECTNAME)-$(VERSION)/ HEAD -o releases/$(PROJECTNAME)-$(VERSION)-src.tar.gz
-	@git archive --format=zip --prefix=$(PROJECTNAME)-$(VERSION)/ HEAD -o releases/$(PROJECTNAME)-$(VERSION)-src.zip
-	@echo "Deleting existing release if exists..."
-	@gh release delete $(VERSION) -y 2>/dev/null || true
-	@git tag -d $(VERSION) 2>/dev/null || true
-	@echo "Creating GitHub release $(VERSION)..."
-	@gh release create $(VERSION) ./releases/* \
-		--title "$(PROJECTNAME) $(VERSION)" \
-		--notes "Release $(VERSION)\n\nCommit: $(COMMIT)\nBuilt: $(BUILD_DATE)\n\n**Binaries**: 8 platforms (Linux, macOS, Windows, BSD - amd64/arm64)\n**Source**: tar.gz and zip archives (no VCS files)"
-	@echo "✓ Release $(VERSION) created with binaries and source archives"
-	@echo "Auto-incrementing version in release.txt..."
-	@echo "$(VERSION)" | awk -F. '{printf "%d.%d.%d\n", $$1, $$2, $$3+1}' > release.txt
-	@echo "✓ Version incremented: $(VERSION) → $$(cat release.txt)"
+# ----------------------------------------------------------------------------
+# make build: full 8-platform release
+# ----------------------------------------------------------------------------
+build:
+	@mkdir -p binaries
+	@echo "Building $(PROJECT_NAME) $(VERSION) for all platforms..."
+	@docker run --rm \
+		-v $$(pwd):/workspace -w /workspace \
+		-e CGO_ENABLED=0 \
+		$(GO_IMAGE) sh -c '\
+			set -e; \
+			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
+				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
+				[ "$$os" = "windows" ] && ext=".exe"; \
+				echo "  -> $$os/$$arch"; \
+				GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
+				if [ -d src/client ]; then \
+					GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
+				fi; \
+			done \
+		'
+	@ls -1 binaries/
 
-# Run all tests
+# ----------------------------------------------------------------------------
+# make test: unit tests in Docker
+# ----------------------------------------------------------------------------
 test:
 	@echo "Running tests..."
-	@docker run --rm -v $$(pwd):/workspace -w /workspace golang:alpine sh -c ' \
-		go test -v -race -timeout 5m ./... \
-	'
-	@echo "✓ All tests passed"
+	@docker run --rm \
+		-v $$(pwd):/workspace -w /workspace \
+		-e CGO_ENABLED=0 \
+		$(GO_IMAGE) sh -c '\
+			go test -timeout 5m ./... \
+		'
+	@echo "All tests passed"
 
-# Build and push multi-platform Docker images (release)
+# ----------------------------------------------------------------------------
+# make docker: multi-arch image build & push (uses docker/Dockerfile)
+# ----------------------------------------------------------------------------
 docker:
-	@echo "Building multi-platform Docker images..."
+	@echo "Building & pushing multi-arch image..."
 	@docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT=$(COMMIT) \
+		--build-arg VCS_REF=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t ghcr.io/$(PROJECTORG)/$(PROJECTNAME):latest \
-		-t ghcr.io/$(PROJECTORG)/$(PROJECTNAME):$(VERSION) \
+		-f docker/Dockerfile \
+		-t ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME):latest \
+		-t ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME):$(VERSION) \
 		--push \
 		.
-	@echo "✓ Docker images pushed to ghcr.io/$(PROJECTORG)/$(PROJECTNAME):$(VERSION)"
 
-# Build Docker image for development (local only, not pushed)
 docker-dev:
-	@echo "Building development Docker image..."
+	@echo "Building local dev image..."
 	@docker build \
 		--build-arg VERSION=$(VERSION)-dev \
-		--build-arg COMMIT=$(COMMIT) \
+		--build-arg VCS_REF=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t $(PROJECTNAME):dev \
+		-f docker/Dockerfile \
+		-t $(PROJECT_NAME):dev \
 		.
-	@echo "✓ Docker development image built: $(PROJECTNAME):dev"
 
-# Clean build artifacts
+# ----------------------------------------------------------------------------
+# make clean
+# ----------------------------------------------------------------------------
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf binaries/ releases/ coverage.out
-	@go clean
-	@echo "✓ Clean complete"
+	@find $(DEV_DIR_BASE) -maxdepth 1 -type d -name '$(PROJECT_NAME)-*' -exec rm -rf {} + 2>/dev/null || true
+	@echo "Clean complete"
