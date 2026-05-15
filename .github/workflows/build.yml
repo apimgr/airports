@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Install required tools
-        run: apk add --no-cache git bash
+        run: apk add --no-cache git bash file
 
       - name: go vet
         env:
@@ -48,12 +48,11 @@ jobs:
       - name: Verify static binary (no CGO, no dynamic links)
         run: |
           file /tmp/airports
-          if ldd /tmp/airports 2>&1 | grep -q "not a dynamic"; then
-            echo "OK: static binary"
-          else
-            ldd /tmp/airports || true
+          if file /tmp/airports | grep -q "dynamically linked"; then
             echo "FAIL: dynamic links found in supposedly static binary"
             exit 1
+          else
+            echo "OK: static binary"
           fi
 
   test:
