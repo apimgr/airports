@@ -6,12 +6,6 @@
 .github/
 .gitea/
 
-# Entire docker directory
-docker/
-
-# Runtime volume data (NEVER include in image)
-rootfs/
-
 # Build output
 binaries/
 releases/
