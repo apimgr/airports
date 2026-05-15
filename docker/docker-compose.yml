@@ -1,25 +1,44 @@
 name: airports
 
+# Production Docker Compose Configuration
+# Hardcoded sane defaults - works with zero .env file
+# Override by editing this file directly
+
 services:
   airports:
     image: ghcr.io/apimgr/airports:latest
     container_name: airports
     restart: unless-stopped
+
     environment:
-      # Hardcoded with sane defaults - NO .env files
+      # Hardcoded sane defaults - NO .env files
       - MODE=production
       - TZ=America/New_York
-      # ENABLE_TOR=true is default, no need to specify
-    ports:
-      # Production: bound to Docker bridge only
-      - "172.17.0.1:64580:80"
+      - PORT=80
+      - ADDRESS=0.0.0.0
+      # ENABLE_TOR=true is the default
+
     volumes:
-      - ./rootfs/config/airports:/config
-      - ./rootfs/data/airports:/data
+      - ./volumes/config/airports:/config
+      - ./volumes/data/airports:/data
+      - ./volumes/logs/airports:/logs
+
+    ports:
+      # External random 64xxx port mapped to internal 80
+      - "172.17.0.1:64580:80"
+
     networks:
       - airports
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   airports:
     name: airports
     external: false
+    driver: bridge
