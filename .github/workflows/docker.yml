@@ -2,26 +2,30 @@ name: Docker Build
 
 on:
   push:
-    branches: ['**']  # ALL branches
+    branches: ['**']
     tags:
       - 'v*'
       - '*.*.*'
   workflow_dispatch:
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/devel' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/beta' }}
+
 env:
-  PROJECT: airports
+  PROJECTNAME: airports
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-standard:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -38,56 +42,69 @@ jobs:
 
       - name: Set build info
         run: |
-          echo "GIT_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "YYMM=$(date +"%y%m")" >> $GITHUB_ENV
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
-            echo "VERSION=${VERSION#v}" >> $GITHUB_ENV  # Strip 'v' prefix
+            echo "VERSION=${VERSION#v}" >> $GITHUB_ENV
             echo "IS_TAG=true" >> $GITHUB_ENV
           else
             echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
             echo "IS_TAG=false" >> $GITHUB_ENV
           fi
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
-          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
       - name: Determine tags
         id: tags
         run: |
-          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.GIT_COMMIT }}"
-
+          TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.COMMIT_ID }}"
           if [[ "${{ env.IS_TAG }}" == "true" ]]; then
-            # Release tag - version, latest, YYMM
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.YYMM }}"
           else
-            # All pushes get devel tag
             TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
-
-            # Beta branch also gets beta tag
             if [[ "${{ github.ref }}" == refs/heads/beta ]]; then
               TAGS="$TAGS,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta"
             fi
           fi
-
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./docker/Dockerfile
+          file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           build-args: |
-            VERSION="${{ env.VERSION }}"
-            BUILD_DATE="${{ env.BUILD_DATE }}"
-            COMMIT_ID="${{ env.COMMIT_ID }}"
+            VERSION=${{ env.VERSION }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            COMMIT_ID=${{ env.COMMIT_ID }}
           labels: |
-            org.opencontainers.image.title="${{ env.PROJECT }}"
-            org.opencontainers.image.version="${{ env.VERSION }}"
-            org.opencontainers.image.created="${{ env.BUILD_DATE }}"
-            org.opencontainers.image.revision="${{ env.COMMIT_ID }}"
-            org.opencontainers.image.source="${{ github.server_url }}/${{ github.repository }}"
+            org.opencontainers.image.vendor=apimgr
+            org.opencontainers.image.authors=apimgr
+            org.opencontainers.image.title=${{ env.PROJECTNAME }}
+            org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
+            org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            manifest:org.opencontainers.image.vendor=apimgr
+            manifest:org.opencontainers.image.authors=apimgr
+            manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}
+            manifest:org.opencontainers.image.base.name=${{ env.PROJECTNAME }}
+            manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - standard image (alpine)
+            manifest:org.opencontainers.image.version=${{ env.VERSION }}
+            manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
+            manifest:org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}
+            manifest:org.opencontainers.image.licenses=MIT

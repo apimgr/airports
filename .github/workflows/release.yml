@@ -1,136 +1,135 @@
-# GitHub Actions - Binary Release
-# Builds binaries for all platforms and creates GitHub release
-# Triggers: push to main, monthly schedule
-
-name: Binary Release
+name: Release
 
 on:
   push:
-    branches:
-      - main
-  schedule:
-    # Run monthly on the 1st at 3:00 AM UTC
-    - cron: '0 3 1 * *'
-  workflow_dispatch:
+    tags:
+      - 'v*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  PROJECTNAME: airports
 
 jobs:
-  test:
-    name: Run Tests
+  build:
     runs-on: ubuntu-latest
+    container: golang:alpine
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: arm64
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set build info
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          fi
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
+          if [ -f site.txt ]; then
+            echo "OFFICIALSITE=$(cat site.txt)" >> $GITHUB_ENV
+          else
+            echo "OFFICIALSITE=${{ secrets.OFFICIALSITE }}" >> $GITHUB_ENV
+          fi
+
+      - name: Build server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src
+
+      - name: Build CLI
+        if: hashFiles('src/client/') != ''
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/client
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v5
         with:
-          go-version: 'stable'
-          cache: true
+          name: ${{ env.PROJECTNAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.PROJECTNAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      - name: Run tests
-        run: make test
+      - name: Upload CLI artifact
+        if: hashFiles('src/client/') != ''
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-  build-and-release:
-    name: Build and Release Binaries
+  release:
+    needs: build
     runs-on: ubuntu-latest
-    needs: test
     permissions:
       contents: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Read version from release.txt
-        id: version
-        run: |
-          VERSION=$(cat release.txt 2>/dev/null || echo "0.0.1")
-          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${VERSION}"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build all platforms
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }} make build
-
-      - name: List built binaries
-        run: |
-          echo "Built binaries:"
-          ls -lh binaries/
-
-      - name: Delete existing release if exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          echo "Checking for existing release ${VERSION}..."
-          gh release delete ${VERSION} -y 2>/dev/null || echo "No existing release found"
-          git push --delete origin ${VERSION} 2>/dev/null || echo "No existing tag found"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
-          COMMIT=${{ github.sha }}
-          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          gh release create ${VERSION} \
-            ./binaries/* \
-            --title "Airports API ${VERSION}" \
-            --notes "## Release ${VERSION}
-
-**Commit**: \`${COMMIT}\`
-**Built**: ${BUILD_DATE}
-**Triggered by**: ${{ github.event_name }}
-
-### 📦 Downloads
-
-Select the binary for your platform:
-
-| Platform | Architecture | Download |
-|----------|--------------|----------|
-| **Linux** | x86_64 | [airports-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-amd64) |
-| **Linux** | ARM64 | [airports-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-arm64) |
-| **macOS** | Intel | [airports-macos-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-macos-amd64) |
-| **macOS** | Apple Silicon | [airports-macos-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-macos-arm64) |
-| **Windows** | x86_64 | [airports-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-windows-amd64.exe) |
-| **Windows** | ARM64 | [airports-windows-arm64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-windows-arm64.exe) |
-| **FreeBSD** | x86_64 | [airports-bsd-amd64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-bsd-amd64) |
-| **FreeBSD** | ARM64 | [airports-bsd-arm64](https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-bsd-arm64) |
-
-### 🐳 Docker Images
-
-\`\`\`bash
-docker pull ghcr.io/${{ github.repository }}:${VERSION}
-docker pull ghcr.io/${{ github.repository }}:latest
-\`\`\`
-
-### 📚 Documentation
-
-- [API Reference](https://github.com/${{ github.repository }}/blob/main/docs/API.md)
-- [Server Administration Guide](https://github.com/${{ github.repository }}/blob/main/docs/SERVER.md)
-- [ReadTheDocs](https://airports.readthedocs.io)
-
-### ✨ Quick Start
-
-\`\`\`bash
-# Download and run
-curl -L -o airports https://github.com/${{ github.repository }}/releases/download/${VERSION}/airports-linux-amd64
-chmod +x airports
-./airports
-\`\`\`
-"
-
-      - name: Upload release assets
-        uses: actions/upload-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
         with:
-          name: release-${{ steps.version.outputs.VERSION }}
-          path: binaries/*
-          retention-days: 90
+          path: binaries
+          merge-multiple: true
+
+      - name: Set version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+          if [[ "$TAG" == v* ]]; then
+            echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          elif [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "RELEASE_TAG=v$TAG" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          fi
+
+      - name: Create version.txt
+        run: echo "${{ env.VERSION }}" > binaries/version.txt
+
+      - name: Create source archive
+        run: |
+          tar --exclude='.git' --exclude='.github' --exclude='.gitea'             --exclude='binaries' --exclude='releases' --exclude='*.tar.gz'             -czf binaries/${{ env.PROJECTNAME }}-${{ env.VERSION }}-source.tar.gz .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: binaries/*
+          generate_release_notes: true
+          make_latest: true
