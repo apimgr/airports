@@ -1,0 +1,72 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>Help &amp; API Reference</h1>
+    <p>The Airports API is a public, read-only REST + GraphQL service. No authentication, no API keys, no rate-limited tiers — every endpoint is free for everyone.</p>
+
+    <h2>Quick start</h2>
+    <pre><code># Get a single airport by ICAO or IATA code
+curl -q -LSsf https://YOUR_SERVER/api/v1/airport/KJFK
+
+# Search by name, city, country, or code
+curl -q -LSsf "https://YOUR_SERVER/api/v1/search?q=denver"
+
+# Find airports near a coordinate (radius in km, default metric)
+curl -q -LSsf "https://YOUR_SERVER/api/v1/nearby?lat=40.64&lon=-73.78&radius=50"
+
+# Bounding-box query
+curl -q -LSsf "https://YOUR_SERVER/api/v1/bbox?minLat=40&maxLat=42&minLon=-75&maxLon=-73"
+
+# Bulk dataset (JSON / CSV / GeoJSON)
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.json
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.csv
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.geojson</code></pre>
+
+    <h2>REST endpoints</h2>
+    <table class="api-table">
+        <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+        <tbody>
+            <tr><td>GET</td><td>/api/v1/airports</td><td>Paginated list (limit, offset)</td></tr>
+            <tr><td>GET</td><td>/api/v1/airports.json|.csv|.geojson</td><td>Full dataset export</td></tr>
+            <tr><td>GET</td><td>/api/v1/airport/{code}</td><td>Single airport by ICAO or IATA code</td></tr>
+            <tr><td>GET</td><td>/api/v1/search?q=...</td><td>Search by name, city, country, or code</td></tr>
+            <tr><td>GET</td><td>/api/v1/nearby?lat=&amp;lon=&amp;radius=</td><td>Airports within a radius</td></tr>
+            <tr><td>GET</td><td>/api/v1/bbox?minLat=&amp;maxLat=&amp;minLon=&amp;maxLon=</td><td>Airports in a bounding box</td></tr>
+            <tr><td>GET</td><td>/api/v1/autocomplete?q=...</td><td>Type-ahead suggestions</td></tr>
+            <tr><td>GET</td><td>/api/v1/countries</td><td>List of countries with airport counts</td></tr>
+            <tr><td>GET</td><td>/api/v1/states/{country}</td><td>States/regions in a country</td></tr>
+            <tr><td>GET</td><td>/api/v1/stats</td><td>Dataset statistics</td></tr>
+            <tr><td>GET</td><td>/api/v1/geoip</td><td>Caller GeoIP lookup</td></tr>
+            <tr><td>GET</td><td>/api/v1/geoip/{ip}</td><td>GeoIP lookup for a specific IP</td></tr>
+            <tr><td>GET</td><td>/api/v1/server/healthz</td><td>Health check (JSON)</td></tr>
+            <tr><td>GET</td><td>/api/v1/server/swagger</td><td>OpenAPI JSON spec</td></tr>
+            <tr><td>POST</td><td>/api/v1/server/graphql</td><td>GraphQL query endpoint</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Unversioned aliases</h2>
+    <p>For client convenience, these unversioned aliases are mounted to the same handlers as the current API version:</p>
+    <ul>
+        <li><code>/api/healthz</code> &rarr; <code>/api/v1/server/healthz</code></li>
+        <li><code>/api/swagger</code> &rarr; <code>/api/v1/server/swagger</code></li>
+        <li><code>/api/graphql</code> &rarr; <code>/api/v1/server/graphql</code></li>
+    </ul>
+
+    <h2>Interactive docs</h2>
+    <ul>
+        <li><a href="/server/docs/swagger">Swagger UI</a> — explore REST endpoints</li>
+        <li><a href="/server/docs/graphql">GraphiQL</a> — explore the GraphQL schema</li>
+    </ul>
+
+    <h2>FAQ</h2>
+    <dl>
+        <dt>Do I need an API key?</dt>
+        <dd>No. Every endpoint is public.</dd>
+        <dt>Where does the data come from?</dt>
+        <dd>OurAirports public-domain dataset, embedded into the binary at build time.</dd>
+        <dt>How fresh is the data?</dt>
+        <dd>Airport data is refreshed each release. GeoIP databases auto-update weekly.</dd>
+        <dt>What units does <code>radius</code> use?</dt>
+        <dd>Kilometres by default. Pass <code>units=imperial</code> for miles.</dd>
+    </dl>
+</section>
+{{end}}

@@ -132,18 +132,40 @@ func (s *Server) setupRouter() {
 	r.Get("/airport/{code}", s.handleAirportDetail)
 	r.Get("/stats", s.handleStats)
 	r.Get("/geoip", s.handleGeoIPPage)
-	r.Get("/healthz", s.handleHealth)
+	r.Get("/healthz", s.handleServerHealthz) // optional root alias for /server/healthz
 
-	// API Documentation routes (Public)
+	// /server/* pages (required by IDEA.md and AI.md spec)
+	r.Get("/server/about", s.handleServerAbout)
+	r.Get("/server/help", s.handleServerHelp)
+	r.Get("/server/healthz", s.handleServerHealthz)
+	r.Get("/server/privacy", s.handleServerPrivacy)
+	r.Get("/server/terms", s.handleServerTerms)
+	r.Get("/server/docs/swagger", s.handleSwaggerUI)
+	r.Get("/server/docs/graphql", s.handleGraphQLPlayground)
+
+	// Unversioned API aliases (mounted to the same handlers as the current version,
+	// per AI.md "Unversioned API aliases" section — never redirect, never fork behavior).
+	r.Get("/api/swagger", s.handleOpenAPISpec)
+	r.Get("/api/healthz", s.handleServerHealthz)
+	r.Get("/api/graphql", s.handleGraphQLPlayground)
+	r.Post("/api/graphql", s.handleGraphQL)
+
+	// Legacy API doc paths kept for backward compatibility with older clients.
 	r.Get("/openapi", s.handleSwaggerUI)
 	r.Get("/graphql", s.handleGraphQLPlayground)
 
-	// API v1 routes - ALL PUBLIC, NO AUTH per BASE.md
+	// API v1 routes - ALL PUBLIC, NO AUTH
 	r.Route("/api/v1", func(r chi.Router) {
 		// API info
 		r.Get("/", s.handleAPIInfo)
 
-		// API Documentation endpoints
+		// Versioned server API surface (canonical paths per AI.md)
+		r.Get("/server/healthz", s.handleServerHealthz)
+		r.Get("/server/swagger", s.handleOpenAPISpec)
+		r.Get("/server/graphql", s.handleGraphQLPlayground)
+		r.Post("/server/graphql", s.handleGraphQL)
+
+		// Legacy API documentation endpoints kept for backward compatibility.
 		r.Get("/openapi", s.handleSwaggerUI)
 		r.Get("/openapi.json", s.handleOpenAPISpec)
 		r.Get("/graphql", s.handleGraphQLPlayground)
@@ -249,10 +271,11 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"geoip":     "/api/v1/geoip",
 			"stats":     "/api/v1/stats",
 			"countries": "/api/v1/countries",
-			"openapi":   "/api/v1/openapi",
-			"graphql":   "/api/v1/graphql",
+			"swagger":   "/api/v1/server/swagger",
+			"graphql":   "/api/v1/server/graphql",
+			"healthz":   "/api/v1/server/healthz",
 		},
-		"documentation": "/openapi",
+		"documentation": "/server/docs/swagger",
 	}
 
 	s.respondJSON(w, http.StatusOK, info)

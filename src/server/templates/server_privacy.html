@@ -1,0 +1,25 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>Privacy</h1>
+    <p>The Airports API is a public, read-only reference service. There are no user accounts, no logins, and no tracking cookies.</p>
+
+    <h2>What we collect</h2>
+    <ul>
+        <li><strong>Request logs</strong> &mdash; standard HTTP access logs (timestamp, method, path, status, response size, user agent) retained only as long as the operator's log rotation policy dictates.</li>
+        <li><strong>Caller IP for GeoIP lookup</strong> &mdash; used at request time only to surface nearby airports on the home page. The IP is never persisted, never logged in association with results, and never shared with third parties.</li>
+    </ul>
+
+    <h2>What we do NOT collect</h2>
+    <ul>
+        <li>No user accounts, no email addresses, no profile data.</li>
+        <li>No cookies for tracking. Theme preference is stored in <code>localStorage</code> on the browser only.</li>
+        <li>No third-party analytics, no ad networks, no tag managers.</li>
+    </ul>
+
+    <h2>Third-party services</h2>
+    <p>GeoIP databases are downloaded from public CDNs at server startup and refreshed weekly. No request data is sent to any third party at runtime.</p>
+
+    <h2>Contact</h2>
+    <p>For privacy questions, see <a href="/security.txt">security.txt</a>.</p>
+</section>
+{{end}}

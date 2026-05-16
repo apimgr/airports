@@ -1,0 +1,24 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>About Airports API</h1>
+    <p class="lead">{{.Tagline}}</p>
+
+    <h2>What this is</h2>
+    <p>{{.Description}}</p>
+
+    <h2>Features</h2>
+    <ul>
+        {{range .Features}}<li>{{.}}</li>{{end}}
+    </ul>
+
+    <h2>Links</h2>
+    <ul>
+        <li><a href="{{.Repo}}">Source code on GitHub</a></li>
+        <li><a href="/server/help">Help &amp; API documentation</a></li>
+        <li><a href="/server/docs/swagger">OpenAPI / Swagger UI</a></li>
+        <li><a href="/server/docs/graphql">GraphQL playground</a></li>
+    </ul>
+
+    <p class="muted">License: {{.License}} &middot; Version: {{.Version}}</p>
+</section>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>Health</h1>
+    <p>Status: <strong>{{.Status}}</strong></p>
+    <ul>
+        <li>Airports loaded: {{.Airports}}</li>
+        <li>Countries: {{.Countries}}</li>
+        <li>Version: {{.Version}}</li>
+        <li>Server time (UTC): {{.Time}}</li>
+    </ul>
+    <p class="muted">Machine-readable: <a href="/api/v1/server/healthz">JSON</a> &middot; <a href="/server/healthz" rel="alternate" type="text/plain">text</a></p>
+</section>
+{{end}}

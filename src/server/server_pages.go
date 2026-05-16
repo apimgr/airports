@@ -1,0 +1,100 @@
+package server
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// Server pages required by IDEA.md and AI.md spec:
+//   /server/about    - About page sourced from IDEA.md project description
+//   /server/help     - Help / API reference
+//   /server/healthz  - Health check (HTML/JSON/text via content negotiation)
+//   /server/privacy  - Privacy policy
+//   /server/terms    - Terms of use
+//   /server/docs/swagger  - Swagger UI (interactive)
+//   /server/docs/graphql  - GraphiQL UI (interactive)
+
+// handleServerAbout renders the About page using IDEA.md-derived content.
+func (s *Server) handleServerAbout(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, "server_about.html", map[string]interface{}{
+		"Title":       "About",
+		"Theme":       s.config.WebUI.Theme,
+		"Tagline":     "Global airport reference data — free, open, and authentication-free.",
+		"Description": "Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, a GraphQL endpoint, and a server-side rendered web UI.",
+		"Features": []string{
+			"Read-only REST API with JSON, CSV, and GeoJSON exports",
+			"GraphQL endpoint with interactive playground",
+			"OpenAPI / Swagger documentation",
+			"GeoIP-based caller location to surface nearby airports",
+			"Geographic queries: nearby (radius), bounding box, by code",
+			"Server-side rendered web UI (dark / light / auto theme, mobile-first PWA)",
+			"CLI client (airports-cli) for terminal use",
+			"Single self-contained static binary",
+		},
+		"Repo":    "https://github.com/apimgr/airports",
+		"License": "MIT",
+		"Version": Version,
+	})
+}
+
+// handleServerHelp renders the Help / API reference page.
+func (s *Server) handleServerHelp(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, "server_help.html", map[string]interface{}{
+		"Title": "Help",
+		"Theme": s.config.WebUI.Theme,
+	})
+}
+
+// handleServerPrivacy renders the Privacy page.
+func (s *Server) handleServerPrivacy(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, "server_privacy.html", map[string]interface{}{
+		"Title": "Privacy",
+		"Theme": s.config.WebUI.Theme,
+	})
+}
+
+// handleServerTerms renders the Terms of Use page.
+func (s *Server) handleServerTerms(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, "server_terms.html", map[string]interface{}{
+		"Title": "Terms",
+		"Theme": s.config.WebUI.Theme,
+	})
+}
+
+// handleServerHealthz performs content negotiation:
+//   - text/html for browsers (Accept contains text/html)
+//   - text/plain when Accept contains text/plain or path ends in .txt
+//   - application/json otherwise (default)
+func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
+	stats := s.airports.Stats()
+	accept := r.Header.Get("Accept")
+
+	switch {
+	case strings.Contains(accept, "text/html"):
+		s.renderTemplate(w, "server_healthz.html", map[string]interface{}{
+			"Title":     "Health",
+			"Theme":     s.config.WebUI.Theme,
+			"Status":    "healthy",
+			"Airports":  stats["total_airports"],
+			"Countries": stats["countries"],
+			"Version":   Version,
+			"Time":      time.Now().UTC().Format(time.RFC3339),
+		})
+	case strings.Contains(accept, "text/plain"):
+		s.respondText(w, http.StatusOK, fmt.Sprintf("status: healthy\nairports: %d\ncountries: %d\nversion: %s\n",
+			stats["total_airports"], stats["countries"], Version))
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "healthy",
+			"airports":  stats["total_airports"],
+			"countries": stats["countries"],
+			"version":   Version,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
