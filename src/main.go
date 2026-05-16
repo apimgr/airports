@@ -36,9 +36,10 @@ var airportsData []byte
 
 var (
 	// Injected at build time via ldflags
-	Version   = "dev"
-	Commit    = "unknown"
-	BuildDate = "unknown"
+	Version      = "dev"
+	CommitID     = "unknown"
+	BuildDate    = "unknown"
+	OfficialSite = ""
 
 	// Project info
 	ProjectName = "airports"
@@ -139,7 +140,10 @@ func main() {
 
 func run(portFlag, addressFlag, configDirFlag, dataDirFlag string) error {
 	log.Printf("Starting %s API server v%s", ProjectName, Version)
-	log.Printf("Commit: %s, Built: %s", Commit, BuildDate)
+	log.Printf("Commit: %s, Built: %s", CommitID, BuildDate)
+	if OfficialSite != "" {
+		log.Printf("Official site: %s", OfficialSite)
+	}
 
 	// Get OS-specific default directories
 	defaultConfigDir, defaultDataDir, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
