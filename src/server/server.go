@@ -13,8 +13,17 @@ import (
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
+	graphqlpkg "github.com/apimgr/airports/src/graphql"
+	swaggerpkg "github.com/apimgr/airports/src/swagger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+)
+
+// Asset URL prefixes for the embedded Swagger UI and GraphiQL bundles.
+// The UI HTML templates reference these — keep in sync with route mounts.
+const (
+	swaggerAssetsPrefix = "/server/docs/swagger/assets/"
+	graphqlAssetsPrefix = "/server/docs/graphql/assets/"
 )
 
 // Build info (set from main)
@@ -151,14 +160,24 @@ func (s *Server) setupRouter() {
 	r.Get("/server/healthz", s.handleServerHealthz)
 	r.Get("/server/privacy", s.handleServerPrivacy)
 	r.Get("/server/terms", s.handleServerTerms)
-	r.Get("/server/docs/swagger", s.handleSwaggerUI)
-	r.Get("/server/docs/graphql", s.handleGraphQLPlayground)
+	// Swagger UI + GraphiQL — handlers live in src/swagger and src/graphql
+	// per AI.md PART 14 "Standardized File Locations". UI assets are
+	// served from embed.FS in those packages (no CDN, single binary).
+	swaggerUI := swaggerpkg.Handler("/api/v1/server/swagger", swaggerAssetsPrefix)
+	swaggerSpec := swaggerpkg.SpecHandler()
+	graphqlUI := graphqlpkg.UIHandler("/api/v1/server/graphql", graphqlAssetsPrefix)
+	graphqlQuery := graphqlpkg.QueryHandler(s.airports)
+
+	r.Get("/server/docs/swagger", swaggerUI)
+	r.Get("/server/docs/graphql", graphqlUI)
+	r.Mount(swaggerAssetsPrefix, swaggerpkg.AssetsHandler(swaggerAssetsPrefix))
+	r.Mount(graphqlAssetsPrefix, graphqlpkg.AssetsHandler(graphqlAssetsPrefix))
 
 	// Unversioned API aliases (mounted to the same handlers as the current version,
 	// per AI.md PART 14 "Unversioned API aliases" — never redirect, never fork behavior).
-	r.Get("/api/swagger", s.handleOpenAPISpec)
+	r.Get("/api/swagger", swaggerSpec)
 	r.Get("/api/healthz", s.handleServerHealthz)
-	r.Post("/api/graphql", s.handleGraphQL)
+	r.Post("/api/graphql", graphqlQuery)
 	// AI.md note: "Old paths removed: /openapi, /openapi.json, /graphql (GET and POST
 	// at root) are no longer served." The deprecated legacy aliases have therefore
 	// been deleted from both the root and the versioned tree.
@@ -170,8 +189,8 @@ func (s *Server) setupRouter() {
 
 		// Versioned server API surface (canonical paths per AI.md)
 		r.Get("/server/healthz", s.handleServerHealthz)
-		r.Get("/server/swagger", s.handleOpenAPISpec)
-		r.Post("/server/graphql", s.handleGraphQL)
+		r.Get("/server/swagger", swaggerSpec)
+		r.Post("/server/graphql", graphqlQuery)
 
 		// Airport endpoints - JSON responses
 		r.Get("/airports", s.handleGetAirports)

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(gitleaks detect *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(cp /tmp/swagger-ui.css /tmp/swagger-ui-bundle.js /tmp/swagger-ui-standalone-preset.js /root/Projects/github/apimgr/airports/src/swagger/assets/)",
+      "Bash(cp /tmp/graphiql.min.css /tmp/graphiql.min.js /tmp/react.production.min.js /tmp/react-dom.production.min.js /root/Projects/github/apimgr/airports/src/graphql/assets/)"
     ]
   }
 }
