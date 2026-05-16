@@ -86,11 +86,12 @@ function quickSearch(event) {
     }
 
     searchTimeout = setTimeout(() => {
-        fetch(`/api/v1/airports/search?q=${encodeURIComponent(query)}&limit=5`)
+        fetch(`/api/v1/search?q=${encodeURIComponent(query)}&limit=5`)
             .then(r => r.json())
             .then(data => {
-                if (data.success && data.data.length > 0) {
-                    const html = data.data.map(a => `
+                const list = (data.ok && data.data && data.data.airports) ? data.data.airports : [];
+                if (list.length > 0) {
+                    const html = list.map(a => `
                         <div class="quick-result-item" onclick="viewAirport('${a.icao}')">
                             <strong>${a.icao}${a.iata ? ' / ' + a.iata : ''}</strong>
                             <span>${a.name}</span>
@@ -121,7 +122,7 @@ function detectLocation() {
     fetch('/api/v1/geoip/airports/nearby')
         .then(r => r.json())
         .then(data => {
-            if (data.success) {
+            if (data.ok) {
                 const loc = data.data.location;
                 showModal('Your Location', `
                     <p><strong>IP:</strong> ${loc.ip}</p>

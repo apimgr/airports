@@ -221,7 +221,7 @@ function updateSetting(element) {
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) {
+        if (data.ok) {
             showToast(`Updated ${key}`, 'success');
             const item = element.closest('.setting-item');
             item.classList.add('updated');
@@ -244,7 +244,7 @@ function resetDefaults() {
         fetch('/config/reset', { method: 'POST' })
         .then(r => r.json())
         .then(data => {
-            if (data.success) {
+            if (data.ok) {
                 showToast('Settings reset to defaults', 'success');
                 setTimeout(() => window.location.reload(), 1500);
             } else {

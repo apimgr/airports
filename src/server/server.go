@@ -33,19 +33,21 @@ type Server struct {
 	adminHandler *admin.Handler
 }
 
-// Response is the standard API response format
+// Response is the standard API success response envelope as mandated by
+// AI.md PART 14 ("Response Standards"): {"ok": true, "data": ...}.
 type Response struct {
-	Success   bool        `json:"success"`
-	Data      interface{} `json:"data,omitempty"`
-	Error     *ErrorData  `json:"error,omitempty"`
-	Timestamp string      `json:"timestamp"`
+	OK   bool        `json:"ok"`
+	Data interface{} `json:"data,omitempty"`
 }
 
-// ErrorData contains error information
-type ErrorData struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Field   string `json:"field,omitempty"`
+// ErrorResponse is the canonical error envelope per AI.md PART 14:
+// {"ok": false, "error": "CODE", "message": "...", "details": {...}?}.
+// The HTTP status code carries status — it is intentionally NOT in the body.
+type ErrorResponse struct {
+	OK      bool        `json:"ok"`
+	Error   string      `json:"error"`
+	Message string      `json:"message"`
+	Details interface{} `json:"details,omitempty"`
 }
 
 // New creates a new server instance
@@ -93,6 +95,15 @@ func (s *Server) setupRouter() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Security headers — mandated by AI.md PART 11 "Security Headers".
+	// Applied to every response so even errors and static assets get them.
+	r.Use(s.securityHeaders)
+
+	// Echo the (chi-generated or client-supplied) request ID back to the
+	// caller so it can be quoted in bug reports and correlated with logs.
+	// AI.md PART 9 mandates X-Request-ID on every response.
+	r.Use(s.requestIDHeader)
 
 	// CORS - configurable, defaults to "*"
 	corsOrigin := s.config.WebSecurity.CORS
@@ -144,15 +155,13 @@ func (s *Server) setupRouter() {
 	r.Get("/server/docs/graphql", s.handleGraphQLPlayground)
 
 	// Unversioned API aliases (mounted to the same handlers as the current version,
-	// per AI.md "Unversioned API aliases" section — never redirect, never fork behavior).
+	// per AI.md PART 14 "Unversioned API aliases" — never redirect, never fork behavior).
 	r.Get("/api/swagger", s.handleOpenAPISpec)
 	r.Get("/api/healthz", s.handleServerHealthz)
-	r.Get("/api/graphql", s.handleGraphQLPlayground)
 	r.Post("/api/graphql", s.handleGraphQL)
-
-	// Legacy API doc paths kept for backward compatibility with older clients.
-	r.Get("/openapi", s.handleSwaggerUI)
-	r.Get("/graphql", s.handleGraphQLPlayground)
+	// AI.md note: "Old paths removed: /openapi, /openapi.json, /graphql (GET and POST
+	// at root) are no longer served." The deprecated legacy aliases have therefore
+	// been deleted from both the root and the versioned tree.
 
 	// API v1 routes - ALL PUBLIC, NO AUTH
 	r.Route("/api/v1", func(r chi.Router) {
@@ -162,14 +171,7 @@ func (s *Server) setupRouter() {
 		// Versioned server API surface (canonical paths per AI.md)
 		r.Get("/server/healthz", s.handleServerHealthz)
 		r.Get("/server/swagger", s.handleOpenAPISpec)
-		r.Get("/server/graphql", s.handleGraphQLPlayground)
 		r.Post("/server/graphql", s.handleGraphQL)
-
-		// Legacy API documentation endpoints kept for backward compatibility.
-		r.Get("/openapi", s.handleSwaggerUI)
-		r.Get("/openapi.json", s.handleOpenAPISpec)
-		r.Get("/graphql", s.handleGraphQLPlayground)
-		r.Post("/graphql", s.handleGraphQL)
 
 		// Airport endpoints - JSON responses
 		r.Get("/airports", s.handleGetAirports)
@@ -230,25 +232,28 @@ func (s *Server) respondJSON(w http.ResponseWriter, status int, data interface{}
 	w.WriteHeader(status)
 
 	resp := Response{
-		Success:   status < 400,
-		Data:      data,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		OK:   status < 400,
+		Data: data,
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("respondJSON: encode failed: %v", err)
+	}
 }
 
 func (s *Server) respondError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	resp := Response{
-		Success:   false,
-		Error:     &ErrorData{Code: code, Message: message},
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	resp := ErrorResponse{
+		OK:      false,
+		Error:   code,
+		Message: message,
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("respondError: encode failed: %v", err)
+	}
 }
 
 func (s *Server) respondText(w http.ResponseWriter, status int, text string) {
@@ -394,6 +399,40 @@ func (s *Server) handleHealthText(w http.ResponseWriter, r *http.Request) {
 	text := fmt.Sprintf("status: healthy\nairports: %d\ncountries: %d\n",
 		stats["total_airports"], stats["countries"])
 	s.respondText(w, http.StatusOK, text)
+}
+
+// securityHeaders applies the baseline HTTP security headers required by
+// AI.md PART 11. HSTS is set conditionally on TLS-terminated requests.
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("X-XSS-Protection", "1; mode=block")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("X-Permitted-Cross-Domain-Policies", "none")
+		h.Set("Origin-Agent-Cluster", "?1")
+		h.Set("Cross-Origin-Resource-Policy", "cross-origin")
+		// Permissions-Policy: lock down powerful APIs by default.
+		h.Set("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
+		// HSTS only when the request actually arrived over TLS (either
+		// direct or via a trusted reverse-proxy that set X-Forwarded-Proto).
+		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestIDHeader echoes the chi-generated request ID back to the client
+// in the X-Request-ID response header so it can be quoted in bug reports.
+func (s *Server) requestIDHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := middleware.GetReqID(r.Context()); id != "" {
+			w.Header().Set("X-Request-ID", id)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleGeoIPPage renders the GeoIP lookup page

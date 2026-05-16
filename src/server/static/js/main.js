@@ -78,7 +78,7 @@ async function apiGet(endpoint) {
         const response = await fetch(endpoint);
         const data = await response.json();
 
-        if (!data.success) {
+        if (!data.ok) {
             throw new Error(data.error?.message || 'API request failed');
         }
 
