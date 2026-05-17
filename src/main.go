@@ -62,13 +62,13 @@ func main() {
 	restorePath := flag.String("restore", "", "Restore from backup archive at <path>")
 
 	// Service commands
-	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, enable, disable, logs, --install, --uninstall, --help")
+	serviceCmd := flag.String("service", "", "Service management: install|uninstall|start|stop|restart|status|enable|disable|logs")
 
 	// Maintenance commands
 	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup")
 
-	// Update command
-	updateCmd := flag.String("update", "", "Update commands: check, yes, branch")
+	// Update flag — `airports --update` checks GitHub releases and applies any update.
+	doUpdate := flag.Bool("update", false, "Self-update from GitHub releases")
 
 	flag.Parse()
 
@@ -115,14 +115,9 @@ func main() {
 		return
 	}
 
-	// Handle update command
-	if *updateCmd != "" {
-		// Get optional branch from remaining args
-		var branch string
-		if flag.NArg() > 0 {
-			branch = flag.Arg(0)
-		}
-		if err := handleUpdateCommand(*updateCmd, branch); err != nil {
+	// Handle --update flag: check GitHub releases and apply any available update.
+	if *doUpdate {
+		if err := checkAndUpdate(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -430,13 +425,10 @@ func handleServiceCommand(cmd string) error {
 		return service.Disable()
 	case "logs":
 		return service.Logs()
-	case "--install":
+	case "install":
 		return service.Install()
-	case "--uninstall":
+	case "uninstall":
 		return service.Uninstall()
-	case "--help":
-		printServiceHelp()
-		return nil
 	default:
 		return fmt.Errorf("unknown service command: %s", cmd)
 	}
@@ -445,6 +437,8 @@ func handleServiceCommand(cmd string) error {
 func printServiceHelp() {
 	fmt.Println("Service Commands:")
 	fmt.Println()
+	fmt.Println("  install     Install as system service (does not start it)")
+	fmt.Println("  uninstall   Remove system service (preserves config and data)")
 	fmt.Println("  start       Start the service")
 	fmt.Println("  stop        Stop the service")
 	fmt.Println("  restart     Restart the service")
@@ -453,11 +447,9 @@ func printServiceHelp() {
 	fmt.Println("  enable      Enable service at boot")
 	fmt.Println("  disable     Disable service at boot")
 	fmt.Println("  logs        Tail recent service logs")
-	fmt.Println("  --install   Install as system service")
-	fmt.Println("  --uninstall Remove system service")
 	fmt.Println()
 	fmt.Println("Supported service managers:")
-	fmt.Println("  Linux:   systemd, runit")
+	fmt.Println("  Linux:   systemd, OpenRC, runit")
 	fmt.Println("  macOS:   launchd")
 	fmt.Println("  Windows: Windows Service Manager")
 	fmt.Println("  BSD:     rc.d")
