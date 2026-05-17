@@ -53,7 +53,7 @@ LABEL maintainer="apimgr <apimgr@casjay.pro>" \
 LABEL org.opencontainers.image.licenses="${LICENSE}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.schema-version="${VERSION}" \
+      org.opencontainers.image.schema-version="1.0" \
       org.opencontainers.image.revision="${COMMIT_ID}"
 
 # Required runtime packages per spec
@@ -79,7 +79,7 @@ COPY docker/rootfs/ /
 
 RUN chmod 755 /usr/local/bin/*
 
-ENV MODE=production \
+ENV MODE=development \
     TZ=America/New_York \
     ENABLE_TOR=true \
     PORT=80 \

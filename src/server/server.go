@@ -39,6 +39,7 @@ type Server struct {
 	config      *config.Config
 	router      *chi.Mux
 	rateLimiter *RateLimiter
+	metrics     *appMetrics
 }
 
 // ErrorResponse is the canonical error envelope per AI.md PART 14:
@@ -63,6 +64,7 @@ func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Conf
 		geoip:       geoipSvc,
 		config:      cfg,
 		rateLimiter: NewRateLimiter(60, 120), // 60 req/s, burst 120
+		metrics:     newMetrics(),
 	}
 
 	s.setupRouter()
@@ -84,6 +86,10 @@ func (s *Server) setupRouter() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Prometheus HTTP instrumentation — records http_requests_total and
+	// http_request_duration_seconds for every request.
+	r.Use(s.metrics.instrumentMiddleware)
 
 	// Security headers — mandated by AI.md PART 11 "Security Headers".
 	// Applied to every response so even errors and static assets get them.
@@ -139,7 +145,7 @@ func (s *Server) setupRouter() {
 
 	// /server/* pages (required by IDEA.md and AI.md spec)
 	r.Get("/server/about", s.handleServerAbout)
-	r.Get("/server/metrics", s.handleMetrics)
+	r.Get("/server/metrics", s.metrics.handler().ServeHTTP)
 	r.Get("/server/help", s.handleServerHelp)
 	r.Get("/server/healthz", s.handleServerHealthz)
 	r.Get("/server/privacy", s.handleServerPrivacy)
@@ -227,10 +233,14 @@ func (s *Server) setupRouter() {
 		r.Get("/settings", s.handleGetSettings)
 	})
 
-	// Metrics endpoint (if enabled)
-	if s.config.Server.Metrics.Enabled {
-		r.Get(s.config.Server.Metrics.Endpoint, s.handleMetrics)
+	// Metrics endpoint — always mounted at the configured path (default /metrics).
+	// The /server/metrics alias above serves browsers; this one is for Prometheus
+	// scrapers that follow the standard convention.
+	metricsPath := s.config.Server.Metrics.Endpoint
+	if metricsPath == "" {
+		metricsPath = "/metrics"
 	}
+	r.Get(metricsPath, s.metrics.handler().ServeHTTP)
 
 	s.router = r
 }
@@ -413,22 +423,6 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	s.respondItem(w, http.StatusOK, settings)
 }
 
-// handleMetrics returns Prometheus-compatible metrics
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	stats := s.airports.Stats()
-
-	var sb strings.Builder
-	sb.WriteString("# HELP airports_total Total number of airports\n")
-	sb.WriteString("# TYPE airports_total gauge\n")
-	sb.WriteString(fmt.Sprintf("airports_total %d\n", stats["total_airports"]))
-
-	sb.WriteString("# HELP airports_countries Number of countries\n")
-	sb.WriteString("# TYPE airports_countries gauge\n")
-	sb.WriteString(fmt.Sprintf("airports_countries %d\n", stats["countries"]))
-
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	w.Write([]byte(sb.String()))
-}
 
 // handleHealthText returns health status as text
 func (s *Server) handleHealthText(w http.ResponseWriter, r *http.Request) {

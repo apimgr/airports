@@ -53,6 +53,7 @@ func (s *Server) handleGetAirports(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAirportsJSON returns the full airport database as JSON
 func (s *Server) handleGetAirportsJSON(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportExportTotal.WithLabelValues("json").Inc()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=airports.json")
 
@@ -62,6 +63,7 @@ func (s *Server) handleGetAirportsJSON(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAirportsCSV returns the full airport database as CSV
 func (s *Server) handleGetAirportsCSV(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportExportTotal.WithLabelValues("csv").Inc()
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=airports.csv")
 
@@ -86,6 +88,7 @@ func (s *Server) handleGetAirportsCSV(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAirportsGeoJSON returns the full airport database as GeoJSON
 func (s *Server) handleGetAirportsGeoJSON(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportExportTotal.WithLabelValues("geojson").Inc()
 	w.Header().Set("Content-Type", "application/geo+json")
 	w.Header().Set("Content-Disposition", "attachment; filename=airports.geojson")
 
@@ -122,6 +125,7 @@ func (s *Server) handleGetAirportsGeoJSON(w http.ResponseWriter, r *http.Request
 
 // handleGetAirportByIdent returns a single airport by ICAO/IATA ident
 func (s *Server) handleGetAirportByIdent(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportLookupTotal.WithLabelValues("json").Inc()
 	ident := chi.URLParam(r, "ident")
 
 	airport, err := s.airports.GetByCode(ident)
@@ -133,8 +137,9 @@ func (s *Server) handleGetAirportByIdent(w http.ResponseWriter, r *http.Request)
 	s.respondItem(w, http.StatusOK, airport)
 }
 
-// handleGetAirportByIdentText returns a single airport as text
+// handleGetAirportByIdentText returns a single airport as plain text
 func (s *Server) handleGetAirportByIdentText(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportLookupTotal.WithLabelValues("text").Inc()
 	code := chi.URLParam(r, "ident")
 	// Remove .txt extension if present
 	code = strings.TrimSuffix(code, ".txt")
@@ -154,6 +159,7 @@ func (s *Server) handleGetAirportByIdentText(w http.ResponseWriter, r *http.Requ
 
 // handleSearchAirports searches for airports
 func (s *Server) handleSearchAirports(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportSearchTotal.WithLabelValues("json").Inc()
 	query := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -168,8 +174,9 @@ func (s *Server) handleSearchAirports(w http.ResponseWriter, r *http.Request) {
 	s.respondList(w, http.StatusOK, results, page, limit, len(results))
 }
 
-// handleSearchAirportsText returns search results as text
+// handleSearchAirportsText returns search results as plain text
 func (s *Server) handleSearchAirportsText(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportSearchTotal.WithLabelValues("text").Inc()
 	query := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
@@ -191,6 +198,7 @@ func (s *Server) handleSearchAirportsText(w http.ResponseWriter, r *http.Request
 
 // handleNearbyAirports finds airports near coordinates
 func (s *Server) handleNearbyAirports(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportNearbyTotal.WithLabelValues("json").Inc()
 	latStr := r.URL.Query().Get("lat")
 	lonStr := r.URL.Query().Get("lon")
 	radiusStr := r.URL.Query().Get("radius")
@@ -241,8 +249,9 @@ func (s *Server) handleNearbyAirports(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleNearbyAirportsText returns nearby airports as text
+// handleNearbyAirportsText returns nearby airports as plain text
 func (s *Server) handleNearbyAirportsText(w http.ResponseWriter, r *http.Request) {
+	s.metrics.airportNearbyTotal.WithLabelValues("text").Inc()
 	latStr := r.URL.Query().Get("lat")
 	lonStr := r.URL.Query().Get("lon")
 	radiusStr := r.URL.Query().Get("radius")
