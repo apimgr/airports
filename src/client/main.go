@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,18 +41,124 @@ const (
 // per the NO_COLOR convention (https://no-color.org/) and the spec rule
 // that all binaries respect NO_COLOR.
 func honorNoColor() bool {
-	if v := os.Getenv("NO_COLOR"); v != "" {
-		return true
+	return os.Getenv("NO_COLOR") != ""
+}
+
+// cliConfig holds the persisted settings for airports-cli.
+type cliConfig struct {
+	ServerURL string `yaml:"server_url"`
+}
+
+// cliConfigPath returns the OS-appropriate path for the CLI config file.
+// Precedence: $XDG_CONFIG_HOME/airports/cli.yml (Linux/macOS XDG standard),
+// then $HOME/.config/airports/cli.yml.
+func cliConfigPath() (string, error) {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		base = filepath.Join(home, ".config")
 	}
-	return false
+	return filepath.Join(base, "airports", "cli.yml"), nil
+}
+
+// loadCLIConfig reads the CLI config file if it exists.
+// Returns an empty config (not an error) when the file is absent.
+func loadCLIConfig() (*cliConfig, error) {
+	path, err := cliConfigPath()
+	if err != nil {
+		return &cliConfig{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return &cliConfig{}, nil
+	}
+	if err != nil {
+		return &cliConfig{}, fmt.Errorf("read cli config: %w", err)
+	}
+	var cfg cliConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return &cliConfig{}, fmt.Errorf("parse cli config: %w", err)
+	}
+	return &cfg, nil
+}
+
+// saveCLIConfig writes the CLI config to disk, creating directories as needed.
+func saveCLIConfig(cfg *cliConfig) error {
+	path, err := cliConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal cli config: %w", err)
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// isTTY reports whether fd is an interactive terminal (not a pipe/redirect).
+func isTTY(fd *os.File) bool {
+	fi, err := fd.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// runFirstRunWizard checks whether a CLI config already exists and, if not
+// and we are running interactively, prompts the user for the server URL.
+// Returns the server URL to use (from config or the provided default).
+func runFirstRunWizard(defaultURL string) string {
+	cfg, err := loadCLIConfig()
+	if err != nil {
+		// Config load error is non-fatal — fall back to the default URL.
+		return defaultURL
+	}
+	if cfg.ServerURL != "" {
+		return cfg.ServerURL
+	}
+	// Config file exists but server_url is empty, or file is absent.
+	// Only show wizard when stdin and stderr are both interactive.
+	if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
+		return defaultURL
+	}
+
+	fmt.Fprintln(os.Stderr, "airports-cli — first run setup")
+	fmt.Fprintf(os.Stderr, "Server URL [%s]: ", defaultURL)
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	input := strings.TrimSpace(scanner.Text())
+	if input == "" {
+		input = defaultURL
+	}
+	cfg.ServerURL = input
+	if saveErr := saveCLIConfig(cfg); saveErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not save config:", saveErr)
+	} else {
+		configPath, _ := cliConfigPath()
+		fmt.Fprintln(os.Stderr, "Config saved to", configPath)
+	}
+	return cfg.ServerURL
 }
 
 func main() {
 	// Suppress flag's default error output so we control formatting.
 	flag.CommandLine.SetOutput(io.Discard)
 
+	// First-run wizard: if no AIRPORTS_SERVER env var is set and no config file
+	// exists yet, prompt the user interactively for the server URL.
+	resolvedBaseURL := defaultBaseURL
+	if envOr("AIRPORTS_SERVER", "") == "" {
+		resolvedBaseURL = runFirstRunWizard(defaultBaseURL)
+	}
+
 	var (
-		baseURL    = flag.String("server", envOr("AIRPORTS_SERVER", defaultBaseURL), "Server base URL (env: AIRPORTS_SERVER)")
+		baseURL    = flag.String("server", envOr("AIRPORTS_SERVER", resolvedBaseURL), "Server base URL (env: AIRPORTS_SERVER)")
 		apiVersion = flag.String("api-version", defaultAPIVersion, "API version path segment")
 		format     = flag.String("format", "", "Output format: json|yaml|text (default: json)")
 		jsonFlag   = flag.Bool("json", false, "Output as JSON")
@@ -135,6 +243,10 @@ Flags:
   --format FORMAT           Output format: json|yaml|text
   -h, --help                Show this help
   --version                 Show client version
+
+Config:
+  Server URL is saved in ~/.config/airports/cli.yml on first run.
+  Delete the file or set AIRPORTS_SERVER to override.
 
 Examples:
   airports-cli search "kennedy"
