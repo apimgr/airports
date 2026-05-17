@@ -336,16 +336,19 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 		"version":     "v1",
 		"description": "Global airport location information API with GeoIP integration",
 		"endpoints": map[string]string{
-			"airports":  "/api/v1/airports",
-			"search":    "/api/v1/search?q=query",
-			"nearby":    "/api/v1/nearby?lat=40.64&lon=-73.78&radius=50",
-			"airport":   "/api/v1/airports/{ident}",
-			"geoip":     "/api/v1/geoip",
-			"stats":     "/api/v1/stats",
-			"countries": "/api/v1/countries",
-			"swagger":   "/api/v1/server/swagger",
-			"graphql":   "/api/v1/server/graphql",
-			"healthz":   "/api/v1/server/healthz",
+			"airports":     "/api/v1/airports",
+			"search":       "/api/v1/airports/search?q=query",
+			"nearby":       "/api/v1/airports/nearby?lat=40.64&lon=-73.78&radius=50",
+			"within":       "/api/v1/airports/within?lat_min=&lat_max=&lon_min=&lon_max=",
+			"autocomplete": "/api/v1/airports/autocomplete?q=",
+			"airport":      "/api/v1/airports/{ident}",
+			"geoip":        "/api/v1/geoip",
+			"stats":        "/api/v1/stats",
+			"countries":    "/api/v1/countries",
+			"swagger":      "/api/v1/server/swagger",
+			"graphql":      "/api/v1/server/graphql",
+			"healthz":      "/api/v1/server/healthz",
+			"autodiscover": "/api/autodiscover",
 		},
 		"documentation": "/server/docs/swagger",
 	}
@@ -457,8 +460,9 @@ func (s *Server) handleHealthText(w http.ResponseWriter, r *http.Request) {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		// Server: header exposes the app name and version per AI.md PART 14.
+		// Server: and X-App-Version expose the app name and version per AI.md PART 14.
 		h.Set("Server", "airports/"+Version)
+		h.Set("X-App-Version", Version)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("X-XSS-Protection", "1; mode=block")
