@@ -96,7 +96,7 @@ func main() {
 
 	// Handle version (can run without privileges)
 	if *showVersion {
-		fmt.Printf("%s\n", Version)
+		fmt.Printf("%s %s (commit %s, built %s)\n", ProjectName, Version, CommitID, BuildDate)
 		return
 	}
 
@@ -285,7 +285,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 	go func() {
 		url := getAccessibleURL(port)
 		log.Printf("Server listening on %s", url)
-		fmt.Printf("\n  %s Airports API Server v%s\n", getEmoji("plane"), Version)
+		fmt.Printf("\n  %s Airports API Server v%s (commit %s, built %s)\n", getEmoji("plane"), Version, CommitID, BuildDate)
 		fmt.Printf("  %s %s\n\n", getEmoji("link"), url)
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
