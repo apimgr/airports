@@ -312,7 +312,7 @@ func dispatch(c *client, cmd string, args []string, format string) error {
 			return fmt.Errorf("search: missing query")
 		}
 		q := url.Values{"q": {strings.Join(args, " ")}}
-		body, err := c.get(ctx, c.apiURL("/search", q), nil)
+		body, err := c.get(ctx, c.apiURL("/airports/search", q), nil)
 		if err != nil {
 			return err
 		}
@@ -337,7 +337,7 @@ func dispatch(c *client, cmd string, args []string, format string) error {
 		if len(args) >= 3 {
 			q.Set("n", args[2])
 		}
-		body, err := c.get(ctx, c.apiURL("/nearby", q), nil)
+		body, err := c.get(ctx, c.apiURL("/airports/nearby", q), nil)
 		if err != nil {
 			return err
 		}

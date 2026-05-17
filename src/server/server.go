@@ -135,13 +135,18 @@ func (s *Server) setupRouter() {
 	r.Get("/sw.js", s.handleServiceWorker)
 
 	// Web routes (HTML - All Public, NO AUTH)
+	// Canonical paths per AI.md route table: /airports/search, /airports/nearby.
 	r.Get("/", s.handleHome)
-	r.Get("/search", s.handleSearch)
-	r.Get("/nearby", s.handleNearby)
+	r.Get("/airports/search", s.handleSearch)
+	r.Get("/airports/nearby", s.handleNearby)
 	r.Get("/airports/{ident}", s.handleAirportDetail)
 	r.Get("/stats", s.handleStats)
 	r.Get("/geoip", s.handleGeoIPPage)
 	r.Get("/healthz", s.handleServerHealthz) // optional root alias for /server/healthz
+
+	// Flat web aliases retained for existing links and bookmarks.
+	r.Get("/search", s.handleSearch)
+	r.Get("/nearby", s.handleNearby)
 
 	// /server/* pages (required by IDEA.md and AI.md spec)
 	r.Get("/server/about", s.handleServerAbout)
@@ -204,7 +209,15 @@ func (s *Server) setupRouter() {
 		r.Get("/airports/{ident}", s.handleGetAirportByIdent)
 		r.Get("/airports/{ident}.txt", s.handleGetAirportByIdentText)
 
-		// Search endpoints
+		// Search / nearby / within — canonical paths per AI.md route table.
+		r.Get("/airports/search", s.handleSearchAirports)
+		r.Get("/airports/search.txt", s.handleSearchAirportsText)
+		r.Get("/airports/nearby", s.handleNearbyAirports)
+		r.Get("/airports/nearby.txt", s.handleNearbyAirportsText)
+		r.Get("/airports/within", s.handleBBoxAirports)
+		r.Get("/airports/autocomplete", s.handleAutocomplete)
+
+		// Unversioned flat aliases retained for clients that already use them.
 		r.Get("/search", s.handleSearchAirports)
 		r.Get("/search.txt", s.handleSearchAirportsText)
 		r.Get("/nearby", s.handleNearbyAirports)
