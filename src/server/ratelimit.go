@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -68,9 +69,11 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		ip := realIP(r)
 		limiter := rl.getLimiter(ip)
 		if !limiter.Allow() {
+			reset := time.Now().Add(60 * time.Second).Unix()
 			w.Header().Set("Retry-After", "60")
 			w.Header().Set("X-RateLimit-Limit", "60")
 			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", reset))
 			http.Error(w, `{"ok":false,"error":"RATE_LIMIT_EXCEEDED","message":"Too many requests. Please slow down."}`, http.StatusTooManyRequests)
 			return
 		}
