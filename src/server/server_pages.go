@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"runtime"
 )
 
 // Server pages required by IDEA.md and AI.md spec:
@@ -61,6 +62,20 @@ func (s *Server) handleServerTerms(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, "server_terms.html", map[string]interface{}{
 		"Title": "Terms",
 		"Theme": s.config.WebUI.Theme,
+	})
+}
+
+// handleServerAboutAPI returns build metadata as JSON per AI.md PART 14.
+func (s *Server) handleServerAboutAPI(w http.ResponseWriter, r *http.Request) {
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"name":        "Airports API",
+		"version":     Version,
+		"commit":      Commit,
+		"build_date":  BuildDate,
+		"repo":        "https://github.com/apimgr/airports",
+		"license":     "MIT",
+		"go_version":  runtime.Version(),
+		"description": "Global airport reference data — free, open, and authentication-free.",
 	})
 }
 

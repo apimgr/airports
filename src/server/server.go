@@ -125,7 +125,7 @@ func (s *Server) setupRouter() {
 	r.Get("/robots.txt", s.handleRobotsTxt)
 	r.Get("/security.txt", s.handleSecurityTxt)
 	r.Get("/.well-known/security.txt", s.handleSecurityTxt)
-	r.Get("/manifest.json", s.handleManifest)
+	r.Get("/manifest.webmanifest", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 
 	// Web routes (HTML - All Public, NO AUTH)
@@ -139,6 +139,7 @@ func (s *Server) setupRouter() {
 
 	// /server/* pages (required by IDEA.md and AI.md spec)
 	r.Get("/server/about", s.handleServerAbout)
+	r.Get("/server/metrics", s.handleMetrics)
 	r.Get("/server/help", s.handleServerHelp)
 	r.Get("/server/healthz", s.handleServerHealthz)
 	r.Get("/server/privacy", s.handleServerPrivacy)
@@ -167,11 +168,20 @@ func (s *Server) setupRouter() {
 
 	// API v1 routes - ALL PUBLIC, NO AUTH
 	r.Route("/api/v1", func(r chi.Router) {
+		// Add API version header to all v1 responses.
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-API-Version", "v1")
+				next.ServeHTTP(w, r)
+			})
+		})
+
 		// API info
 		r.Get("/", s.handleAPIInfo)
 
 		// Versioned server API surface (canonical paths per AI.md)
 		r.Get("/server/healthz", s.handleServerHealthz)
+		r.Get("/server/about", s.handleServerAboutAPI)
 		r.Get("/server/swagger", swaggerSpec)
 		r.Post("/server/graphql", graphqlQuery)
 
@@ -343,7 +353,7 @@ Preferred-Languages: en
 	s.respondText(w, http.StatusOK, content)
 }
 
-// handleManifest returns PWA manifest.json
+// handleManifest returns the PWA web app manifest.
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	manifest := map[string]interface{}{
 		"name":             "Airports API",
@@ -369,8 +379,8 @@ func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 const CACHE_NAME = 'airports-v1';
 const urlsToCache = [
   '/',
-  '/static/css/style.css',
-  '/static/js/app.js'
+  '/static/css/main.css',
+  '/static/js/main.js'
 ];
 
 self.addEventListener('install', event => {
