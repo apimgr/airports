@@ -1,0 +1,46 @@
+name: airports-dev
+
+# Development Docker Compose Configuration
+# HUMAN USE ONLY — AI/automated tooling must NOT run this file.
+# Hardcoded sane defaults — works with zero .env file.
+# Override by editing this file directly.
+
+services:
+  airports:
+    image: ghcr.io/apimgr/airports:latest
+    pull_policy: always
+    container_name: airports-dev
+    restart: always
+
+    environment:
+      # Development: relaxed CORS, verbose logs, no caching.
+      # DEBUG (pprof, expvar, request logs) is OFF by default — uncomment to enable.
+      - MODE=development
+      - TZ=America/New_York
+      # - DEBUG=true
+
+    ports:
+      # Development: accessible from all interfaces.
+      - "64580:80"
+
+    volumes:
+      # TEMP DIR WORKFLOW: ./volumes/ resolves to $CWD/volumes/
+      # For ephemeral dev runs prefer the temp-dir workflow described in docs/development.md
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
+
+    networks:
+      - airports-dev
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  airports-dev:
+    name: airports-dev
+    external: false
+    driver: bridge

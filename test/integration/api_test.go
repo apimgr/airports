@@ -133,13 +133,16 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var apiResp Response
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	// Health endpoint returns {"status":"healthy", ...}
+	var healthResp struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
-	if !apiResp.OK {
-		t.Error("Expected ok=true")
+	if healthResp.Status != "healthy" {
+		t.Errorf("Expected status=healthy, got %q", healthResp.Status)
 	}
 }
 

@@ -1,51 +1,46 @@
-# Airports API Documentation
+# Airports API
 
-Welcome to the Airports API Server documentation.
+Welcome to the documentation for the **Airports API** — a single static Go binary serving 35,000+ airports via REST, GraphQL, and a server-side rendered web UI.
 
-## Quick Links
+## Quick links
 
-- [API Reference](API.md) - Complete API endpoint documentation
-- [Server Administration](SERVER.md) - Server setup and configuration guide
-- [GitHub Repository](https://github.com/apimgr/airports)
+- [Installation](installation.md) — Docker, binary, systemd
+- [Configuration](configuration.md) — every setting
+- [API reference](api.md) — REST + GraphQL endpoints
+- [CLI reference](cli.md) — `airports` and `airports-cli`
+- [Admin & operations](admin.md) — service lifecycle, backups, monitoring
+- [Security model](security.md) — what's authenticated, what isn't, and why
+- [External integrations](integrations.md) — GeoIP, Tor, ACME, SMTP
+- [Development](development.md) — contributing, build, test
 
-## Overview
+## What you get
 
-Global airport location information API with GeoIP integration - A single static binary with embedded data.
+- 35,000+ airport records embedded in the binary at build time
+- ICAO/IATA lookup, free-text search, nearby-by-radius, bounding-box, nearest-N
+- GeoIP-based caller-location detection on the home page
+- JSON / CSV / GeoJSON output
+- REST under `/api/v1/...`, GraphQL at `/graphql`, OpenAPI at `/api/v1/server/swagger`
+- Server-side rendered web UI with dark / light / auto theme
+- Tor hidden-service support (binary owns Tor entirely)
+- Single static binary, no runtime dependencies
 
-### Features
-
-- **35,000+ Airports** - Complete global airport database
-- **GeoIP Integration** - Automatic location detection
-- **Fast Search** - In-memory indexes for instant lookups
-- **RESTful API** - Clean, intuitive endpoints
-- **Single Binary** - ~21MB static binary, no dependencies
-
-## Getting Started
-
-### Quick Start
-
-```bash
-# Download and run
-curl -L -o airports https://github.com/apimgr/airports/releases/latest/download/airports-linux-amd64
-chmod +x airports
-./airports
-```
-
-### Docker
+## Quick start
 
 ```bash
-docker-compose up -d
+docker run --rm -d \
+  --name airports \
+  -p 8080:80 \
+  -v ./volumes/config:/config:z \
+  -v ./volumes/data:/data:z \
+  ghcr.io/apimgr/airports:latest
+
+curl http://localhost:8080/api/v1/airports/KJFK
 ```
 
-See the [Server Administration Guide](SERVER.md) for detailed installation instructions.
+See [installation.md](installation.md) for binary installs and systemd integration.
 
-## Documentation
+## Repository
 
-- [API Reference](API.md) - All endpoints, parameters, and examples
-- [Server Guide](SERVER.md) - Installation, configuration, and administration
-- [README](../README.md) - Project overview and quick start
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/apimgr/airports/issues)
-- **Source**: [GitHub Repository](https://github.com/apimgr/airports)
+- Source: <https://github.com/apimgr/airports>
+- Issues: <https://github.com/apimgr/airports/issues>
+- License: MIT

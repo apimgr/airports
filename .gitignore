@@ -15,6 +15,9 @@ build/
 .build_failed
 .build_*
 
+# Runtime volume data (NEVER commit)
+volumes/
+
 # ============================================
 # Version Control (DO NOT IGNORE)
 # ============================================

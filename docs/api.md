@@ -15,15 +15,7 @@ Complete API reference for the Airports API Server.
 
 ## Authentication
 
-### Public Endpoints
-All airport data endpoints are **public** and require no authentication.
-
-### Admin Endpoints
-Admin endpoints require authentication. See [SERVER.md](./SERVER.md#authentication) for details.
-
-**Authentication Methods:**
-- **Bearer Token**: `Authorization: Bearer <token>`
-- **Basic Auth**: Username and password for web UI
+All endpoints are **public** and require no authentication. There are no user accounts, no admin panel, and no API keys. Abuse protection is rate-limit-only. See [security.md](./security.md) for the full security model.
 
 ---
 
@@ -467,8 +459,7 @@ All errors follow this format:
 
 ## Rate Limiting
 
-- **Public endpoints**: 100 requests/minute per IP
-- **Admin endpoints**: 1000 requests/minute per token
+- **All endpoints**: 100 requests/minute per IP (configurable in `server.yml`)
 
 Rate limit headers:
 ```
@@ -556,15 +547,14 @@ curl https://api.example.com/api/v1/airports/KJFK
 # Search nearby
 curl "https://api.example.com/api/v1/airports/nearby?lat=40.6398&lon=-73.7789&radius=50"
 
-# Admin endpoint (with token)
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.example.com/api/v1/admin/settings
+# All endpoints are public — no token, no auth header needed
+curl https://api.example.com/api/v1/airports/search?q=Tokyo
 ```
 
 ---
 
 ## Support
 
-- **Documentation**: [docs/README.md](./README.md)
-- **Server Admin**: [docs/SERVER.md](./SERVER.md)
-- **Issues**: GitHub Issues
+- **Documentation home**: [index.md](./index.md)
+- **Security & operations**: [security.md](./security.md), [admin.md](./admin.md)
+- **Issues**: https://github.com/apimgr/airports/issues

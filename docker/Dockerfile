@@ -89,7 +89,7 @@ EXPOSE 80
 
 STOPSIGNAL SIGRTMIN+3
 
-HEALTHCHECK --start-period=30s --interval=30s --timeout=15s --retries=3 \
+HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
     CMD /usr/local/bin/airports --status || exit 1
 
 # tini propagates SIGTERM and reaps zombies; entrypoint handles startup

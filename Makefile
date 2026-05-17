@@ -43,18 +43,20 @@ GO_IMAGE        := golang:alpine
 HAS_CLIENT      := $(shell test -d src/client && echo yes || echo no)
 
 # ----------------------------------------------------------------------------
-.PHONY: help dev local build test docker docker-dev clean release
+.PHONY: help dev local build test lint docker docker-dev docker-test clean release
 .DEFAULT_GOAL := help
 
 help:
 	@echo "airports Makefile targets:"
-	@echo "  make dev       - Quick dev build to $(DEV_DIR_BASE)/$(PROJECT_NAME)-XXXXXX/"
-	@echo "  make local     - Production build for host ($(HOSTOS)/$(HOSTARCH)) -> binaries/"
-	@echo "  make build     - Full release: 8 platforms -> binaries/"
-	@echo "  make test      - Unit tests (in Docker)"
-	@echo "  make docker    - Multi-arch Docker build & push to ghcr.io"
-	@echo "  make docker-dev- Local dev Docker image (not pushed)"
-	@echo "  make clean     - Remove build artifacts"
+	@echo "  make dev         - Quick dev build to $(DEV_DIR_BASE)/$(PROJECT_NAME)-XXXXXX/"
+	@echo "  make local       - Production build for host ($(HOSTOS)/$(HOSTARCH)) -> binaries/"
+	@echo "  make build       - Full release: 8 platforms -> binaries/"
+	@echo "  make test        - Unit tests (in Docker)"
+	@echo "  make lint        - Run go vet and staticcheck (in Docker)"
+	@echo "  make docker      - Multi-arch Docker build & push to ghcr.io"
+	@echo "  make docker-dev  - Local dev Docker image (not pushed)"
+	@echo "  make docker-test - Run docker/docker-compose.test.yml in temp dir"
+	@echo "  make clean       - Remove build artifacts"
 
 # ----------------------------------------------------------------------------
 # make dev: quick build to a fresh temp dir for active development
@@ -123,6 +125,36 @@ test:
 			go test -timeout 5m ./... \
 		'
 	@echo "All tests passed"
+
+# ----------------------------------------------------------------------------
+# make lint: run go vet and staticcheck in Docker
+# ----------------------------------------------------------------------------
+lint:
+	@echo "Running linters..."
+	@docker run --rm \
+		-v $$(pwd):/workspace -w /workspace \
+		-e CGO_ENABLED=0 \
+		$(GO_IMAGE) sh -c '\
+			go vet ./... && \
+			if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; else echo "staticcheck not installed, skipping"; fi \
+		'
+	@echo "Lint complete"
+
+# ----------------------------------------------------------------------------
+# make docker-test: run test compose in temp dir (AI/automated only)
+# ----------------------------------------------------------------------------
+docker-test:
+	@echo "Running docker-compose test workflow..."
+	@mkdir -p $(DEV_DIR_BASE)
+	@TEMP_DIR=$$(mktemp -d $(DEV_DIR_BASE)/$(PROJECT_NAME)-XXXXXX); \
+	mkdir -p "$$TEMP_DIR/volumes/config" "$$TEMP_DIR/volumes/data"; \
+	cp docker/docker-compose.test.yml "$$TEMP_DIR/docker-compose.yml"; \
+	echo "Test dir: $$TEMP_DIR"; \
+	(cd "$$TEMP_DIR" && docker compose up --abort-on-container-exit); \
+	EXIT=$$?; \
+	(cd "$$TEMP_DIR" && docker compose down --volumes --remove-orphans 2>/dev/null || true); \
+	rm -rf "$$TEMP_DIR"; \
+	exit $$EXIT
 
 # ----------------------------------------------------------------------------
 # make docker: multi-arch image build & push (uses docker/Dockerfile)

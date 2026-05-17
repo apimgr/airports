@@ -1,31 +1,35 @@
-# MkDocs configuration for Airports API
-# Documentation source files live under docs/.
-site_name: Airports API Documentation
-site_description: Global airport location information API with GeoIP integration
-site_author: casapps
-site_url: https://airports.readthedocs.io
+site_name: Airports API
+site_url: https://apimgr-airports.readthedocs.io
+site_description: Global airport location information API with GeoIP integration — single static Go binary serving 35,000+ airports
+site_author: apimgr
 
-# Source directory (markdown files)
 docs_dir: docs
 
-# Repository
 repo_name: apimgr/airports
 repo_url: https://github.com/apimgr/airports
 edit_uri: edit/main/docs/
 
-# Copyright
-copyright: Copyright &copy; 2024 casapps
+copyright: Copyright &copy; 2024-2026 apimgr
 
-# Theme - Material with Dracula palette
 theme:
   name: material
   palette:
-    scheme: slate
-    primary: deep purple
-    accent: pink
-  font:
-    text: Roboto
-    code: Fira Code
+    - scheme: slate
+      primary: deep purple
+      accent: pink
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to auto mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to dark mode
   features:
     - navigation.instant
     - navigation.tracking
@@ -37,52 +41,74 @@ theme:
     - search.share
     - content.code.copy
     - content.code.annotate
+    - content.action.edit
+  font:
+    text: Roboto
+    code: Roboto Mono
   icon:
     repo: fontawesome/brands/github
     logo: material/airport
 
-# Navigation
-nav:
-  - Home: index.md
-  - API Reference: API.md
-  - Server Guide: SERVER.md
+extra_css:
+  - stylesheets/dark.css
+  - stylesheets/light.css
 
-# Extensions
+extra_javascript:
+  - javascripts/extra.js
+
+plugins:
+  - search:
+      lang: en
+
 markdown_extensions:
+  - abbr
   - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
   - pymdownx.details
-  - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
   - pymdownx.snippets
+  - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
       custom_checkbox: true
-  - toc:
-      permalink: true
-  - tables
-  - attr_list
-  - md_in_html
-  - def_list
+  - pymdownx.tilde
 
-# Plugins
-plugins:
-  - search:
-      lang: en
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Configuration: configuration.md
+  - Usage:
+    - API Reference: api.md
+    - CLI Reference: cli.md
+  - Operations:
+    - Admin & Operations: admin.md
+    - Security: security.md
+    - Integrations: integrations.md
+  - Development:
+    - Contributing: development.md
 
-# Extra CSS / JS
-extra_css:
-  - stylesheets/dracula.css
-
-extra_javascript:
-  - javascripts/extra.js
-
-# Social links
 extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/apimgr/airports
+  generator: false
