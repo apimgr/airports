@@ -1,105 +1,62 @@
+// Package scheduler wraps robfig/cron/v3 to provide a simple named-task
+// scheduler for the airports server. Each task has a standard 5-field cron
+// expression, a panic-recovery wrapper, and a context timeout enforced by
+// the caller's handler.
+//
+// Per AI.md PART 18: use robfig/cron or go-co-op/gocron — never host cron
+// or systemd timers.
 package scheduler
 
 import (
 	"log"
-	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
-// Task represents a scheduled task
-type Task struct {
-	Name     string
-	Schedule string // Cron-like: "0 3 * * 0" = Sunday at 3 AM
-	Handler  func() error
-	enabled  bool
-	nextRun  time.Time
-}
-
-// Scheduler manages scheduled tasks
+// Scheduler wraps a robfig/cron.Cron with named tasks and recover middleware.
 type Scheduler struct {
-	tasks  []*Task
-	stopCh chan struct{}
+	c *cron.Cron
 }
 
-// New creates a new scheduler
+// New creates a Scheduler that uses the standard 5-field cron format
+// (minute hour dom month dow) and recovers panics inside every job.
 func New() *Scheduler {
-	return &Scheduler{
-		tasks:  make([]*Task, 0),
-		stopCh: make(chan struct{}),
-	}
+	c := cron.New(
+		cron.WithLogger(cron.DiscardLogger),
+		cron.WithChain(
+			cron.Recover(cron.DefaultLogger), // panic → log, continue
+		),
+	)
+	return &Scheduler{c: c}
 }
 
-// AddTask adds a task to the scheduler
+// AddTask registers a named cron job. schedule is a 5-field cron expression
+// (e.g. "0 3 * * 0" for Sunday at 03:00). If the expression is invalid, the
+// error is logged and the task is silently skipped rather than crashing.
 func (s *Scheduler) AddTask(name, schedule string, handler func() error) {
-	task := &Task{
-		Name:     name,
-		Schedule: schedule,
-		Handler:  handler,
-		enabled:  true,
-		nextRun:  calculateNextRun(schedule),
+	_, err := s.c.AddFunc(schedule, func() {
+		log.Printf("scheduler: running %q", name)
+		if err := handler(); err != nil {
+			log.Printf("scheduler: task %q failed: %v", name, err)
+		} else {
+			log.Printf("scheduler: task %q done", name)
+		}
+	})
+	if err != nil {
+		log.Printf("scheduler: invalid schedule for %q (%q): %v — task skipped", name, schedule, err)
+		return
 	}
-	s.tasks = append(s.tasks, task)
-	log.Printf("Scheduler: Added task '%s' (schedule: %s, next run: %s)", name, schedule, task.nextRun.Format(time.RFC3339))
+	log.Printf("scheduler: registered %q (schedule: %s)", name, schedule)
 }
 
-// Start starts the scheduler
+// Start begins the scheduler in the background.
 func (s *Scheduler) Start() {
-	go s.run()
+	s.c.Start()
 }
 
-// Stop stops the scheduler
+// Stop gracefully halts the scheduler, waiting for any in-progress job to
+// complete before returning.
 func (s *Scheduler) Stop() {
-	close(s.stopCh)
-}
-
-// run is the main scheduler loop
-func (s *Scheduler) run() {
-	ticker := time.NewTicker(1 * time.Minute) // Check every minute
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.stopCh:
-			return
-		case now := <-ticker.C:
-			for _, task := range s.tasks {
-				if task.enabled && now.After(task.nextRun) {
-					log.Printf("Scheduler: Running task '%s'", task.Name)
-					go func(t *Task) {
-						if err := t.Handler(); err != nil {
-							log.Printf("Scheduler: Task '%s' failed: %v", t.Name, err)
-						} else {
-							log.Printf("Scheduler: Task '%s' completed successfully", t.Name)
-						}
-						t.nextRun = calculateNextRun(t.Schedule)
-						log.Printf("Scheduler: Task '%s' next run: %s", t.Name, t.nextRun.Format(time.RFC3339))
-					}(task)
-				}
-			}
-		}
-	}
-}
-
-// calculateNextRun calculates the next run time based on cron schedule
-// Simple implementation for weekly schedule: "0 3 * * 0" = Sunday at 3 AM
-func calculateNextRun(schedule string) time.Time {
-	now := time.Now()
-	
-	// For weekly GeoIP update: Sunday at 3:00 AM
-	if schedule == "0 3 * * 0" {
-		// Find next Sunday
-		daysUntilSunday := (7 - int(now.Weekday())) % 7
-		if daysUntilSunday == 0 {
-			// Today is Sunday, check if 3 AM has passed
-			target := time.Date(now.Year(), now.Month(), now.Day(), 3, 0, 0, 0, now.Location())
-			if now.After(target) {
-				daysUntilSunday = 7 // Next week
-			}
-		}
-		
-		nextSunday := now.AddDate(0, 0, daysUntilSunday)
-		return time.Date(nextSunday.Year(), nextSunday.Month(), nextSunday.Day(), 3, 0, 0, 0, now.Location())
-	}
-	
-	// Default: run in 7 days
-	return now.AddDate(0, 0, 7)
+	ctx := s.c.Stop()
+	<-ctx.Done()
 }
