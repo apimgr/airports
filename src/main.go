@@ -787,20 +787,26 @@ func getOutboundIP() string {
 	return localAddr.IP.String()
 }
 
+// getEmoji returns the named emoji, or an empty string when NO_COLOR is set.
+// Per the NO_COLOR convention (https://no-color.org/) and AI.md binary rules,
+// all emoji/decorative output must be suppressed when NO_COLOR is non-empty.
 func getEmoji(name string) string {
+	if os.Getenv("NO_COLOR") != "" {
+		return ""
+	}
 	emojis := map[string]string{
-		"plane":    "✈️",
-		"link":     "🔗",
-		"check":    "✓",
-		"cross":    "✗",
-		"warning":  "⚠️",
-		"info":     "ℹ️",
-		"success":  "✅",
-		"error":    "❌",
-		"folder":   "📁",
-		"file":     "📄",
-		"gear":     "⚙️",
-		"rocket":   "🚀",
+		"plane":   "✈️",
+		"link":    "🔗",
+		"check":   "✓",
+		"cross":   "✗",
+		"warning": "⚠️",
+		"info":    "ℹ️",
+		"success": "✅",
+		"error":   "❌",
+		"folder":  "📁",
+		"file":    "📄",
+		"gear":    "⚙️",
+		"rocket":  "🚀",
 	}
 	if e, ok := emojis[name]; ok {
 		return e
