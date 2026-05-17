@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apimgr/airports/src/admin"
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/geoip"
@@ -35,18 +34,11 @@ var (
 
 // Server holds application dependencies
 type Server struct {
-	airports     *airports.Service
-	geoip        *geoip.Service
-	config       *config.Config
-	router       *chi.Mux
-	adminHandler *admin.Handler
-}
-
-// Response is the standard API success response envelope as mandated by
-// AI.md PART 14 ("Response Standards"): {"ok": true, "data": ...}.
-type Response struct {
-	OK   bool        `json:"ok"`
-	Data interface{} `json:"data,omitempty"`
+	airports    *airports.Service
+	geoip       *geoip.Service
+	config      *config.Config
+	router      *chi.Mux
+	rateLimiter *RateLimiter
 }
 
 // ErrorResponse is the canonical error envelope per AI.md PART 14:
@@ -66,23 +58,11 @@ func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Conf
 		log.Printf("Warning: Failed to load templates: %v", err)
 	}
 
-	// Create admin handler
-	adminHandler := admin.NewHandler(
-		cfg.Server.Admin.Username,
-		cfg.Server.Admin.Password,
-		cfg.Server.Admin.APIToken,
-		cfg.Server.Session.Timeout,
-		cfg.Server.SSL.Enabled,
-		Version,
-		Commit,
-		BuildDate,
-	)
-
 	s := &Server{
-		airports:     airportSvc,
-		geoip:        geoipSvc,
-		config:       cfg,
-		adminHandler: adminHandler,
+		airports:    airportSvc,
+		geoip:       geoipSvc,
+		config:      cfg,
+		rateLimiter: NewRateLimiter(60, 120), // 60 req/s, burst 120
 	}
 
 	s.setupRouter()
@@ -113,6 +93,9 @@ func (s *Server) setupRouter() {
 	// caller so it can be quoted in bug reports and correlated with logs.
 	// AI.md PART 9 mandates X-Request-ID on every response.
 	r.Use(s.requestIDHeader)
+
+	// Per-IP rate limiting per AI.md PART 13.
+	r.Use(s.rateLimiter.Middleware)
 
 	// CORS - configurable, defaults to "*"
 	corsOrigin := s.config.WebSecurity.CORS
@@ -149,7 +132,7 @@ func (s *Server) setupRouter() {
 	r.Get("/", s.handleHome)
 	r.Get("/search", s.handleSearch)
 	r.Get("/nearby", s.handleNearby)
-	r.Get("/airport/{code}", s.handleAirportDetail)
+	r.Get("/airports/{ident}", s.handleAirportDetail)
 	r.Get("/stats", s.handleStats)
 	r.Get("/geoip", s.handleGeoIPPage)
 	r.Get("/healthz", s.handleServerHealthz) // optional root alias for /server/healthz
@@ -198,9 +181,9 @@ func (s *Server) setupRouter() {
 		r.Get("/airports.csv", s.handleGetAirportsCSV)
 		r.Get("/airports.geojson", s.handleGetAirportsGeoJSON)
 
-		// Airport by code - with .txt extension support
-		r.Get("/airport/{code}", s.handleGetAirportByCode)
-		r.Get("/airport/{code}.txt", s.handleGetAirportByCodeText)
+		// Airport by ident - with .txt extension support
+		r.Get("/airports/{ident}", s.handleGetAirportByIdent)
+		r.Get("/airports/{ident}.txt", s.handleGetAirportByIdentText)
 
 		// Search endpoints
 		r.Get("/search", s.handleSearchAirports)
@@ -239,24 +222,49 @@ func (s *Server) setupRouter() {
 		r.Get(s.config.Server.Metrics.Endpoint, s.handleMetrics)
 	}
 
-	// Admin routes (session auth for web, bearer token for API)
-	s.adminHandler.RegisterRoutes(r)
-
 	s.router = r
 }
 
 // JSON helpers
-func (s *Server) respondJSON(w http.ResponseWriter, status int, data interface{}) {
+
+// respondItem sends a single resource directly (no wrapper) per AI.md PART 14.
+func (s *Server) respondItem(w http.ResponseWriter, status int, item interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-
-	resp := Response{
-		OK:   status < 400,
-		Data: data,
+	if err := json.NewEncoder(w).Encode(item); err != nil {
+		log.Printf("respondItem: encode failed: %v", err)
 	}
+}
 
+// respondList sends a paginated list per AI.md PART 14.
+func (s *Server) respondList(w http.ResponseWriter, status int, data interface{}, page, limit, total int) {
+	pages := 0
+	if limit > 0 {
+		pages = (total + limit - 1) / limit
+	}
+	resp := map[string]interface{}{
+		"data": data,
+		"pagination": map[string]interface{}{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+			"pages": pages,
+		},
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("respondJSON: encode failed: %v", err)
+		log.Printf("respondList: encode failed: %v", err)
+	}
+}
+
+// respondAction sends an action result per AI.md PART 14 ({"ok":true,"data":...}).
+func (s *Server) respondAction(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	resp := map[string]interface{}{"ok": true, "data": data}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("respondAction: encode failed: %v", err)
 	}
 }
 
@@ -291,7 +299,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"airports":  "/api/v1/airports",
 			"search":    "/api/v1/search?q=query",
 			"nearby":    "/api/v1/nearby?lat=40.64&lon=-73.78&radius=50",
-			"airport":   "/api/v1/airport/{code}",
+			"airport":   "/api/v1/airports/{ident}",
 			"geoip":     "/api/v1/geoip",
 			"stats":     "/api/v1/stats",
 			"countries": "/api/v1/countries",
@@ -302,7 +310,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 		"documentation": "/server/docs/swagger",
 	}
 
-	s.respondJSON(w, http.StatusOK, info)
+	s.respondItem(w, http.StatusOK, info)
 }
 
 // handleRobotsTxt returns robots.txt based on config
@@ -392,7 +400,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"metrics": s.config.Server.Metrics.Enabled,
 	}
 
-	s.respondJSON(w, http.StatusOK, settings)
+	s.respondItem(w, http.StatusOK, settings)
 }
 
 // handleMetrics returns Prometheus-compatible metrics

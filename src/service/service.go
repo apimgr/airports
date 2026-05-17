@@ -271,14 +271,14 @@ func uninstallRunit() error {
 // installLaunchd creates macOS launchd plist
 func installLaunchd() error {
 	binaryPath := GetBinaryPath()
-	plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+	plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.%s.%s</string>
+    <string>io.github.%s.%s</string>
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
@@ -328,7 +328,7 @@ func installLaunchd() error {
 
 // uninstallLaunchd removes macOS launchd plist
 func uninstallLaunchd() error {
-	plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+	plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 
 	// Unload if running
 	exec.Command("launchctl", "unload", plistPath).Run()
@@ -483,7 +483,7 @@ func Start() error {
 	case ServiceRunit:
 		return exec.Command("sv", "start", appName).Run()
 	case ServiceLaunchd:
-		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 		return exec.Command("launchctl", "load", plistPath).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "start", appName).Run()
@@ -504,7 +504,7 @@ func Stop() error {
 	case ServiceRunit:
 		return exec.Command("sv", "stop", appName).Run()
 	case ServiceLaunchd:
-		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 		return exec.Command("launchctl", "unload", plistPath).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "stop", appName).Run()
@@ -549,5 +549,108 @@ func Reload() error {
 	default:
 		// For others, restart is the fallback
 		return Restart()
+	}
+}
+
+// Status prints the service status
+func Status() error {
+	serviceType := DetectServiceManager()
+	switch serviceType {
+	case ServiceSystemd:
+		cmd := exec.Command("systemctl", "status", appName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		_ = cmd.Run() // systemctl status exits non-zero when stopped
+		return nil
+	case ServiceRunit:
+		cmd := exec.Command("sv", "status", appName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceLaunchd:
+		cmd := exec.Command("launchctl", "list", fmt.Sprintf("io.github.%s.%s", orgName, appName))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceWindows:
+		cmd := exec.Command("sc.exe", "query", appName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceBSDRC:
+		cmd := exec.Command("service", appName, "status")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	default:
+		return fmt.Errorf("unsupported service manager")
+	}
+}
+
+// Enable marks the service for boot-time auto-start
+func Enable() error {
+	serviceType := DetectServiceManager()
+	switch serviceType {
+	case ServiceSystemd:
+		return exec.Command("systemctl", "enable", appName).Run()
+	case ServiceLaunchd:
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
+		return exec.Command("launchctl", "load", "-w", plistPath).Run()
+	case ServiceWindows:
+		return exec.Command("sc.exe", "config", appName, "start=", "auto").Run()
+	case ServiceBSDRC:
+		return fmt.Errorf("add '%s_enable=\"YES\"' to /etc/rc.conf to enable at boot", appName)
+	default:
+		return fmt.Errorf("unsupported service manager")
+	}
+}
+
+// Disable removes the service from boot-time auto-start
+func Disable() error {
+	serviceType := DetectServiceManager()
+	switch serviceType {
+	case ServiceSystemd:
+		return exec.Command("systemctl", "disable", appName).Run()
+	case ServiceLaunchd:
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
+		return exec.Command("launchctl", "unload", "-w", plistPath).Run()
+	case ServiceWindows:
+		return exec.Command("sc.exe", "config", appName, "start=", "demand").Run()
+	case ServiceBSDRC:
+		return fmt.Errorf("remove '%s_enable=\"YES\"' from /etc/rc.conf to disable at boot", appName)
+	default:
+		return fmt.Errorf("unsupported service manager")
+	}
+}
+
+// Logs tails recent logs from the service manager
+func Logs() error {
+	serviceType := DetectServiceManager()
+	switch serviceType {
+	case ServiceSystemd:
+		cmd := exec.Command("journalctl", "-u", appName, "-n", "50", "--no-pager")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceLaunchd:
+		logPath := fmt.Sprintf("/Library/Logs/%s/%s/stdout.log", orgName, appName)
+		cmd := exec.Command("tail", "-n", "50", logPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceWindows:
+		cmd := exec.Command("powershell", "-Command",
+			fmt.Sprintf("Get-EventLog -LogName Application -Source %s -Newest 50 | Format-Table -AutoSize", appName))
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceBSDRC:
+		logPath := fmt.Sprintf("/var/log/%s/%s/server.log", orgName, appName)
+		cmd := exec.Command("tail", "-n", "50", logPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	default:
+		return fmt.Errorf("unsupported service manager")
 	}
 }

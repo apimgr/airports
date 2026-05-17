@@ -7,7 +7,7 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 ARG BUILD_DATE
-ARG VCS_REF
+ARG COMMIT_ID
 
 WORKDIR /build
 
@@ -19,12 +19,12 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build \
-        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${VCS_REF}' -X 'main.BuildDate=${BUILD_DATE}'" \
+        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}'" \
         -o /out/airports ./src && \
     if [ -d src/client ]; then \
         CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
         go build \
-            -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${VCS_REF}' -X 'main.BuildDate=${BUILD_DATE}'" \
+            -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}'" \
             -o /out/airports-cli ./src/client; \
     fi
 
@@ -35,7 +35,7 @@ FROM alpine:latest
 
 ARG VERSION=dev
 ARG BUILD_DATE
-ARG VCS_REF
+ARG COMMIT_ID
 ARG LICENSE=MIT
 
 LABEL maintainer="apimgr <apimgr@casjay.pro>" \
@@ -54,7 +54,7 @@ LABEL org.opencontainers.image.licenses="${LICENSE}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.schema-version="${VERSION}" \
-      org.opencontainers.image.revision="${VCS_REF}"
+      org.opencontainers.image.revision="${COMMIT_ID}"
 
 # Required runtime packages per spec
 RUN apk add --no-cache \

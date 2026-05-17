@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -29,6 +28,7 @@ import (
 	"github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/scheduler"
 	"github.com/apimgr/airports/src/server"
+	"github.com/apimgr/airports/src/service"
 )
 
 //go:embed data/airports.json
@@ -56,9 +56,11 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version and exit")
 	showStatus := flag.Bool("status", false, "Show server status and exit")
 	showHelp := flag.Bool("help", false, "Show help message")
+	debugFlag := flag.Bool("debug", false, "Enable debug mode")
+	colorFlag := flag.String("color", "auto", "Color output: auto, yes, no")
 
 	// Service commands
-	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, --install, --uninstall, --disable, --help")
+	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, enable, disable, logs, --install, --uninstall, --help")
 
 	// Maintenance commands
 	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup")
@@ -133,12 +135,25 @@ func main() {
 	}
 
 	// Start server
-	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag); err != nil {
-		log.Fatal(err)
+	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag, *debugFlag, *colorFlag); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-func run(portFlag, addressFlag, configDirFlag, dataDirFlag string) error {
+func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, color string) error {
+	// Handle debug flag
+	if debug {
+		log.Println("Debug mode enabled")
+	}
+
+	// Handle color flag (auto, yes, no)
+	if color != "" && color != "auto" {
+		if color != "yes" && color != "no" {
+			return fmt.Errorf("invalid --color value: %s (must be auto, yes, or no)", color)
+		}
+	}
+
 	log.Printf("Starting %s API server v%s", ProjectName, Version)
 	log.Printf("Commit: %s, Built: %s", CommitID, BuildDate)
 	if OfficialSite != "" {
@@ -255,7 +270,8 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string) error {
 		fmt.Printf("  %s %s\n\n", getEmoji("link"), url)
 
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -304,9 +320,11 @@ func printHelp() {
 	fmt.Println("  --service restart     Restart the service")
 	fmt.Println("  --service reload      Reload configuration")
 	fmt.Println("  --service status      Show service status")
+	fmt.Println("  --service enable      Enable service at boot")
+	fmt.Println("  --service disable     Disable service at boot")
+	fmt.Println("  --service logs        Tail recent service logs")
 	fmt.Println("  --service --install   Install as system service")
 	fmt.Println("  --service --uninstall Remove system service")
-	fmt.Println("  --service --disable   Disable system service")
 	fmt.Println("  --service --help      Show service help")
 	fmt.Println()
 	fmt.Println("Maintenance Commands:")
@@ -372,111 +390,31 @@ func checkStatus() int {
 func handleServiceCommand(cmd string) error {
 	switch cmd {
 	case "start":
-		return serviceControl("start")
+		return service.Start()
 	case "stop":
-		return serviceControl("stop")
+		return service.Stop()
 	case "restart":
-		return serviceControl("restart")
+		return service.Restart()
 	case "reload":
-		return serviceControl("reload")
+		return service.Reload()
 	case "status":
-		return serviceControl("status")
+		return service.Status()
+	case "enable":
+		return service.Enable()
+	case "disable":
+		return service.Disable()
+	case "logs":
+		return service.Logs()
 	case "--install":
-		return installService()
+		return service.Install()
 	case "--uninstall":
-		return uninstallService()
-	case "--disable":
-		return disableService()
+		return service.Uninstall()
 	case "--help":
 		printServiceHelp()
 		return nil
 	default:
 		return fmt.Errorf("unknown service command: %s", cmd)
 	}
-}
-
-func serviceControl(action string) error {
-	switch runtime.GOOS {
-	case "linux":
-		// Try systemctl first, then runit
-		if _, err := exec.LookPath("systemctl"); err == nil {
-			cmd := exec.Command("systemctl", action, ProjectName)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			return cmd.Run()
-		}
-		if _, err := exec.LookPath("sv"); err == nil {
-			cmd := exec.Command("sv", action, ProjectName)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			return cmd.Run()
-		}
-		return fmt.Errorf("no supported service manager found (systemd or runit)")
-	case "darwin":
-		cmd := exec.Command("launchctl", action, fmt.Sprintf("com.%s.%s", ProjectOrg, ProjectName))
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	case "windows":
-		var scAction string
-		switch action {
-		case "start":
-			scAction = "start"
-		case "stop":
-			scAction = "stop"
-		case "restart":
-			// Windows doesn't have restart, do stop then start
-			exec.Command("sc", "stop", ProjectName).Run()
-			time.Sleep(2 * time.Second)
-			scAction = "start"
-		case "status":
-			scAction = "query"
-		default:
-			return fmt.Errorf("unsupported action for Windows: %s", action)
-		}
-		cmd := exec.Command("sc", scAction, ProjectName)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	default:
-		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
-
-func installService() error {
-	fmt.Printf("Installing %s service...\n", ProjectName)
-	// This would be handled by the install scripts
-	fmt.Println("Please use the installation scripts in the scripts/ directory")
-	fmt.Printf("  Linux:   scripts/linux.sh\n")
-	fmt.Printf("  macOS:   scripts/macos.sh\n")
-	fmt.Printf("  Windows: scripts/windows.ps1\n")
-	return nil
-}
-
-func uninstallService() error {
-	fmt.Printf("Uninstalling %s service...\n", ProjectName)
-	switch runtime.GOOS {
-	case "linux":
-		if _, err := exec.LookPath("systemctl"); err == nil {
-			exec.Command("systemctl", "stop", ProjectName).Run()
-			exec.Command("systemctl", "disable", ProjectName).Run()
-			os.Remove(fmt.Sprintf("/etc/systemd/system/%s.service", ProjectName))
-			exec.Command("systemctl", "daemon-reload").Run()
-			fmt.Println("Service uninstalled")
-			return nil
-		}
-	}
-	return fmt.Errorf("manual uninstallation required for this platform")
-}
-
-func disableService() error {
-	switch runtime.GOOS {
-	case "linux":
-		if _, err := exec.LookPath("systemctl"); err == nil {
-			return exec.Command("systemctl", "disable", ProjectName).Run()
-		}
-	}
-	return fmt.Errorf("unsupported on this platform")
 }
 
 func printServiceHelp() {
@@ -487,9 +425,11 @@ func printServiceHelp() {
 	fmt.Println("  restart     Restart the service")
 	fmt.Println("  reload      Reload configuration")
 	fmt.Println("  status      Show service status")
+	fmt.Println("  enable      Enable service at boot")
+	fmt.Println("  disable     Disable service at boot")
+	fmt.Println("  logs        Tail recent service logs")
 	fmt.Println("  --install   Install as system service")
 	fmt.Println("  --uninstall Remove system service")
-	fmt.Println("  --disable   Disable system service")
 	fmt.Println()
 	fmt.Println("Supported service managers:")
 	fmt.Println("  Linux:   systemd, runit")

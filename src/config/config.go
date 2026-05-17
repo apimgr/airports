@@ -20,30 +20,16 @@ type Config struct {
 
 // ServerConfig contains server-related settings
 type ServerConfig struct {
-	Port          string          `yaml:"port"`           // Single port (HTTP) or dual (8090,64453)
-	FQDN          string          `yaml:"fqdn"`           // Fully qualified domain name
-	Address       string          `yaml:"address"`        // Listen address
-	Mode          string          `yaml:"mode"`           // Application mode: production or development
-	UpdateBranch  string          `yaml:"update_branch"`  // Update branch: stable, beta, or daily
-	Admin         AdminConfig     `yaml:"admin"`          // Admin panel configuration
-	Session       SessionConfig   `yaml:"session"`        // Session settings
-	Schedule      ScheduleConfig  `yaml:"schedule"`       // Task scheduling
-	SSL           SSLConfig       `yaml:"ssl"`            // SSL/TLS configuration
-	GeoIP         GeoIPConfig     `yaml:"geoip"`          // GeoIP settings
-	Metrics       MetricsConfig   `yaml:"metrics"`        // Metrics/observability
-	Logging       LoggingConfig   `yaml:"logging"`        // Logging settings
-}
-
-// AdminConfig contains admin panel settings
-type AdminConfig struct {
-	Username string `yaml:"username"` // Admin username
-	Password string `yaml:"password"` // Admin password (hashed)
-	APIToken string `yaml:"api_token"` // Static API token
-}
-
-// SessionConfig contains session settings
-type SessionConfig struct {
-	Timeout int `yaml:"timeout"` // Session timeout in seconds
+	Port         string         `yaml:"port"`          // Single port (HTTP) or dual (8090,64453)
+	FQDN         string         `yaml:"fqdn"`          // Fully qualified domain name
+	Address      string         `yaml:"address"`       // Listen address
+	Mode         string         `yaml:"mode"`          // Application mode: production or development
+	UpdateBranch string         `yaml:"update_branch"` // Update branch: stable, beta, or daily
+	Schedule     ScheduleConfig `yaml:"schedule"`      // Task scheduling
+	SSL          SSLConfig      `yaml:"ssl"`           // SSL/TLS configuration
+	GeoIP        GeoIPConfig    `yaml:"geoip"`         // GeoIP settings
+	Metrics      MetricsConfig  `yaml:"metrics"`       // Metrics/observability
+	Logging      LoggingConfig  `yaml:"logging"`       // Logging settings
 }
 
 // ScheduleConfig contains scheduler settings
@@ -135,14 +121,6 @@ func DefaultConfig() *Config {
 			Address:      "0.0.0.0",
 			Mode:         "production",
 			UpdateBranch: "stable",
-			Admin: AdminConfig{
-				Username: "admin",
-				Password: "", // Set on first run
-				APIToken: "", // Set on first run
-			},
-			Session: SessionConfig{
-				Timeout: 3600, // 1 hour
-			},
 			Schedule: ScheduleConfig{
 				Enabled:       true,
 				CertRenewal:   "daily",

@@ -101,7 +101,7 @@ build:
 		-e CGO_ENABLED=0 \
 		$(GO_IMAGE) sh -c '\
 			set -e; \
-			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
+			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 freebsd/amd64; do \
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \
 				echo "  -> $$os/$$arch"; \
@@ -164,7 +164,7 @@ docker:
 	@docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg VERSION=$(VERSION) \
-		--build-arg VCS_REF=$(COMMIT) \
+		--build-arg COMMIT_ID=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-f docker/Dockerfile \
 		-t ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME):latest \
@@ -176,7 +176,7 @@ docker-dev:
 	@echo "Building local dev image..."
 	@docker build \
 		--build-arg VERSION=$(VERSION)-dev \
-		--build-arg VCS_REF=$(COMMIT) \
+		--build-arg COMMIT_ID=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-f docker/Dockerfile \
 		-t $(PROJECT_NAME):dev \

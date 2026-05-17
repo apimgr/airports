@@ -31,27 +31,24 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	s.respondJSON(w, http.StatusOK, health)
+	s.respondItem(w, http.StatusOK, health)
 }
 
 // handleGetAirports returns paginated list of airports
 func (s *Server) handleGetAirports(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if limit <= 0 || limit > 1000 {
-		limit = 50
+		limit = 250
 	}
-
-	airports := s.airports.GetAll(limit, offset)
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	results := s.airports.GetAll(limit, offset)
 	stats := s.airports.Stats()
-
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"airports": airports,
-		"total":    stats["total_airports"],
-		"limit":    limit,
-		"offset":   offset,
-	})
+	total, _ := stats["total_airports"].(int)
+	s.respondList(w, http.StatusOK, results, page, limit, total)
 }
 
 // handleGetAirportsJSON returns the full airport database as JSON
@@ -123,22 +120,22 @@ func (s *Server) handleGetAirportsGeoJSON(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(geojson)
 }
 
-// handleGetAirportByCode returns a single airport by code
-func (s *Server) handleGetAirportByCode(w http.ResponseWriter, r *http.Request) {
-	code := chi.URLParam(r, "code")
+// handleGetAirportByIdent returns a single airport by ICAO/IATA ident
+func (s *Server) handleGetAirportByIdent(w http.ResponseWriter, r *http.Request) {
+	ident := chi.URLParam(r, "ident")
 
-	airport, err := s.airports.GetByCode(code)
+	airport, err := s.airports.GetByCode(ident)
 	if err != nil {
-		s.respondError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("Airport not found: %s", code))
+		s.respondError(w, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("Airport not found: %s", ident))
 		return
 	}
 
-	s.respondJSON(w, http.StatusOK, airport)
+	s.respondItem(w, http.StatusOK, airport)
 }
 
-// handleGetAirportByCodeText returns a single airport as text
-func (s *Server) handleGetAirportByCodeText(w http.ResponseWriter, r *http.Request) {
-	code := chi.URLParam(r, "code")
+// handleGetAirportByIdentText returns a single airport as text
+func (s *Server) handleGetAirportByIdentText(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "ident")
 	// Remove .txt extension if present
 	code = strings.TrimSuffix(code, ".txt")
 
@@ -159,21 +156,16 @@ func (s *Server) handleGetAirportByCodeText(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleSearchAirports(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
-
-	airports := s.airports.Search(query, limit, offset)
-
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"airports": airports,
-		"query":    query,
-		"total":    len(airports),
-		"limit":    limit,
-		"offset":   offset,
-	})
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	results := s.airports.Search(query, limit, offset)
+	s.respondList(w, http.StatusOK, results, page, limit, len(results))
 }
 
 // handleSearchAirportsText returns search results as text
@@ -239,8 +231,8 @@ func (s *Server) handleNearbyAirports(w http.ResponseWriter, r *http.Request) {
 	// Convert radius for display
 	displayRadius, radiusUnit := airports.ConvertDistance(radius, units)
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"airports":    airportsWithDist,
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"data":        airportsWithDist,
 		"center":      map[string]float64{"lat": lat, "lon": lon},
 		"radius":      displayRadius,
 		"radius_unit": radiusUnit,
@@ -281,11 +273,11 @@ func (s *Server) handleBBoxAirports(w http.ResponseWriter, r *http.Request) {
 	minLon, _ := strconv.ParseFloat(r.URL.Query().Get("minLon"), 64)
 	maxLon, _ := strconv.ParseFloat(r.URL.Query().Get("maxLon"), 64)
 
-	airports := s.airports.GetInBoundingBox(minLat, maxLat, minLon, maxLon)
+	results := s.airports.GetInBoundingBox(minLat, maxLat, minLon, maxLon)
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"airports": airports,
-		"count":    len(airports),
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"data":  results,
+		"count": len(results),
 	})
 }
 
@@ -303,10 +295,10 @@ func (s *Server) handleAutocomplete(w http.ResponseWriter, r *http.Request) {
 		limit = 10
 	}
 
-	airports := s.airports.Search(query, limit, 0)
+	results := s.airports.Search(query, limit, 0)
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
-		"suggestions": airports,
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"suggestions": results,
 		"query":       query,
 	})
 }
@@ -314,7 +306,7 @@ func (s *Server) handleAutocomplete(w http.ResponseWriter, r *http.Request) {
 // handleGetCountries returns list of countries
 func (s *Server) handleGetCountries(w http.ResponseWriter, r *http.Request) {
 	countries := s.airports.GetCountries()
-	s.respondJSON(w, http.StatusOK, countries)
+	s.respondItem(w, http.StatusOK, countries)
 }
 
 // handleGetCountriesText returns list of countries as text
@@ -335,13 +327,13 @@ func (s *Server) handleGetCountriesText(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleGetStates(w http.ResponseWriter, r *http.Request) {
 	country := chi.URLParam(r, "country")
 	states := s.airports.GetStatesInCountry(country)
-	s.respondJSON(w, http.StatusOK, states)
+	s.respondItem(w, http.StatusOK, states)
 }
 
 // handleAirportStats returns database statistics
 func (s *Server) handleAirportStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.airports.Stats()
-	s.respondJSON(w, http.StatusOK, stats)
+	s.respondItem(w, http.StatusOK, stats)
 }
 
 // handleAirportStatsText returns statistics as text
@@ -370,7 +362,7 @@ func (s *Server) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respondJSON(w, http.StatusOK, location)
+	s.respondItem(w, http.StatusOK, location)
 }
 
 // handleGeoIPLookupText returns GeoIP lookup as text
@@ -399,7 +391,7 @@ func (s *Server) handleGeoIPLookupIP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respondJSON(w, http.StatusOK, location)
+	s.respondItem(w, http.StatusOK, location)
 }
 
 // handleGeoIPLookupIPText returns specific IP lookup as text
@@ -454,7 +446,7 @@ func (s *Server) handleGeoIPNearbyAirports(w http.ResponseWriter, r *http.Reques
 	// Convert radius for display
 	displayRadius, radiusUnit := airports.ConvertDistance(radius, units)
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
 		"location":        location,
 		"nearby_airports": airportsNearby,
 		"radius":          displayRadius,

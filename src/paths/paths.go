@@ -36,7 +36,11 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 			configDir = filepath.Join(programData, OrgName, projectName)
 			dataDir = filepath.Join(programData, OrgName, projectName, "data")
 			logsDir = filepath.Join(programData, OrgName, projectName, "logs")
-		default: // Linux, BSD, macOS
+		case "darwin":
+			configDir = filepath.Join("/Library/Application Support", OrgName, projectName)
+			dataDir = filepath.Join("/Library/Application Support", OrgName, projectName, "data")
+			logsDir = filepath.Join("/Library/Logs", OrgName, projectName)
+		default: // Linux, BSD
 			configDir = filepath.Join("/etc", OrgName, projectName)
 			dataDir = filepath.Join("/var/lib", OrgName, projectName)
 			logsDir = filepath.Join("/var/log", OrgName, projectName)
@@ -68,9 +72,9 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 			dataDir = filepath.Join(localAppData, OrgName, projectName)
 			logsDir = filepath.Join(localAppData, OrgName, projectName, "logs")
 		case "darwin": // macOS
-			configDir = filepath.Join(homeDir, ".config", OrgName, projectName)
-			dataDir = filepath.Join(homeDir, ".local", "share", OrgName, projectName)
-			logsDir = filepath.Join(homeDir, ".local", "share", OrgName, projectName, "logs")
+			configDir = filepath.Join(homeDir, "Library", "Application Support", OrgName, projectName)
+			dataDir = filepath.Join(homeDir, "Library", "Application Support", OrgName, projectName)
+			logsDir = filepath.Join(homeDir, "Library", "Logs", OrgName, projectName)
 		default: // Linux, BSD
 			// Follow XDG Base Directory specification with org/name structure
 			xdgConfig := os.Getenv("XDG_CONFIG_HOME")
@@ -84,7 +88,7 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 
 			configDir = filepath.Join(xdgConfig, OrgName, projectName)
 			dataDir = filepath.Join(xdgData, OrgName, projectName)
-			logsDir = filepath.Join(xdgData, OrgName, projectName, "logs")
+			logsDir = filepath.Join(homeDir, ".local", "log", OrgName, projectName)
 		}
 	}
 
