@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Injected at build time via ldflags.
@@ -50,7 +52,9 @@ func main() {
 	var (
 		baseURL    = flag.String("server", envOr("AIRPORTS_SERVER", defaultBaseURL), "Server base URL (env: AIRPORTS_SERVER)")
 		apiVersion = flag.String("api-version", defaultAPIVersion, "API version path segment")
-		format     = flag.String("format", "json", "Output format: json|text")
+		format     = flag.String("format", "", "Output format: json|yaml|text (default: json)")
+		jsonFlag   = flag.Bool("json", false, "Output as JSON")
+		yamlFlag   = flag.Bool("yaml", false, "Output as YAML")
 		showVer    = flag.Bool("version", false, "Print client version and exit")
 		showHelp   = flag.Bool("help", false, "Print help and exit")
 	)
@@ -79,6 +83,16 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Resolve output format: --json and --yaml take priority over --format.
+	outFormat := *format
+	if *yamlFlag {
+		outFormat = "yaml"
+	} else if *jsonFlag {
+		outFormat = "json"
+	} else if outFormat == "" {
+		outFormat = "json"
+	}
+
 	cmd, sub := args[0], args[1:]
 
 	c := &client{
@@ -87,7 +101,7 @@ func main() {
 		http:       &http.Client{Timeout: requestTimeout},
 	}
 
-	if err := dispatch(c, cmd, sub, *format); err != nil {
+	if err := dispatch(c, cmd, sub, outFormat); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -116,7 +130,9 @@ Commands:
 Flags:
   --server URL              Server base URL (default %s; env: AIRPORTS_SERVER)
   --api-version VERSION     API version (default %s)
-  --format FORMAT           Output format: json|text (default json)
+  --json                    Output as JSON (default)
+  --yaml                    Output as YAML
+  --format FORMAT           Output format: json|yaml|text
   -h, --help                Show this help
   --version                 Show client version
 
@@ -184,7 +200,7 @@ func dispatch(c *client, cmd string, args []string, format string) error {
 			return fmt.Errorf("search: missing query")
 		}
 		q := url.Values{"q": {strings.Join(args, " ")}}
-		body, err := c.get(ctx, c.apiURL("/airports/search", q), nil)
+		body, err := c.get(ctx, c.apiURL("/search", q), nil)
 		if err != nil {
 			return err
 		}
@@ -209,7 +225,7 @@ func dispatch(c *client, cmd string, args []string, format string) error {
 		if len(args) >= 3 {
 			q.Set("n", args[2])
 		}
-		body, err := c.get(ctx, c.apiURL("/airports/nearby", q), nil)
+		body, err := c.get(ctx, c.apiURL("/nearby", q), nil)
 		if err != nil {
 			return err
 		}
@@ -224,7 +240,7 @@ func dispatch(c *client, cmd string, args []string, format string) error {
 
 	case "version":
 		fmt.Printf("client: airports-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
-		body, err := c.get(ctx, c.apiURL("/server/version", nil), nil)
+		body, err := c.get(ctx, c.apiURL("/server/about", nil), nil)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "server: unreachable:", err)
 			return nil
@@ -249,13 +265,24 @@ func printResult(body []byte, format string) error {
 		}
 		fmt.Println(strings.TrimRight(string(body), "\n"))
 		return nil
+	case "yaml":
+		// Unmarshal from JSON then re-encode as YAML.
+		var v any
+		if err := json.Unmarshal(body, &v); err != nil {
+			// Fall back to raw text if not valid JSON.
+			fmt.Println(strings.TrimRight(string(body), "\n"))
+			return nil
+		}
+		out, err := yaml.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("yaml marshal: %w", err)
+		}
+		fmt.Print(string(out))
+		return nil
 	case "text":
 		fmt.Println(strings.TrimRight(string(body), "\n"))
 		return nil
 	default:
-		return fmt.Errorf("unsupported format: %s (use json or text)", format)
+		return fmt.Errorf("unsupported format: %s (use json, yaml, or text)", format)
 	}
 }
-
-// silence unused-import warning for honorNoColor in builds without color.
-var _ = honorNoColor
