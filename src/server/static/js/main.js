@@ -128,3 +128,10 @@ document.addEventListener('keydown', (e) => {
         closeModal();
     }
 });
+
+// Service worker registration (moved from base.html inline script per CSP requirements).
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').catch(function() {});
+    });
+}

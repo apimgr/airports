@@ -440,6 +440,8 @@ func (s *Server) handleHealthText(w http.ResponseWriter, r *http.Request) {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		// Server: header exposes the app name and version per AI.md PART 14.
+		h.Set("Server", "airports/"+Version)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("X-XSS-Protection", "1; mode=block")
@@ -449,6 +451,22 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Cross-Origin-Resource-Policy", "cross-origin")
 		// Permissions-Policy: lock down powerful APIs by default.
 		h.Set("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
+		// Content-Security-Policy: restrict dangerous capabilities.
+		// 'unsafe-inline' for script/style is retained for compatibility with
+		// the remaining template inline scripts. Dangerous sinks (object, base,
+		// frame-ancestors) are blocked unconditionally.
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data:; "+
+				"font-src 'self'; "+
+				"connect-src 'self'; "+
+				"object-src 'none'; "+
+				"base-uri 'self'; "+
+				"form-action 'self'; "+
+				"frame-ancestors 'none'",
+		)
 		// HSTS only when the request actually arrived over TLS (either
 		// direct or via a trusted reverse-proxy that set X-Forwarded-Proto).
 		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
