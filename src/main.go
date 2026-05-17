@@ -58,6 +58,8 @@ func main() {
 	showHelp := flag.Bool("help", false, "Show help message")
 	debugFlag := flag.Bool("debug", false, "Enable debug mode")
 	colorFlag := flag.String("color", "auto", "Color output: auto, yes, no")
+	backupPath := flag.String("backup", "", "Run a backup now, writing to <path>")
+	restorePath := flag.String("restore", "", "Restore from backup archive at <path>")
 
 	// Service commands
 	serviceCmd := flag.String("service", "", "Service commands: start, stop, restart, reload, status, enable, disable, logs, --install, --uninstall, --help")
@@ -69,6 +71,22 @@ func main() {
 	updateCmd := flag.String("update", "", "Update commands: check, yes, branch")
 
 	flag.Parse()
+
+	// Handle direct backup/restore flags (spec: --backup <path>, --restore <path>)
+	if *backupPath != "" {
+		if err := createBackup(*backupPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *restorePath != "" {
+		if err := restoreBackup(*restorePath); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Handle help (can run without privileges)
 	if *showHelp {
@@ -142,6 +160,12 @@ func main() {
 }
 
 func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, color string) error {
+	// Propagate build-time version info into the server package so that
+	// /server/about and /healthz return real values, not "dev"/"unknown".
+	server.Version = Version
+	server.Commit = CommitID
+	server.BuildDate = BuildDate
+
 	// Handle debug flag
 	if debug {
 		log.Println("Debug mode enabled")
@@ -356,7 +380,7 @@ func printHelp() {
 func checkStatus() int {
 	// Try to connect to health endpoint
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	configPath := filepath.Join(configDir, "server.yaml")
+	configPath := filepath.Join(configDir, "server.yml")
 
 	cfg, err := config.Load(configPath)
 	if err != nil || cfg.Server.Port == "" {
@@ -364,7 +388,8 @@ func checkStatus() int {
 		return 1
 	}
 
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%s/healthz", cfg.Server.Port))
+	statusClient := &http.Client{Timeout: 5 * time.Second}
+	resp, err := statusClient.Get(fmt.Sprintf("http://127.0.0.1:%s/healthz", cfg.Server.Port))
 	if err != nil {
 		fmt.Printf("Status: Not running (port %s)\n", cfg.Server.Port)
 		return 1
@@ -618,8 +643,10 @@ func restoreBackup(fileLocation string) error {
 func checkAndUpdate() error {
 	fmt.Println("Checking for updates...")
 
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
 	// Get latest release from GitHub
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
+	resp, err := httpClient.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
 	if err != nil {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
@@ -672,13 +699,15 @@ func checkAndUpdate() error {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	dlResp, err := http.Get(downloadURL)
+	dlResp, err := httpClient.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
 	}
 	defer dlResp.Body.Close()
 
-	if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
+	// Cap download at 256 MiB to guard against unbounded streams.
+	const maxBinarySize = 256 << 20
+	if _, err := io.Copy(tmpFile, io.LimitReader(dlResp.Body, maxBinarySize)); err != nil {
 		return fmt.Errorf("failed to save update: %w", err)
 	}
 	tmpFile.Close()
@@ -715,8 +744,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func findRandomPort() (string, error) {
-	rand.Seed(time.Now().UnixNano())
-
+	// Go 1.20+ auto-seeds the global rand; no explicit Seed needed.
 	for i := 0; i < 100; i++ {
 		port := 64000 + rand.Intn(1000)
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -749,7 +777,7 @@ func getAccessibleURL(port string) string {
 }
 
 func getOutboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 2*time.Second)
 	if err != nil {
 		return ""
 	}
@@ -892,7 +920,8 @@ func handleUpdateCommand(cmd, branch string) error {
 func checkForUpdate() error {
 	fmt.Println("Checking for updates...")
 
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Get(fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", ProjectOrg, ProjectName))
 	if err != nil {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}
