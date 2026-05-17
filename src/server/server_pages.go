@@ -198,3 +198,63 @@ func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 }
+
+// handleAutodiscover returns server settings, configuration schema, and CLI/agent
+// options per AI.md PART 14 (/api/autodiscover — unversioned endpoint).
+//
+// Response includes: server version, API versions, primary URL, cluster URLs,
+// cli_versions (per-platform tarball info), and cli_min_version.
+func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
+	// Determine primary URL from request host (respects X-Forwarded-Proto / TLS).
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
+		scheme = fwdProto
+	}
+	primaryURL := scheme + "://" + r.Host
+
+	resp := map[string]interface{}{
+		"server": map[string]interface{}{
+			"name":       "Airports API",
+			"version":    Version,
+			"commit":     Commit,
+			"build_date": BuildDate,
+			"primary_url": primaryURL,
+			"cluster_urls": []string{},
+		},
+		"api": map[string]interface{}{
+			"versions":        []string{"v1"},
+			"current_version": "v1",
+			"base_path":       "/api",
+		},
+		// cli_versions maps os/arch → {version, url, sha256}.
+		// Populated at release time; empty map when not configured.
+		"cli_versions": map[string]interface{}{},
+		// cli_min_version is the oldest CLI that this server still supports.
+		"cli_min_version": "0.0.1",
+		"endpoints": map[string]string{
+			"healthz":      primaryURL + "/api/v1/server/healthz",
+			"about":        primaryURL + "/api/v1/server/about",
+			"swagger":      primaryURL + "/api/v1/server/swagger",
+			"graphql":      primaryURL + "/api/v1/server/graphql",
+			"airports":     primaryURL + "/api/v1/airports",
+			"search":       primaryURL + "/api/v1/airports/search",
+			"nearby":       primaryURL + "/api/v1/airports/nearby",
+			"within":       primaryURL + "/api/v1/airports/within",
+			"autocomplete": primaryURL + "/api/v1/airports/autocomplete",
+			"geoip":        primaryURL + "/api/v1/geoip",
+			"stats":        primaryURL + "/api/v1/stats",
+		},
+		"features": map[string]bool{
+			"geoip":         true,
+			"graphql":       true,
+			"metrics":       true,
+			"tor":           false,
+			"authentication": false,
+		},
+	}
+
+	s.respondItem(w, http.StatusOK, resp)
+}

@@ -177,6 +177,10 @@ func (s *Server) setupRouter() {
 	// at root) are no longer served." The deprecated legacy aliases have therefore
 	// been deleted from both the root and the versioned tree.
 
+	// /api/autodiscover — unversioned, per AI.md PART 14. Returns server settings,
+	// config schema, and options for CLI/agent consumers.
+	r.Get("/api/autodiscover", s.handleAutodiscover)
+
 	// API v1 routes - ALL PUBLIC, NO AUTH
 	r.Route("/api/v1", func(r chi.Router) {
 		// Add API version header to all v1 responses.
