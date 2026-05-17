@@ -65,6 +65,91 @@ func (s *Server) handleServerTerms(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleServerHelpAPI returns the API help reference as JSON per AI.md PART 14.
+func (s *Server) handleServerHelpAPI(w http.ResponseWriter, r *http.Request) {
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"name":    "Airports API Help",
+		"version": "v1",
+		"endpoints": []map[string]string{
+			{"method": "GET", "path": "/api/v1/airports", "description": "List airports (paginated)"},
+			{"method": "GET", "path": "/api/v1/airports/{ident}", "description": "Get airport by ICAO or IATA code"},
+			{"method": "GET", "path": "/api/v1/search?q=", "description": "Full-text search"},
+			{"method": "GET", "path": "/api/v1/nearby?lat=&lon=&radius=", "description": "Airports within radius"},
+			{"method": "GET", "path": "/api/v1/bbox?lat_min=&lat_max=&lon_min=&lon_max=", "description": "Airports within bounding box"},
+			{"method": "GET", "path": "/api/v1/countries", "description": "List countries"},
+			{"method": "GET", "path": "/api/v1/stats", "description": "Dataset statistics"},
+			{"method": "GET", "path": "/api/v1/geoip", "description": "Caller GeoIP lookup"},
+			{"method": "GET", "path": "/api/v1/geoip/{ip}", "description": "GeoIP lookup for IP"},
+			{"method": "GET", "path": "/api/v1/server/healthz", "description": "Health status"},
+			{"method": "GET", "path": "/api/v1/server/about", "description": "Server version info"},
+		},
+		"formats": []string{"json", "csv", "geojson", "text"},
+		"docs":    "/server/docs/swagger",
+	})
+}
+
+// handleServerPrivacyAPI returns the privacy policy as JSON per AI.md PART 14.
+func (s *Server) handleServerPrivacyAPI(w http.ResponseWriter, r *http.Request) {
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"summary": map[string]interface{}{
+			"data_stored_on_server": false,
+			"data_sold":             false,
+			"user_control":          false,
+		},
+		"cookies": map[string]interface{}{
+			"essential": map[string]interface{}{
+				"enabled":     true,
+				"description": "Theme preference (dark/light/auto) stored in localStorage only. No server-side session cookies.",
+			},
+			"preferences": map[string]interface{}{
+				"enabled":     false,
+				"description": "No user accounts or server-side preferences.",
+			},
+			"analytics": map[string]interface{}{
+				"enabled":     false,
+				"description": "No analytics or tracking of any kind.",
+			},
+		},
+		"data": map[string]interface{}{
+			"sold":             false,
+			"stored_on_server": false,
+			"sharing":          []interface{}{},
+		},
+		"tracking": map[string]interface{}{
+			"enabled":   false,
+			"type":      "",
+			"type_name": "",
+		},
+		"retention": map[string]interface{}{
+			"period":             "No personal data is collected or retained.",
+			"export_available":   false,
+			"deletion_available": false,
+		},
+		"third_party": map[string]interface{}{
+			"services": []interface{}{},
+		},
+		"content": map[string]interface{}{
+			"consent_message": "This service collects no personal data.",
+			"data_usage":      "Airport data is public reference data served read-only. No user data is stored.",
+		},
+	})
+}
+
+// handleServerTermsAPI returns the terms of use as JSON per AI.md PART 14.
+func (s *Server) handleServerTermsAPI(w http.ResponseWriter, r *http.Request) {
+	s.respondItem(w, http.StatusOK, map[string]interface{}{
+		"service":  "Airports API",
+		"version":  Version,
+		"license":  "MIT",
+		"data_source": map[string]string{
+			"airports": "OurAirports (public domain)",
+			"geoip":    "ip-location-db via jsDelivr CDN (CC0/PDDL)",
+		},
+		"usage": "Free, open, and authentication-free. No rate-limit keys required.",
+		"repo":  "https://github.com/apimgr/airports",
+	})
+}
+
 // handleServerAboutAPI returns build metadata as JSON per AI.md PART 14.
 func (s *Server) handleServerAboutAPI(w http.ResponseWriter, r *http.Request) {
 	s.respondItem(w, http.StatusOK, map[string]interface{}{

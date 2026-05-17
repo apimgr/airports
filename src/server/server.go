@@ -185,9 +185,12 @@ func (s *Server) setupRouter() {
 		// API info
 		r.Get("/", s.handleAPIInfo)
 
-		// Versioned server API surface (canonical paths per AI.md)
+		// Versioned server API surface (canonical paths per AI.md PART 14).
 		r.Get("/server/healthz", s.handleServerHealthz)
 		r.Get("/server/about", s.handleServerAboutAPI)
+		r.Get("/server/help", s.handleServerHelpAPI)
+		r.Get("/server/privacy", s.handleServerPrivacyAPI)
+		r.Get("/server/terms", s.handleServerTermsAPI)
 		r.Get("/server/swagger", swaggerSpec)
 		r.Post("/server/graphql", graphqlQuery)
 
