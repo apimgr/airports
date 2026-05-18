@@ -497,20 +497,37 @@ func printServiceHelp() {
 func createBackup(fileLocation string) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
 
-	// Default backup location
+	// Default backup location: {backup_dir}/{name}-{ISO timestamp}.tar.gz
 	if fileLocation == "" {
 		backupDir := paths.GetBackupDir(ProjectName)
 		if err := os.MkdirAll(backupDir, 0755); err != nil {
 			return fmt.Errorf("failed to create backup directory: %w", err)
 		}
-		timestamp := time.Now().Format("20060102150405")
-		fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s.tar.gz", timestamp))
+		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+		fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s-%s.tar.gz", ProjectName, timestamp))
 	}
 
 	fmt.Printf("Creating backup: %s\n", fileLocation)
 
-	// Create tar.gz archive
-	file, err := os.Create(fileLocation)
+	// Atomic write: write to a .tmp file, then rename on success.
+	tmpPath := fileLocation + ".tmp"
+	if err := writeBackupArchive(tmpPath, configDir, dataDir); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, fileLocation); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to finalize backup: %w", err)
+	}
+
+	fmt.Printf("Backup created successfully: %s\n", fileLocation)
+	return nil
+}
+
+// writeBackupArchive creates a tar.gz containing config and data directories.
+// GeoIP databases, blocklists, and CVE data are excluded (re-downloadable).
+func writeBackupArchive(path, configDir, dataDir string) error {
+	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create backup file: %w", err)
 	}
@@ -522,24 +539,37 @@ func createBackup(fileLocation string) error {
 	tarWriter := tar.NewWriter(gzWriter)
 	defer tarWriter.Close()
 
-	// Add config directory
-	if err := addDirToTar(tarWriter, configDir, "config"); err != nil {
+	// Directories to exclude from backup (re-downloadable external data).
+	excludedSuffixes := []string{"/geoip/", "/blocklist/", "/cve/", "/security/"}
+	isExcluded := func(path string) bool {
+		for _, suffix := range excludedSuffixes {
+			if strings.Contains(path, suffix) {
+				return true
+			}
+		}
+		return false
+	}
+
+	if err := addDirToTarFiltered(tarWriter, configDir, "config", isExcluded); err != nil {
 		return fmt.Errorf("failed to backup config: %w", err)
 	}
-
-	// Add data directory
-	if err := addDirToTar(tarWriter, dataDir, "data"); err != nil {
+	if err := addDirToTarFiltered(tarWriter, dataDir, "data", isExcluded); err != nil {
 		return fmt.Errorf("failed to backup data: %w", err)
 	}
-
-	fmt.Printf("Backup created successfully: %s\n", fileLocation)
 	return nil
 }
 
-func addDirToTar(tw *tar.Writer, srcDir, prefix string) error {
+func addDirToTarFiltered(tw *tar.Writer, srcDir, prefix string, isExcluded func(string) bool) error {
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		if isExcluded != nil && isExcluded(path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		relPath, err := filepath.Rel(srcDir, path)
