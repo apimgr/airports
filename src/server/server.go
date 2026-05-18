@@ -501,7 +501,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		// HSTS only when the request actually arrived over TLS (either
 		// direct or via a trusted reverse-proxy that set X-Forwarded-Proto).
 		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
 		next.ServeHTTP(w, r)
 	})

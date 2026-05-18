@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
 	"flag"
@@ -680,8 +681,25 @@ func restoreBackup(fileLocation string) error {
 	return nil
 }
 
+// isRunningInContainer reports whether the process is inside a Docker container.
+func isRunningInContainer() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	return false
+}
+
 func checkAndUpdate() error {
 	fmt.Println("Checking for updates...")
+
+	// Refuse to self-update inside a Docker container — the image itself must be
+	// replaced via `docker pull` / a new image build (PART 22).
+	if isRunningInContainer() {
+		return fmt.Errorf("self-update is not supported inside a Docker container.\n" +
+			"Pull the latest image instead:\n\n" +
+			"  docker pull ghcr.io/%s/%s:latest\n\n" +
+			"Then restart your container.", ProjectOrg, ProjectName)
+	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 
@@ -712,17 +730,19 @@ func checkAndUpdate() error {
 
 	fmt.Printf("New version available: %s (current: %s)\n", latestVersion, Version)
 
-	// Find correct asset for this platform
+	// Find correct asset and SHA256SUMS for this platform
 	assetName := fmt.Sprintf("%s-%s-%s", ProjectName, runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		assetName += ".exe"
 	}
 
-	var downloadURL string
+	var downloadURL, checksumURL string
 	for _, asset := range release.Assets {
-		if asset.Name == assetName {
+		switch asset.Name {
+		case assetName:
 			downloadURL = asset.BrowserDownloadURL
-			break
+		case "SHA256SUMS":
+			checksumURL = asset.BrowserDownloadURL
 		}
 	}
 
@@ -730,10 +750,38 @@ func checkAndUpdate() error {
 		return fmt.Errorf("no binary available for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
+	// Fetch SHA256SUMS first so we can verify after download.
+	var expectedHash string
+	if checksumURL != "" {
+		csResp, err := httpClient.Get(checksumURL)
+		if err != nil {
+			return fmt.Errorf("failed to fetch SHA256SUMS: %w", err)
+		}
+		defer csResp.Body.Close()
+		const maxSumsSize = 1 << 20 // 1 MiB cap
+		sumsData, err := io.ReadAll(io.LimitReader(csResp.Body, maxSumsSize))
+		if err != nil {
+			return fmt.Errorf("failed to read SHA256SUMS: %w", err)
+		}
+		for _, line := range strings.Split(string(sumsData), "\n") {
+			// Format: "<hex>  <filename>" or "<hex> <filename>"
+			parts := strings.Fields(line)
+			if len(parts) == 2 && parts[1] == assetName {
+				expectedHash = parts[0]
+				break
+			}
+		}
+		if expectedHash == "" {
+			return fmt.Errorf("no SHA-256 entry found for %s in SHA256SUMS", assetName)
+		}
+	} else {
+		return fmt.Errorf("SHA256SUMS not found in release assets — refusing to update without checksum verification")
+	}
+
 	fmt.Printf("Downloading %s...\n", assetName)
 
 	// Download to temp file
-	tmpFile, err := os.CreateTemp("", ProjectName+"-*")
+	tmpFile, err := os.CreateTemp("", ProjectName+"-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -745,12 +793,20 @@ func checkAndUpdate() error {
 	}
 	defer dlResp.Body.Close()
 
-	// Cap download at 256 MiB to guard against unbounded streams.
+	// Hash while writing; cap at 256 MiB to guard against unbounded streams.
 	const maxBinarySize = 256 << 20
-	if _, err := io.Copy(tmpFile, io.LimitReader(dlResp.Body, maxBinarySize)); err != nil {
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmpFile, hasher), io.LimitReader(dlResp.Body, maxBinarySize)); err != nil {
 		return fmt.Errorf("failed to save update: %w", err)
 	}
 	tmpFile.Close()
+
+	// Verify SHA-256 checksum before replacing anything.
+	actualHash := fmt.Sprintf("%x", hasher.Sum(nil))
+	if actualHash != expectedHash {
+		return fmt.Errorf("checksum mismatch for %s:\n  expected: %s\n  actual:   %s\nUpdate aborted.", assetName, expectedHash, actualHash)
+	}
+	fmt.Println("Checksum verified.")
 
 	// Get current binary path
 	currentPath, err := os.Executable()
@@ -758,7 +814,7 @@ func checkAndUpdate() error {
 		return fmt.Errorf("failed to get current binary path: %w", err)
 	}
 
-	// Replace binary
+	// Replace binary atomically
 	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
@@ -768,7 +824,14 @@ func checkAndUpdate() error {
 	}
 
 	fmt.Printf("Updated to version %s\n", latestVersion)
-	fmt.Println("Please restart the service to apply the update")
+
+	// Attempt to restart via service manager (PART 22).
+	if err := service.Restart(); err != nil {
+		// Not running as a managed service — inform the operator.
+		fmt.Println("Please restart the service manually to apply the update.")
+	} else {
+		fmt.Println("Service restarted successfully.")
+	}
 	return nil
 }
 
