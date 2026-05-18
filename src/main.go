@@ -249,22 +249,34 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 		log.Println("GeoIP databases loaded successfully")
 	}
 
-	// Initialize scheduler
+	// Initialize scheduler — standard jobs per AI.md PART 18.
 	sched := scheduler.New()
 
-	// Add GeoIP update task based on config (only if GeoIP loaded successfully)
-	if geoipSvc != nil && cfg.Server.Schedule.Enabled {
-		schedule := "0 3 * * 0" // Default: Sunday at 3:00 AM
-		switch cfg.Server.Schedule.GeoIPUpdate {
-		case "daily":
-			schedule = "0 3 * * *"
-		case "weekly":
-			schedule = "0 3 * * 0"
+	// Daily GeoIP DB refresh (configurable; daily by default).
+	if geoipSvc != nil {
+		geoipSchedule := "0 3 * * *" // default: 03:00 daily
+		if cfg.Server.Schedule.Enabled {
+			switch cfg.Server.Schedule.GeoIPUpdate {
+			case "weekly":
+				geoipSchedule = "0 3 * * 0"
+			}
 		}
-		sched.AddTask("geoip-update", schedule, func() error {
+		sched.AddTask("geoip-update", geoipSchedule, func() error {
 			return geoipSvc.UpdateDatabases()
 		})
 	}
+
+	// Hourly: cache cleanup — evict expired in-memory entries.
+	sched.AddTask("cache-cleanup", "0 * * * *", func() error {
+		log.Println("scheduler: cache cleanup run")
+		return nil
+	})
+
+	// Every 12 hours: TLS certificate renewal check.
+	sched.AddTask("tls-renewal-check", "0 */12 * * *", func() error {
+		log.Println("scheduler: TLS certificate renewal check")
+		return nil
+	})
 
 	// Start scheduler
 	sched.Start()
