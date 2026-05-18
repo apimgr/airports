@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apimgr/airports/src/airports"
@@ -37,6 +38,7 @@ type Server struct {
 	airports    *airports.Service
 	geoip       *geoip.Service
 	config      *config.Config
+	configMu    sync.RWMutex // guards config hot-reload
 	router      *chi.Mux
 	rateLimiter *RateLimiter
 	metrics     *appMetrics
@@ -74,6 +76,14 @@ func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Conf
 // Router returns the configured HTTP router
 func (s *Server) Router() http.Handler {
 	return s.router
+}
+
+// ReloadConfig swaps in a new configuration atomically. Called on SIGHUP.
+// The router is not rebuilt — settings take effect on the next request.
+func (s *Server) ReloadConfig(cfg *config.Config) {
+	s.configMu.Lock()
+	s.config = cfg
+	s.configMu.Unlock()
 }
 
 // setupRouter configures all routes - NO AUTHENTICATION per BASE.md spec

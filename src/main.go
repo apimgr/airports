@@ -281,6 +281,18 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Write PID file (enabled by default per spec).
+	pidPath := filepath.Join(dataDir, ProjectName+".pid")
+	if err := os.WriteFile(pidPath, fmt.Appendf(nil, "%d\n", os.Getpid()), 0644); err != nil {
+		log.Printf("Warning: could not write PID file %s: %v", pidPath, err)
+	} else {
+		defer func() {
+			if rmErr := os.Remove(pidPath); rmErr != nil {
+				log.Printf("Warning: could not remove PID file %s: %v", pidPath, rmErr)
+			}
+		}()
+	}
+
 	// Start server in goroutine
 	go func() {
 		url := getAccessibleURL(port)
@@ -294,10 +306,30 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 		}
 	}()
 
-	// Wait for interrupt signal
+	// Wait for interrupt/terminate or SIGHUP (config reload).
+	// Per AI.md binary-rules.md: SIGTERM/SIGINT → graceful shutdown;
+	// SIGHUP → reload config + reopen log files.
 	quit := make(chan os.Signal, 1)
+	reload := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	signal.Notify(reload, syscall.SIGHUP)
+
+	for {
+		select {
+		case <-reload:
+			log.Println("SIGHUP received — reloading configuration")
+			if newCfg, loadErr := config.Load(configPath); loadErr != nil {
+				log.Printf("Warning: config reload failed: %v — keeping current config", loadErr)
+			} else {
+				cfg = newCfg
+				srv.ReloadConfig(cfg)
+				log.Println("Configuration reloaded successfully")
+			}
+		case <-quit:
+			goto shutdown
+		}
+	}
+shutdown:
 
 	log.Println("Shutting down server...")
 
