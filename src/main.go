@@ -64,8 +64,8 @@ func main() {
 	// Service commands
 	serviceCmd := flag.String("service", "", "Service management: install|uninstall|start|stop|restart|status|enable|disable|logs")
 
-	// Maintenance commands
-	maintenanceCmd := flag.String("maintenance", "", "Maintenance commands: backup, restore, update, mode, setup")
+	// --maintenance starts the server in maintenance (read-only) mode per spec.
+	maintenanceMode := flag.Bool("maintenance", false, "Start in maintenance mode (read-only; serves maintenance page)")
 
 	// Update flag — `airports --update` checks GitHub releases and applies any update.
 	doUpdate := flag.Bool("update", false, "Self-update from GitHub releases")
@@ -133,28 +133,14 @@ func main() {
 		return
 	}
 
-	// Handle maintenance commands
-	if *maintenanceCmd != "" {
-		// Get optional file location from remaining args
-		var fileLocation string
-		if flag.NArg() > 0 {
-			fileLocation = flag.Arg(0)
-		}
-		if err := handleMaintenanceCommand(*maintenanceCmd, fileLocation); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Start server
-	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag, *debugFlag, *colorFlag); err != nil {
+	// Start server (possibly in maintenance mode)
+	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag, *debugFlag, *colorFlag, *maintenanceMode); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, color string) error {
+func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, color string, maintenance bool) error {
 	// Propagate build-time version info into the server package so that
 	// /server/about and /healthz return real values, not "dev"/"unknown".
 	server.Version = Version
@@ -173,7 +159,11 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 		}
 	}
 
-	log.Printf("Starting %s API server v%s", ProjectName, Version)
+	if maintenance {
+		log.Printf("Starting %s API server v%s in MAINTENANCE mode (read-only)", ProjectName, Version)
+	} else {
+		log.Printf("Starting %s API server v%s", ProjectName, Version)
+	}
 	log.Printf("Commit: %s, Built: %s", CommitID, BuildDate)
 	if OfficialSite != "" {
 		log.Printf("Official site: %s", OfficialSite)
@@ -283,6 +273,11 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag string, debug bool, c
 	defer sched.Stop()
 	log.Println("Scheduler started")
 
+	// Apply maintenance mode flag to config before creating server.
+	if maintenance {
+		cfg.Server.Mode = "maintenance"
+	}
+
 	// Create HTTP server
 	srv := server.New(airportSvc, geoipSvc, cfg)
 	httpServer := &http.Server{
@@ -390,12 +385,11 @@ func printHelp() {
 	fmt.Println("  --service --uninstall Remove system service")
 	fmt.Println("  --service --help      Show service help")
 	fmt.Println()
-	fmt.Println("Maintenance Commands:")
-	fmt.Println("  --maintenance backup [file]   Backup config and data")
-	fmt.Println("  --maintenance restore [file]  Restore from backup")
-	fmt.Println("  --maintenance update          Check and install updates")
-	fmt.Println("  --maintenance mode [MODE]     Show or set application mode")
-	fmt.Println("  --maintenance setup           Run initial setup wizard")
+	fmt.Println("Maintenance / Admin:")
+	fmt.Println("  --maintenance                 Start in maintenance mode (read-only)")
+	fmt.Println("  --backup <path>               Run a backup now")
+	fmt.Println("  --restore <path>              Restore from backup archive")
+	fmt.Println("  --update                      Self-update from GitHub releases")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  CONFIG_DIR            Configuration directory path")
@@ -406,14 +400,15 @@ func printHelp() {
 	fmt.Println("  MODE                  Application mode (production, development)")
 	fmt.Println()
 	fmt.Println("Configuration:")
-	fmt.Printf("  Root: /etc/%s/%s/server.yml\n", ProjectOrg, ProjectName)
-	fmt.Printf("  User: ~/.config/%s/%s/server.yml\n", ProjectOrg, ProjectName)
+	fmt.Printf("  Root: /etc/%s/server.yml\n", ProjectName)
+	fmt.Printf("  User: ~/.config/%s/server.yml\n", ProjectName)
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Printf("  %s                          # Start with defaults\n", ProjectName)
 	fmt.Printf("  %s --port 8080              # Start on port 8080\n", ProjectName)
-	fmt.Printf("  %s --maintenance backup     # Create backup\n", ProjectName)
-	fmt.Printf("  %s --service --install      # Install as service\n", ProjectName)
+	fmt.Printf("  %s --maintenance            # Start in maintenance mode\n", ProjectName)
+	fmt.Printf("  %s --backup /tmp/bak.tar.gz # Create backup\n", ProjectName)
+	fmt.Printf("  %s --service install        # Install as service\n", ProjectName)
 }
 
 func checkStatus() int {
@@ -497,27 +492,6 @@ func printServiceHelp() {
 	fmt.Println("  macOS:   launchd")
 	fmt.Println("  Windows: Windows Service Manager")
 	fmt.Println("  BSD:     rc.d")
-}
-
-func handleMaintenanceCommand(cmd, fileLocation string) error {
-	switch cmd {
-	case "backup":
-		return createBackup(fileLocation)
-	case "restore":
-		return restoreBackup(fileLocation)
-	case "update":
-		return checkAndUpdate()
-	case "mode":
-		// fileLocation is actually the mode value (production/development)
-		if fileLocation == "" {
-			return showCurrentMode()
-		}
-		return setApplicationMode(fileLocation)
-	case "setup":
-		return runInitialSetup()
-	default:
-		return fmt.Errorf("unknown maintenance command: %s", cmd)
-	}
 }
 
 func createBackup(fileLocation string) error {
