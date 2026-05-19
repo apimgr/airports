@@ -19,7 +19,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	health := map[string]interface{}{
 		"status":  "healthy",
-		"version": "1.0.0",
+		"version": Version,
 		"checks": map[string]interface{}{
 			"airports": map[string]interface{}{
 				"status": "loaded",

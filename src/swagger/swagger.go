@@ -39,8 +39,9 @@ func Handler(specPath, assetsPrefix string) http.HandlerFunc {
 }
 
 // SpecHandler serves the OpenAPI 3.0 JSON specification.
-func SpecHandler() http.HandlerFunc {
-	spec := BuildSpec()
+// version is the running binary version (injected by server.go via Version var).
+func SpecHandler(version string) http.HandlerFunc {
+	spec := BuildSpec(version)
 	body, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		body = []byte(`{"error":"failed to encode openapi spec"}`)

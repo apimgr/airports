@@ -5,13 +5,19 @@ package swagger
 // wired up, this file is the single source of truth for the spec served
 // at /api/{api_version}/server/swagger and the unversioned alias
 // /api/swagger (per AI.md PART 14).
-func BuildSpec() map[string]interface{} {
+// BuildSpec returns the OpenAPI 3.0 spec for the Airports API.
+// version is injected at runtime from the build-time Version variable so
+// the spec always reflects the running binary version.
+func BuildSpec(version string) map[string]interface{} {
+	if version == "" {
+		version = "dev"
+	}
 	return map[string]interface{}{
 		"openapi": "3.0.0",
 		"info": map[string]interface{}{
 			"title":       "Airports API",
 			"description": "Global airport location information API with GeoIP integration",
-			"version":     "1.0.0",
+			"version":     version,
 			"contact": map[string]string{
 				"name": "Airports API",
 				"url":  "https://github.com/apimgr/airports",

@@ -173,7 +173,7 @@ func (s *Server) setupRouter() {
 	// per AI.md PART 14 "Standardized File Locations". UI assets are
 	// served from embed.FS in those packages (no CDN, single binary).
 	swaggerUI := swaggerpkg.Handler("/api/v1/server/swagger", swaggerAssetsPrefix)
-	swaggerSpec := swaggerpkg.SpecHandler()
+	swaggerSpec := swaggerpkg.SpecHandler(Version)
 	graphqlUI := graphqlpkg.UIHandler("/api/v1/server/graphql", graphqlAssetsPrefix)
 	graphqlQuery := graphqlpkg.QueryHandler(s.airports)
 
