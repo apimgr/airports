@@ -70,22 +70,4 @@
     {{end}}
 </div>
 
-<script>
-function handleSearchKey(event) {
-    if (event.key === 'Enter') {
-        performSearch();
-    }
-}
-
-function performSearch() {
-    const query = document.getElementById('search-input').value.trim();
-    if (query) {
-        window.location = `/search?q=${encodeURIComponent(query)}`;
-    }
-}
-
-function viewAirport(code) {
-    window.location = `/airport/${code}`;
-}
-</script>
 {{end}}

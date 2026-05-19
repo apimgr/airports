@@ -1,6 +1,6 @@
 {{define "content"}}
 {{if .Airport}}
-<div class="airport-detail">
+<div class="airport-detail" data-lat="{{.Airport.Lat}}" data-lon="{{.Airport.Lon}}">
     <div class="airport-detail-header">
         <div>
             <h1>{{.Airport.ICAO}}{{if .Airport.IATA}} / {{.Airport.IATA}}{{end}}</h1>
@@ -74,24 +74,4 @@
 </div>
 {{end}}
 
-<script>
-function findNearby() {
-    const lat = {{.Airport.Lat}};
-    const lon = {{.Airport.Lon}};
-    window.location = `/nearby?lat=${lat}&lon=${lon}&radius=100`;
-}
-
-function viewOnMap() {
-    const lat = {{.Airport.Lat}};
-    const lon = {{.Airport.Lon}};
-    window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=12`, '_blank');
-}
-
-function copyJSON() {
-    const jsonText = document.getElementById('json-data').textContent;
-    navigator.clipboard.writeText(jsonText).then(() => {
-        showToast('JSON copied to clipboard!', 'success');
-    });
-}
-</script>
 {{end}}

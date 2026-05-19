@@ -490,8 +490,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		// Permissions-Policy: lock down powerful APIs by default.
 		h.Set("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
 		// Content-Security-Policy: restrict dangerous capabilities.
-		// 'unsafe-inline' for script/style is retained for compatibility with
-		// the remaining template inline scripts. Dangerous sinks (object, base,
+		// 'unsafe-inline' on script-src is the spec default (AI.md PART 11 §CSP):
+		// templates use inline event handlers (onclick, onkeyup) and GraphiQL
+		// requires inline React bootstrap. Dangerous sinks (object, base,
 		// frame-ancestors) are blocked unconditionally.
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
