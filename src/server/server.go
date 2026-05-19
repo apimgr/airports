@@ -133,9 +133,13 @@ func (s *Server) setupRouter() {
 		})
 	})
 
-	// Static files
+	// Static files — serve with long-lived cache (1 year) per AI.md PART 9 caching rules.
+	// Files are embedded at build time; content is immutable per build.
 	staticFiles, _ := fs.Sub(staticFS, "static")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))))
+	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.StripPrefix("/static/", http.FileServer(http.FS(staticFiles))).ServeHTTP(w, r)
+	}))
 
 	// Special files
 	r.Get("/robots.txt", s.handleRobotsTxt)
@@ -181,6 +185,7 @@ func (s *Server) setupRouter() {
 	// Unversioned API aliases (mounted to the same handlers as the current version,
 	// per AI.md PART 14 "Unversioned API aliases" — never redirect, never fork behavior).
 	r.Get("/api/swagger", swaggerSpec)
+	r.Get("/api/swagger.json", swaggerSpec) // canonical .json alias per AI.md PART 14
 	r.Get("/api/healthz", s.handleServerHealthz)
 	r.Post("/api/graphql", graphqlQuery)
 	// AI.md note: "Old paths removed: /openapi, /openapi.json, /graphql (GET and POST
@@ -193,10 +198,11 @@ func (s *Server) setupRouter() {
 
 	// API v1 routes - ALL PUBLIC, NO AUTH
 	r.Route("/api/v1", func(r chi.Router) {
-		// Add API version header to all v1 responses.
+		// Add API version + no-cache headers to all v1 responses per AI.md PART 9.
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-API-Version", "v1")
+				w.Header().Set("Cache-Control", "private, max-age=0, no-cache")
 				next.ServeHTTP(w, r)
 			})
 		})
@@ -211,6 +217,7 @@ func (s *Server) setupRouter() {
 		r.Get("/server/privacy", s.handleServerPrivacyAPI)
 		r.Get("/server/terms", s.handleServerTermsAPI)
 		r.Get("/server/swagger", swaggerSpec)
+		r.Get("/server/swagger.json", swaggerSpec) // canonical .json alias per AI.md PART 14
 		r.Post("/server/graphql", graphqlQuery)
 
 		// Airport endpoints - JSON responses
