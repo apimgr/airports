@@ -285,7 +285,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-33; PART 3
 |---------------|------------|-------------|
 | **IDEA.md** | Actual project features/endpoints | Features added/removed |
 | **README.md** | Current functionality | Usage/installation changes |
-| **docs/** | Current user/admin/API/config/security/integration behavior | Any user-facing, admin-facing, operator-facing, or integration-facing changes |
+| **docs/** | Current API/config/security/integration behavior | Any operator-facing, integration-facing changes |
 | **Swagger annotations** | Actual API endpoints | Routes changed |
 | **GraphQL schema** | Actual types/queries | Schema changed |
 
@@ -295,7 +295,7 @@ permission rules, business invariants. The HOW lives in AI.md PARTS 0-33; PART 3
    - AI.md PARTS 0-33 define implementation patterns; PART 33 is reference-only (do NOT modify)
    - IDEA.md defines YOUR project's features (update as needed)
 2. **README.md**: Keep feature list and usage examples current
-3. **docs/**: Update when routes, config options, admin UX, security behavior, auth/integration behavior, or public protocol surfaces change
+3. **docs/**: Update when routes, config options, operator configuration, security behavior, auth/integration behavior, or public protocol surfaces change
 4. **Swagger/GraphQL**: Keep annotations matching actual endpoints
 
 ## ⚠️ CRITICAL: One Coherent Product ⚠️
@@ -790,7 +790,7 @@ The `release` job already has `contents: write` to push assets — this covers t
 | Rule | Description |
 |------|-------------|
 | **SQLite default** | `{db_dir}/server.db` (see PART 4 for platform-specific paths) |
-| **Valkey/Redis** | Every app supports it for caching/clustering |
+| **Valkey/Redis** | Optional, used only as a local cache; this app does not use it for clustering |
 
 ## CLI Rules
 
@@ -825,7 +825,6 @@ src/main.go                 # Server application entry point
 src/config/                 # Configuration package
 src/server/                 # HTTP server package
 src/client/                 # client (REQUIRED - all projects)
-src/agent/                  # Agent (OPTIONAL - monitoring/management projects only)
 docker/                     # Docker files (REQUIRED)
 docker/Dockerfile           # Multi-stage Dockerfile
 docker/docker-compose.yml   # Production docker-compose
@@ -837,7 +836,6 @@ releases/                   # Release artifacts (gitignored)
 
 **Notes:**
 - `src/client/` is REQUIRED for all projects (client binary is mandatory). See PART 32 for client details.
-- `src/agent/` is OPTIONAL (only for monitoring/management projects). See PART 32 for agent details.
 - `docker/rootfs/` is the BUILD-TIME container overlay (copied into image).
 - Runtime volumes use `./volumes/config` and `./volumes/data` relative to where `docker run` or `docker compose` is executed; they are NEVER committed to the repo.
 
@@ -884,22 +882,17 @@ src/
 │   ├── handler/               # HTTP handlers by domain
 │   │   ├── health.go          # Health check handlers
 │   │   ├── auth.go            # Authentication handlers
-│   │   ├── user.go            # User management handlers
-│   │   ├── admin.go           # Admin panel handlers
 │   │   └── api.go             # API handlers
 │   ├── service/               # Business logic by domain
 │   │   ├── auth.go            # Authentication service
-│   │   ├── user.go            # User service
 │   │   ├── email.go           # Email service
 │   │   └── scheduler.go       # Scheduled task service
 │   ├── model/                 # Data models
-│   │   ├── user.go            # User model
-│   │   ├── session.go         # Session model
 │   │   └── token.go           # Token model
 │   ├── store/                 # Data access layer
 │   │   ├── store.go           # Store interface
 │   │   ├── sqlite.go          # SQLite implementation
-│   │   └── postgres.go        # PostgreSQL implementation (if needed)
+│   │   └── libsql.go          # libsql/Turso remote implementation
 │   └── template/              # HTML templates (if not embedded)
 │       ├── layout/            # Base layouts
 │       ├── page/              # Full pages
@@ -939,11 +932,8 @@ src/
 │   └── ssl.go                 # SSL/TLS handling
 ├── scheduler/
 │   └── scheduler.go           # Background task scheduler
-├── service/                   # Systemd service management
-│   └── service.go
-└── admin/                     # Admin-specific functionality
-    ├── admin.go               # Admin package main
-    └── handler.go             # Admin handlers
+└── service/                   # Systemd service management
+    └── service.go
 ```
 
 ### When to Split Files
@@ -965,10 +955,10 @@ src/
 
 | Split When | Into | Example |
 |------------|------|---------|
-| Multiple unrelated features | Feature-specific files | `user.go` → `user_model.go`, `user_service.go`, `user_handler.go` |
-| Multiple handlers | Handler per domain | `handler.go` → `handler/user.go`, `handler/admin.go` |
-| Multiple services | Service per domain | `service.go` → `service/user.go`, `service/email.go` |
-| Test file covers many features | Test per feature | `server_test.go` → `auth_test.go`, `user_test.go` |
+| Multiple unrelated features | Feature-specific files | `item.go` → `item_model.go`, `item_service.go`, `item_handler.go` |
+| Multiple handlers | Handler per domain | `handler.go` → `handler/item.go`, `handler/server.go` |
+| Multiple services | Service per domain | `service.go` → `service/item.go`, `service/email.go` |
+| Test file covers many features | Test per feature | `server_test.go` → `api_test.go`, `item_test.go` |
 | File hard to navigate | Logical groupings | Split when you can't find things quickly |
 
 **Signs a file needs splitting:**
@@ -1029,7 +1019,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 
 | NEVER | Instead |
 |-------|---------|
-| Use bcrypt for passwords | Use Argon2id |
+| Use bcrypt for config/backup passwords | Use Argon2id |
 | Put Dockerfile in project root | Put in `docker/Dockerfile` |
 | Use .env files | Hardcode sane defaults in docker-compose |
 | Run docker-compose in project dir | Use temp directory workflow |
@@ -1042,7 +1032,7 @@ Quick reference: Accept `yes/no`, `true/false`, `1/0`, `on/off`, `enable/disable
 | Use external cron for scheduling | Use internal scheduler (PART 18) |
 | Add comments to JSON files | JSON has no comment syntax |
 | Use `-musl` suffix in binary names | Alpine builds are not musl-specific |
-| Store tokens/passwords in plaintext | Passwords: Argon2id; Tokens: SHA-256 hash |
+| Store config/backup passwords or tokens in plaintext | Passwords: Argon2id; Tokens: SHA-256 hash |
 | Implement usage limits/quotas | Rate limits protect servers; usage limits extract money |
 | Create enterprise/premium tiers | All features free for all users, always |
 | Use plural directory names | Use singular: `handler/`, `model/`, not `handlers/` |
@@ -1147,8 +1137,8 @@ Claude Code creates `.claude/rules/` on first session (see PART 0: Session Initi
 | `ai-rules.md` | 0, 1 | AI Assistant Rules, Critical Rules |
 | `project-rules.md` | 2, 3, 4 | License & Attribution, Project Structure, OS-Specific Paths |
 | `config-rules.md` | 5, 6, 12 | Configuration, Application Modes, Server Configuration |
-| `binary-rules.md` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client & Agent |
-| `backend-rules.md` | 9, 10, 11, 32 | Error Handling & Caching, Database & Cluster, Security & Logging, Tor Hidden Service |
+| `binary-rules.md` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client |
+| `backend-rules.md` | 9, 10, 11, 32 | Error Handling & Caching, Database, Security & Logging, Tor Hidden Service |
 | `api-rules.md` | 13, 14, 15 | Health & Versioning, API Structure, SSL/TLS & Let's Encrypt |
 | `frontend-rules.md` | 16 | Web Frontend |
 | `features-rules.md` | 17-22 | Email & Notifications, Scheduler, GeoIP, Metrics, Backup & Restore, Update Command |
@@ -1222,7 +1212,7 @@ paths:
 ## KEY DECISIONS (pre-answered)
 | Question | Answer | Reference |
 |----------|--------|-----------|
-| What password hash? | Argon2id (NEVER bcrypt) | PART 11 |
+| Config/backup password hash? | Argon2id (NEVER bcrypt) | PART 11 |
 | Where is Dockerfile? | `docker/Dockerfile` (NEVER root) | PART 26 |
 | CGO enabled? | NEVER (CGO_ENABLED=0 always) | PART 7 |
 | Premium features? | NEVER (all features free) | PART 1 |
@@ -1234,9 +1224,7 @@ paths:
 |------|---------|
 | server | Main binary `{project_name}` - runs as service |
 | client | CLI binary `{project_name}-cli` - REQUIRED |
-| agent | Optional binary `{project_name}-agent` |
-| Server Admin | App administrator (NOT OS root) |
-| Regular User | End-user (optional feature, not in this spec) |
+| Operator | Person who deploys and manages the server via CLI and `server.yml` |
 
 ## COMPLIANCE CHECK
 Before completing ANY task:
@@ -1334,8 +1322,8 @@ Cursor uses `.mdc` files. Create the same logical groupings:
 | `ai-rules.mdc` | 0, 1 | AI Assistant Rules, Critical Rules |
 | `project-rules.mdc` | 2, 3, 4 | License & Attribution, Project Structure, OS-Specific Paths |
 | `config-rules.mdc` | 5, 6, 12 | Configuration, Application Modes, Server Configuration |
-| `binary-rules.mdc` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client & Agent |
-| `backend-rules.mdc` | 9, 10, 11, 32 | Error Handling & Caching, Database & Cluster, Security & Logging, Tor Hidden Service |
+| `binary-rules.mdc` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client |
+| `backend-rules.mdc` | 9, 10, 11, 32 | Error Handling & Caching, Database, Security & Logging, Tor Hidden Service |
 | `api-rules.mdc` | 13, 14, 15 | Health & Versioning, API Structure, SSL/TLS & Let's Encrypt |
 | `frontend-rules.mdc` | 16 | Web Frontend |
 | `features-rules.mdc` | 17-22 | Email & Notifications, Scheduler, GeoIP, Metrics, Backup & Restore, Update Command |
@@ -1454,29 +1442,17 @@ Purpose:
 ## Binary Terminology
 - **server** = `{project_name}` (main binary, runs as service)
 - **client** = `{project_name}-cli` (REQUIRED companion, CLI/TUI/GUI)
-- **agent** = `{project_name}-agent` (optional, runs on remote machines)
 
 ## Key Placeholders
 - `{project_name}` = [actual project name]
 - `{project_org}` = [organization name]
-## Account Types (CRITICAL)
-- **Server Admin** = manages the app (NOT a privileged OS user)
-- **Primary Admin** = first admin, cannot be deleted
-- **Regular User** = end-user (optional feature, not in this spec)
-- Server Admins ≠ Regular Users (separate DB tables)
-
-## Cluster vs Managed Nodes (CRITICAL)
-- **Cluster Node** = another instance of THIS app (horizontal scaling)
-- **Managed Node** = EXTERNAL resource app controls/monitors (Docker hosts, etc.)
-- Most apps only have cluster nodes
-
 ## NEVER Do (Top 19) - VIOLATIONS ARE BUGS
-1. Use bcrypt → Use Argon2id
+1. Use bcrypt for config/backup passwords → Use Argon2id
 2. Put Dockerfile in root → `docker/Dockerfile`
 3. Use CGO → CGO_ENABLED=0 always
 4. Hardcode dev values → Detect at runtime
 5. Use external cron → Internal scheduler (PART 18)
-6. Store passwords plaintext → Argon2id (tokens use SHA-256)
+6. Store config/backup passwords plaintext → Argon2id (API tokens use SHA-256)
 7. Create premium tiers → All features free, no paywalls
 8. Use Makefile in CI/CD → Explicit commands only
 9. Guess or assume values that a command can produce → Run the command (`date`, `basename "$PWD"`, `git config user.email`, `git rev-parse --short HEAD`, `uname -m`, etc.) — when no command applies, read spec or ask user
@@ -2023,13 +1999,12 @@ Instructions for how this agent should behave...
 
 ## Binary Terminology
 
-**Three binaries may be built from a project. All support renaming (affects help/docs, not directories/user/group):**
+**Two binaries are built from a project. Both support renaming (affects help/docs, not directories/user/group):**
 
 | Term | Default Binary Name | Description |
 |------|---------------------|-------------|
 | **server** | `{project_name}` | The main application binary - runs as service/daemon, serves API/WebUI |
 | **client** | `{project_name}-cli` | Required companion binary - terminal interface with CLI/TUI/GUI modes |
-| **agent** | `{project_name}-agent` | Optional companion binary - runs on remote machines, reports to server |
 
 **Renaming behavior:**
 - Renaming a binary (e.g., `cp jokes myjokes`) changes user-visible output (help text, banners, User-Agent)
@@ -2038,11 +2013,11 @@ Instructions for how this agent should behave...
 
 ## Core Terms
 
-**Note:** "Project", "App", and "Application" are used interchangeably throughout this document - they all refer to the complete codebase including all binaries (server, client, agent), configuration, and functionality.
+**Note:** "Project", "App", and "Application" are used interchangeably throughout this document - they all refer to the complete codebase including all binaries (server, client), configuration, and functionality.
 
 | Term | Definition |
 |------|------------|
-| **Project / App / Application** | The complete codebase you are building - includes server, client, agent binaries |
+| **Project / App / Application** | The complete codebase you are building - includes server and client binaries |
 | **App Instance** | A single running copy of a binary (one process) |
 | **System** | The operating system (Linux, macOS, Windows, FreeBSD) - NOT this application |
 
@@ -2061,60 +2036,19 @@ This distinction exists for clarity. When referring to OS-level resources that b
 | "data directory" | **server's data dir** | Where our server stores data |
 | "config directory" | **server's config dir** | Where our server reads config |
 
-## Clustering Terms
+## Deployment Model
 
 | Term | Definition |
 |------|------------|
-| **Cluster** | Multiple app instances sharing config and state via shared database/cache |
-| **Cluster Node** | An app instance participating in a cluster (synonym: cluster member) |
-| **Config Sync** | Automatic propagation of settings changes across all cluster nodes |
-| **Primary Node** | The elected cluster node that handles cluster-wide tasks |
-| **Secondary Node** | Any non-primary cluster node in the cluster |
-| **Single Instance** | App running standalone without clustering (local SQLite, no shared state) |
+| **Single Instance** | This app runs as a single instance with a local SQLite database (or remote libsql/Turso). There is no cluster mode, no horizontal scaling, no node election. |
 
 ## Extended Functionality Terms
 
 | Term | Definition |
 |------|------------|
-| **Managed Node** | An EXTERNAL resource the app controls/monitors (NOT an app instance) - e.g., Docker hosts, monitored servers |
-| **HA (High Availability)** | Automatic failover for critical apps - specialized, not standard |
 | **Rate Limiting** | Server protection against abuse/DDoS - NOT usage limits for monetization (we never do that) |
 | **Background Job** | Server-side scheduled or queued task (backup, sync, cleanup) - managed by internal scheduler, NOT cron |
-| **Primary Election** | Process where cluster nodes elect a Primary Node for cluster-wide tasks |
 | **Canonical Terms Only** | New rules, docs, config, APIs, and UI MUST use the current canonical name only. Do NOT add legacy/compatibility aliases, duplicate terms, or migration wording unless the user explicitly asks for a migration feature. |
-
-## Managed Nodes vs Cluster Nodes
-
-**CRITICAL DISTINCTION** (see definitions above):
-
-| Type | What It Is | Examples |
-|------|------------|----------|
-| Cluster Node | Another instance of THIS app (horizontal scaling) | 3 copies of `jokes` behind a load balancer, all syncing config |
-| Managed Node | An EXTERNAL resource this app controls/monitors | Docker hosts, VMs, network devices, IoT sensors, backup targets |
-
-**Key difference:** Cluster nodes run your code. Managed nodes are things your code talks to.
-
-**Most apps only have cluster nodes. Managed nodes are app-specific and require PART 32 agent functionality.**
-
-## Examples
-
-| App Type | Cluster Nodes | Managed Nodes | HA |
-|----------|---------------|---------------|:--:|
-| **Simple API** (jokes, pastebin) | ✓ Multiple instances syncing config | ✗ None | ✗ |
-| **Container Manager** (Watchtower-type) | ✓ Multiple instances syncing config | ✓ Docker hosts to update | ✗ |
-| **Monitoring/Observability** | ✓ Multiple instances syncing config | ✓ Servers/services being monitored | ✗ |
-| **DNS Server** | ✓ Multiple instances syncing zones | ✗ None | ✓ |
-| **Backup Manager** | ✓ Multiple instances syncing schedules | ✓ Remote backup targets (NAS, S3, etc.) | ✗ |
-| **IoT Hub** | ✓ Multiple instances syncing device registry | ✓ IoT devices/sensors reporting in | ✗ |
-| **CI/CD Controller** | ✓ Multiple instances syncing job queue | ✓ Build runners/agents | ✗ |
-| **Network Manager** | ✓ Multiple instances syncing config | ✓ Routers, switches, firewalls | ✗ |
-| **VM Orchestrator** | ✓ Multiple instances syncing state | ✓ Hypervisors, VM guests | ✓ |
-| **Certificate Manager** | ✓ Multiple instances syncing cert inventory | ✓ Servers needing cert deployment | ✗ |
-
-**Reading the table:**
-- **Cluster Nodes column**: What the app instances sync (config, zones, schedules, etc.)
-- **Managed Nodes column**: What external resources the app controls (if any)
-- **HA column**: Whether the app handles automatic failover for critical services
 
 ## Account Types
 
@@ -2129,7 +2063,7 @@ This distinction exists for clarity. When referring to OS-level resources that b
 |------|------------|
 | **CLI Setup Wizard** | Built-in TUI/GUI wizard in CLI binary - prompts for server URL, tests connection, saves config (CLI is the ONLY binary with a built-in wizard) |
 
-**Key distinction:** Server is configured by editing `server.yml` directly. CLI has a built-in interactive wizard (TUI/GUI). Agent has no wizard (uses connection string).
+**Key distinction:** Server is configured by editing `server.yml` directly. CLI has a built-in interactive wizard (TUI/GUI).
 
 ## Other Terms
 
@@ -2197,7 +2131,7 @@ server:
 |-----------|:-------------:|:----------:|-----|
 | Status (healthy/unhealthy) | ✓ | ✗ | Public info |
 | Version, uptime, build info | ✓ | ✓ | Safe to expose |
-| Cluster nodes, Tor address | ✓ | ✗ | Public feature info |
+| Tor address | ✓ | ✗ | Public feature info |
 | Request counts (total) | ✓ | ✓ | Aggregate is safe |
 | Request counts (by path/status) | ✗ | ✓ | Internal detail, high cardinality |
 | Request latency histograms | ✗ | ✓ | Performance telemetry |
@@ -2245,8 +2179,8 @@ server:
 | 7 | ~9159 | Binary Requirements | Binary building, **Display detection**, **TERM=dumb**, **NO_COLOR** |
 | 8 | ~9808 | Server Binary CLI | CLI flags/commands, **NO_COLOR Support**, **--color/--lang flags** |
 | 9 | ~12985 | Error Handling & Caching | Error/cache patterns |
-| 10 | ~13362 | Database & Cluster | Database work |
-| 11 | ~13908 | Security & Logging | Security features, **Scoped Agent Tokens**, **Context Detection** |
+| 10 | ~13362 | Database | Database work |
+| 11 | ~13908 | Security & Logging | Security features, **Resource Owner Tokens**, **Context Detection** |
 | 12 | ~15944 | Server Configuration | Server settings, **Allowlist**, **Blocklists**, **GeoIP** |
 | 13 | ~17071 | Health & Versioning | Health endpoints |
 | 14 | ~17822 | API Structure | REST/GraphQL/Route Compliance, **Non-Interactive Text Output** |
@@ -2256,7 +2190,7 @@ server:
 | 18 | ~29886 | Scheduler | Background tasks, **NO external schedulers**, **Backup tasks** |
 | 19 | ~30333 | GeoIP | GeoIP features, **Country blocking (deny/allow)** |
 | 20 | ~30818 | Metrics | Prometheus metrics, **INTERNAL only** |
-| 21 | ~30915 | Backup & Restore | Backup features, **Compliance encryption**, **Cluster backups** |
+| 21 | ~30915 | Backup & Restore | Backup features, **Compliance encryption** |
 | 22 | ~32360 | Update Command | Update feature |
 | 23 | ~33089 | Privilege Escalation & Service | Service/privilege work |
 | 24 | ~33568 | Service Support | Systemd/runit/rc.d/launchd templates |
@@ -2265,9 +2199,9 @@ server:
 | 27 | ~35438 | CI/CD Workflows | GitHub/GitLab/Gitea Actions |
 | 28 | ~36946 | Testing & Development | Testing/dev workflow, **Host Safety in tests**, **AI Docker Compose Rules**, **Content Negotiation Testing** |
 | 29 | ~39880 | ReadTheDocs Documentation | Documentation |
-| 30 | ~41719 | I18N & A11Y | Internationalization, **Translation parity (all binaries)**, **--lang flag** |
+| 30 | ~41719 | I18N & A11Y | Internationalization, **Translation parity (both binaries)**, **--lang flag** |
 | 31 | ~42451 | Tor Hidden Service | Tor support, **binary controls Tor** |
-| 32 | ~44413 | Client & Agent | Client **REQUIRED**, Agent optional - CLI/TUI/GUI, **Scoped Agent Tokens**, **Smart Context**, **First-Run Wizard** |
+| 32 | ~44413 | Client | Client **REQUIRED** — CLI/TUI/GUI, **Resource Owner Tokens**, **Smart Context**, **First-Run Wizard** |
 | 33 | ~46165 | IDEA.md Reference | **Examples only** - NEVER modify |
 | FINAL | — | Compliance Checklist | Final verification, **AI Quick Reference Rules**, **Console/Banner Checklist**, **I18N Checklist**, **Host Safety Checklist** |
 
@@ -2296,7 +2230,7 @@ When reading a PART and you encounter a reference like "See PART X" or "Read PAR
 2. Jump to the referenced PART and read it
 3. **Return to your original location** and continue reading
 
-Example: If you're reading PART 5 at line 7000 and it says "See PART 10", read PART 10, then **return to PART 5 line 7000** and continue.
+Example: If you're partway through PART 5 and it says "See PART 10", read PART 10, then **return to your previous position in PART 5** and continue.
 
 **Never abandon your current PART after following a reference.**
 
@@ -2570,8 +2504,8 @@ Before I proceed, can you confirm [specific question]?
 | `.claude/rules/ai-rules.md` | 0, 1 | AI Assistant Rules, Critical Rules |
 | `.claude/rules/project-rules.md` | 2, 3, 4 | License & Attribution, Project Structure, OS-Specific Paths |
 | `.claude/rules/config-rules.md` | 5, 6, 12 | Configuration, Application Modes, Server Configuration |
-| `.claude/rules/binary-rules.md` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client & Agent |
-| `.claude/rules/backend-rules.md` | 9, 10, 11, 32 | Error Handling & Caching, Database & Cluster, Security & Logging, Tor Hidden Service |
+| `.claude/rules/binary-rules.md` | 7, 8, 33 | Binary Requirements, Server Binary CLI, Client |
+| `.claude/rules/backend-rules.md` | 9, 10, 11, 32 | Error Handling & Caching, Database, Security & Logging, Tor Hidden Service |
 | `.claude/rules/api-rules.md` | 13, 14, 15 | Health & Versioning, API Structure, SSL/TLS & Let's Encrypt |
 | `.claude/rules/frontend-rules.md` | 16 | Web Frontend |
 | `.claude/rules/features-rules.md` | 17-22 | Email & Notifications, Scheduler, GeoIP, Metrics, Backup & Restore, Update Command |
@@ -2768,9 +2702,9 @@ fi
 |---------|-----------------|
 | Adding a new `http.Error()` call | Use `t(r, "errors.*")` — never hardcoded English |
 | Adding `fmt.Printf`/`fmt.Fprintf` with user-visible text | Use `i18n.T(lang, "key")` or `i18n.Tf(lang, "key", args)` |
-| Adding a new admin page/section | Add translation keys for ALL labels, buttons, messages, tooltips |
+| Adding a new web page/section | Add translation keys for ALL labels, buttons, messages, tooltips |
 | Adding a new CLI command/flag | Add `cli.*` translation keys for help text and output |
-| Adding a new agent feature | Add `agent.*` translation keys for status/output |
+| Adding a new CLI feature | Add `cli.*` translation keys for status/output |
 | Adding a new notification type | Add notification translation key |
 | Adding a new error type | Add `errors.*` translation key |
 | Adding new config with user-visible default | Ensure default falls back to translation key |
@@ -3053,7 +2987,7 @@ Implemented core server functionality and API.
 | Well-known namespace | PART 11 / web routes | `/.well-known/**` only serves documented allowlisted entries, unsupported entries 404, and optional entries exist only when the corresponding feature is defined |
 | Rate limiting | PART 11 | Read, write, health, and global burst limits configured; defaults applied when not set in `server.yml` |
 | CLI interface | PART 8 | Flags, commands, help output match spec |
-| Client/agent scope | PART 32 | `src/client/` exists for all projects; `src/agent/` only when project needs it |
+| Client scope | PART 32 | `src/client/` exists for all projects |
 | Untrusted content handling | PART 11, PART 16 | User-controlled files/markdown/HTML render as escaped text or sanitized markdown; dangerous types are not served executable on the app origin |
 
 ### Step 2: File Sync Verification
@@ -3124,7 +3058,7 @@ Implemented core server functionality and API.
 | **README.md** | Actual features, endpoints, usage | PART 3 | Features added/removed/changed |
 | **Swagger/OpenAPI** | Actual API routes in code | PART 14 | Routes changed, params changed |
 | **GraphQL schema** | Actual types/queries in code | PART 14 | Schema changed |
-| **docs/** (ReadTheDocs) | Actual config, API, admin, security, integrations, and public protocol behavior | PART 29 | Any user-facing, admin-facing, operator-facing, or integration-facing changes |
+| **docs/** (ReadTheDocs) | Actual config, API, security, integrations, and public protocol behavior | PART 29 | Any operator-facing, integration-facing changes |
 | **IDEA.md** | Actual business logic | — | Features/data models changed |
 | **CLI --help** | Actual flags/commands | PART 8 | CLI changed |
 
@@ -3319,13 +3253,6 @@ type Config struct {
 
 **YAML comments - same rule:**
 ```yaml
-# Enable multi-user mode
-enabled: false
-
-# User registration creation mode (when enabled)
-# Options: open (default), invite, admin_only, disabled
-registration:
-  mode: open
 ```
 
 ### Code Quality Rules
@@ -3824,12 +3751,10 @@ Enter choice [1-4]:
 ```
 Which database should be used?
 
-a) SQLite (recommended for single-node)
-b) PostgreSQL (recommended for cluster)
-c) MySQL/MariaDB
-d) Other (specify)
+a) SQLite (local, default)
+b) libsql/Turso (remote)
 
-Enter choice [a-d]:
+Enter choice [a-b]:
 ```
 
 **Rules:**
@@ -3916,7 +3841,7 @@ ls -la docker/
 | 7 | Binary Requirements | ✅ Implement fully |
 | 8 | Server Binary CLI | ✅ Implement fully |
 | 9 | Error Handling & Caching | ✅ Implement fully |
-| 10 | Database & Cluster | ✅ Implement fully |
+| 10 | Database | ✅ Implement fully |
 | 11 | Security & Logging | ✅ Implement fully |
 | 12 | Server Configuration | ✅ Implement fully |
 | 13 | Health & Versioning | ✅ Implement fully |
@@ -3938,13 +3863,9 @@ ls -la docker/
 | 29 | ReadTheDocs Documentation | ✅ Implement fully |
 | 30 | I18N & A11Y | ✅ Implement fully |
 | 31 | Tor Hidden Service | ✅ Implement fully |
-| 32 | Client & Agent | ✅ Implement fully |
+| 32 | Client | ✅ Implement fully |
 | 33 | IDEA.md Reference | ✅ Reference only |
 | FINAL | Compliance Checklist | ✅ Verify all items |
-
-### PART 32: Client & Agent (REQUIRED)
-
-**CLI is REQUIRED for all projects. Agent is OPTIONAL (only for monitoring/remote management projects).**
 
 ### PART 32: Client (REQUIRED)
 
@@ -4152,7 +4073,6 @@ If blocked on current feature:
 ### Required / Project-Specific Features
 ```
 □ client follows SPEC (required for all projects)
-□ agent follows SPEC (if implemented)
 □ IDEA.md business logic defines scope, trust boundaries, data sensitivity, abuse cases, and security exceptions
 □ Implementation matches the declared threat/abuse model
 ```
@@ -4202,8 +4122,8 @@ Every feature MUST work via:
 | `/server/docs/graphql` | `/api/{api_version}/server/graphql` (also `/api/graphql` alias) | GraphiQL UI / GraphQL POST endpoint |
 
 **This pattern applies to ALL features:**
-- Every admin page has a corresponding admin API
-- Every public page has a corresponding public API
+- Every server-management endpoint exposed via REST is reachable under `/api/{api_version}/server/...`
+- Every public web page has a corresponding public API
 - Project-specific features (IDEA.md) follow same pattern
 
 **Rule:** For every web page, there's a corresponding API endpoint. For every API endpoint, the data can be displayed in a web page.
@@ -4279,7 +4199,7 @@ go build -o binary/{project_name} ./src
 | **Fail Secure** | On error, deny access rather than grant it |
 | **Secure by Default** | Safe defaults, user opts-in to less secure options |
 | **Internet-Facing Baseline** | Server apps are assumed exposed to hostile public networks unless the user explicitly defines a private/internal deployment |
-| **Suggest, Don't Block** | Recommend security features (MFA), never force them |
+| **Suggest, Don't Block** | Recommend security features (token rotation), never force them |
 | **Friction-Free Security** | Security should enhance, not impede, the user experience |
 | **Usability Through Safe Automation** | Reduce operator effort by automating secure behavior, not by weakening controls |
 
@@ -4298,7 +4218,7 @@ go build -o binary/{project_name} ./src
   - automatic safe defaults
   - setup/runtime detection
   - clearer UI copy and recovery flows
-  - progressive disclosure in admin UX
+  - progressive disclosure in operator configuration
   - better docs/examples
 - AI MUST NOT reduce friction by disabling, loosening, or bypassing:
   - authn / authz
@@ -4353,10 +4273,8 @@ db.Query("SELECT * FROM users WHERE email = '" + email + "'")
 | Endpoint Type | Default Limit | Default Window | Response |
 |---------------|---------------|----------------|----------|
 | **Login attempts** | 5 | 15 minutes | 429 + lockout |
-| **Password reset** | 3 | 1 hour | 429 + silent (no email hint) |
 | **API (authenticated)** | Configurable | 1 minute | 429 + Retry-After header |
 | **API (unauthenticated)** | Configurable | 1 minute | 429 + Retry-After header |
-| **Registration** | 5 | 1 hour | 429 |
 | **File upload** | 10 | 1 hour | 429 |
 
 **Project-specific defaults:** Each project defines its own default rate limits based on expected usage patterns. High-traffic APIs may need higher limits; sensitive operations may need lower limits. Define project-appropriate defaults in IDEA.md.
@@ -4379,14 +4297,14 @@ db.Query("SELECT * FROM users WHERE email = '" + email + "'")
 |------------|-----------|--------------|
 | **Invalid input format** | "Please enter a valid value" | `validation_error: field format invalid, input=[redacted]` |
 | **Rate limited** | "Too many requests. Try again in a moment" | `rate_limit: endpoint=/api/{api_version}/..., ip=1.2.3.4, limit=10/min` |
-| **Database error** | "An error occurred. Please try again" | `db_error: connection refused, host=db.local:5432, err=[full error]` |
+| **Database error** | "An error occurred. Please try again" | `db_error: open failed, path=/var/lib/claudemgr/db.sqlite, err=[full error]` |
 | **Internal panic** | "An unexpected error occurred" | `panic: [full stack trace], request_id=abc123` |
 
 **Console Output (Development):**
 ```
-[ERROR] 2025-01-15 10:30:45 database connection failed
-        host: localhost:5432
-        error: connection refused
+[ERROR] 2025-01-15 10:30:45 database open failed
+        path: /var/lib/claudemgr/db.sqlite
+        error: unable to open database file
         stack: main.go:123 → db.go:45 → connect.go:12
 ```
 
@@ -4397,9 +4315,9 @@ db.Query("SELECT * FROM users WHERE email = '" + email + "'")
   "time": "2025-01-15T10:30:45Z",
   "request_id": "abc123",
   "component": "database",
-  "message": "connection failed",
-  "host": "db.local:5432",
-  "error": "connection refused",
+  "message": "open failed",
+  "path": "/var/lib/claudemgr/db.sqlite",
+  "error": "unable to open database file",
   "stack": "..."
 }
 ```
@@ -4430,11 +4348,9 @@ Content-Type: application/json
 
 | Scenario | Security Need | Usability Solution |
 |----------|---------------|-------------------|
-| Strong passwords | Prevent weak passwords | Show strength meter, suggest improvements |
-| Session timeout | Limit exposure | Warn before timeout, extend on activity |
+| Token rotation | Prevent stale credentials | Warn before expiry, provide renewal flow |
 | Rate limiting | Prevent abuse | Clear error message with retry time |
 | CAPTCHA | Prevent bots | Only after failed attempts, not first try |
-| 2FA | Account security | Remember device option (30 days) |
 
 **Rule:** solve usability problems by improving workflow, defaults, messaging, and automation - not by weakening protections that guard an internet-facing server.
 
@@ -4914,13 +4830,13 @@ If `{official_site}` is defined, ALL documentation examples MUST use the full UR
 ```markdown
 # ❌ WRONG - Relative paths when officialsite exists
 GET /server/healthz
-GET /api/v1/users
+GET /api/v1/items
 GET /api/autoconfig
 curl http://localhost:8080/api/v1/data
 
 # ✅ CORRECT - Full URLs using officialsite
 GET https://api.example.com/server/healthz
-GET https://api.example.com/api/v1/users
+GET https://api.example.com/api/v1/items
 GET https://api.example.com/api/autoconfig
 curl -q -LSsf https://api.example.com/api/v1/data
 ```
@@ -4929,7 +4845,7 @@ curl -q -LSsf https://api.example.com/api/v1/data
 1. **API examples**: Always use `{official_site}` as base URL
 2. **curl commands**: Use `{official_site}`, not `localhost` or relative paths
 3. **Client examples**: Show connecting to `{official_site}` by default
-4. **Endpoint tables**: Show full URLs: `GET {official_site}/api/v1/users`
+4. **Endpoint tables**: Show full URLs: `GET {official_site}/api/v1/items`
 5. **Docker examples**: OK to use localhost for local deployment instructions
 6. **Development section**: OK to use localhost (it's for local dev)
 
@@ -4940,8 +4856,8 @@ curl -q -LSsf https://api.example.com/api/v1/data
 | Endpoint | Description |
 |----------|-------------|
 | `GET {official_site}/server/healthz` | Health check |
-| `GET {official_site}/api/v1/users` | List users |
-| `POST {official_site}/api/v1/users` | Create user |
+| `GET {official_site}/api/v1/items` | List resources |
+| `POST {official_site}/api/v1/items` | Create resource |
 | `GET {official_site}/api/autoconfig` | Auto-configuration |
 
 ### Examples
@@ -4950,8 +4866,8 @@ curl -q -LSsf https://api.example.com/api/v1/data
 # Get server status
 curl -q -LSsf {official_site}/server/healthz
 
-# List all users (requires auth)
-curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/v1/users
+# List all resources (requires auth)
+curl -q -LSsf -H "Authorization: Bearer TOKEN" {official_site}/api/v1/items
 
 # Auto-config for clients
 curl -q -LSsf {official_site}/api/autoconfig
@@ -4959,7 +4875,7 @@ curl -q -LSsf {official_site}/api/autoconfig
 ```
 
 **If {official_site} is not defined:**
-- Use relative paths: `GET /server/healthz`, `GET /api/v1/users`
+- Use relative paths: `GET /server/healthz`, `GET /api/v1/items`
 - Use placeholder in curl: `curl -q -LSsf http://YOUR_SERVER/server/healthz`
 - Document that user must specify their server URL
 
@@ -4971,11 +4887,11 @@ For code that runs in the application, NEVER use bare `/path`. Always use `{fqdn
 
 | Context | ❌ Wrong | ✅ Correct |
 |---------|----------|------------|
-| **Go code** | `"/api/v1/users"` | `fmt.Sprintf("https://%s/api/v1/users", cfg.FQDN)` |
-| **JavaScript** | `fetch('/api/v1/users')` | `fetch(\`${window.location.origin}/api/v1/users\`)` |
+| **Go code** | `"/api/v1/items"` | `fmt.Sprintf("https://%s/api/v1/items", cfg.FQDN)` |
+| **JavaScript** | `fetch('/api/v1/items')` | `fetch(\`${window.location.origin}/api/v1/items\`)` |
 | **HTML templates** | `href="/api/docs"` | `href="https://{{.FQDN}}/api/docs"` |
 | **Config files** | `url: /callback` | `url: https://{fqdn}/callback` |
-| **Email templates** | `<a href="/verify">` | `<a href="https://{{.FQDN}}/verify">` |
+| **Email templates** | `<a href="/server/alert">` | `<a href="https://{{.FQDN}}/server/alert">` |
 
 **Why:** Bare paths break when:
 - Behind reverse proxy with different base path
@@ -5004,29 +4920,29 @@ link := BuildURL("/api/v1/items/" + itemID)
 
 ```javascript
 // ❌ WRONG - Bare path (breaks with base paths)
-fetch('/api/v1/users')
+fetch('/api/v1/items')
 
 // ✅ CORRECT - Full URL
-fetch(`${window.location.origin}/api/v1/users`)
+fetch(`${window.location.origin}/api/v1/items`)
 
 // ✅ CORRECT - From config
-fetch(`${config.apiBaseUrl}/api/v1/users`)
+fetch(`${config.apiBaseUrl}/api/v1/items`)
 ```
 
 **HTML template examples:**
 
 ```html
 <!-- ❌ WRONG - Bare path (breaks in emails, notifications) -->
-<a href="/verify?token={{.Token}}">Verify Email</a>
+<a href="/server/security/report/{{.Token}}">View Report</a>
 
 <!-- ✅ CORRECT - Full URL using FQDN -->
-<a href="https://{{.FQDN}}/verify?token={{.Token}}">Verify Email</a>
+<a href="https://{{.FQDN}}/server/security/report/{{.Token}}">View Report</a>
 ```
 
 **Exception - Internal routing only:**
 ```go
 // OK to use bare paths for internal router registration
-router.GET("/api/v1/users", handleUsers)
+router.GET("/api/v1/items", handleItems)
 router.GET("/server/healthz", handleHealth)
 if cfg.Server.Healthz.Root.Enabled {
     router.GET("/healthz", handleHealth) // same handler, no redirect
@@ -5038,11 +4954,11 @@ if cfg.Server.Healthz.Root.Enabled {
 | Location | Format | Example |
 |----------|--------|---------|
 | README.md | `{official_site}/path` | `GET https://api.example.com/server/healthz` |
-| docs/*.md | `{official_site}/path` | `curl -q -LSsf https://api.example.com/api/v1/users` |
+| docs/*.md | `{official_site}/path` | `curl -q -LSsf https://api.example.com/api/v1/items` |
 | Go code | `{fqdn}/path` | `fmt.Sprintf("https://%s/path", cfg.FQDN)` |
 | JS code | `origin/path` | `${window.location.origin}/path` |
-| Email templates | `{fqdn}/path` | `https://{{.FQDN}}/verify` |
-| Router registration | `/path` | `router.GET("/api/v1/users", ...)` (internal only) |
+| Email templates | `{fqdn}/path` | `https://{{.FQDN}}/server/security/report/{{.Token}}` |
+| Router registration | `/path` | `router.GET("/api/v1/items", ...)` (internal only) |
 
 **Platform-Specific URLs:**
 
@@ -5529,7 +5445,7 @@ For MIT/ISC/BSD licenses, a summary table is sufficient. Full text only needed f
 |---------|---------|---------|-----------|
 | github.com/go-chi/chi/v5 | v5.2.0 | MIT | 2015-present Peter Kieltyka, Google Inc. |
 | modernc.org/sqlite | v1.29.1 | BSD-3-Clause | 2017 The Sqlite Authors |
-| github.com/jackc/pgx/v5 | v5.7.2 | MIT | 2013-2024 Jack Christensen |
+| github.com/tursodatabase/libsql-client-go | v0.0.0-20240902231107-85af5b9d094d | MIT | 2023-2024 Turso Authors |
 
 Full license texts available at: https://spdx.org/licenses/
 
@@ -5573,7 +5489,7 @@ This software includes the following third-party libraries:
 | Library | Version | License | Copyright |
 |---------|---------|---------|-----------|
 | github.com/go-chi/chi/v5 | v5.2.0 | MIT | 2015-present Peter Kieltyka, Google Inc. |
-| github.com/jackc/pgx/v5 | v5.7.2 | MIT | 2013-2024 Jack Christensen |
+| github.com/tursodatabase/libsql-client-go | v0.0.0-20240902231107-85af5b9d094d | MIT | 2023-2024 Turso Authors |
 | github.com/redis/go-redis/v9 | v9.7.0 | BSD-2-Clause | 2012-2024 The go-redis Authors |
 | modernc.org/sqlite | v1.29.1 | BSD-3-Clause | 2017 The Sqlite Authors |
 | golang.org/x/crypto | v0.31.0 | BSD-3-Clause | 2009 The Go Authors |
@@ -5942,8 +5858,8 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 │       ├── ai-rules.md         # PART 0, 1: AI Assistant Rules, Critical Rules
 │       ├── project-rules.md    # PART 2, 3, 4: License & Attribution, Project Structure, OS-Specific Paths
 │       ├── config-rules.md     # PART 5, 6, 12: Configuration, Application Modes, Server Configuration
-│       ├── binary-rules.md     # PART 7, 8, 32: Binary Requirements, Server Binary CLI, Client & Agent
-│       ├── backend-rules.md    # PART 9, 10, 11, 31: Error Handling & Caching, Database & Cluster, Security & Logging, Tor Hidden Service
+│       ├── binary-rules.md     # PART 7, 8, 32: Binary Requirements, Server Binary CLI, Client
+│       ├── backend-rules.md    # PART 9, 10, 11, 31: Error Handling & Caching, Database, Security & Logging, Tor Hidden Service
 │       ├── api-rules.md        # PART 13, 14, 15: Health & Versioning, API Structure, SSL/TLS & Let's Encrypt
 │       ├── frontend-rules.md   # PART 16: Web Frontend
 │       ├── features-rules.md   # PART 17-22: Email & Notifications, Scheduler, GeoIP, Metrics, Backup & Restore, Update Command
@@ -5983,7 +5899,6 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 │   ├── configuration.md    # Configuration reference
 │   ├── api.md              # API documentation
 │   ├── cli.md              # CLI reference (if applicable)
-│   ├── admin.md            # Admin panel guide
 │   ├── security.md         # Security, public endpoints, and reporting
 │   ├── integrations.md     # External identity and protocol integrations
 │   ├── development.md      # Development guide
@@ -6375,16 +6290,12 @@ require (
 
 | Database | Library | Driver Name | Config Aliases | Notes |
 |----------|---------|-------------|----------------|-------|
-| **SQLite** | `modernc.org/sqlite` | `sqlite` | `sqlite2`, `sqlite3` | Pure Go, NO CGO |
-| **libSQL** | `github.com/tursodatabase/libsql-client-go` | `libsql` | `turso` | Pure Go, remote only (Turso/sqld) |
-| **PostgreSQL** | `github.com/jackc/pgx/v5/stdlib` | `pgx` | `postgres`, `pgsql`, `postgresql` | Pure Go, best performance |
-| **MySQL/MariaDB** | `github.com/go-sql-driver/mysql` | `mysql` | `mariadb` | Pure Go |
-| **MSSQL** | `github.com/microsoft/go-mssqldb` | `sqlserver` | `mssql` | Pure Go |
-| **MongoDB** | `go.mongodb.org/mongo-driver/mongo` | (native) | `mongodb`, `mongo` | Pure Go, not database/sql |
+| **SQLite** | `modernc.org/sqlite` | `sqlite` | `sqlite`, `sqlite2`, `sqlite3` | Pure Go, NO CGO |
+| **libSQL** | `github.com/tursodatabase/libsql-client-go` | `libsql` | `libsql`, `turso` | Pure Go, remote only (Turso/sqld) |
 
-**Driver Name vs Config Aliases:** The "Driver Name" column shows what Go's `sql.Open()` expects. The "Config Aliases" column shows what users can put in config files - these get normalized to the actual driver name internally. Users should use the friendly aliases (`postgres`, `mysql`, `mssql`, `sqlite`, `libsql`) in configs.
+**Driver Name vs Config Aliases:** The "Driver Name" column shows what Go's `sql.Open()` expects. The "Config Aliases" column shows what users can put in config files - these get normalized to the actual driver name internally. Users should use the friendly aliases (`sqlite`, `libsql`) in configs.
 
-### Cache/Cluster
+### Cache
 
 | Purpose | Library | Notes |
 |---------|---------|-------|
@@ -6450,14 +6361,6 @@ func normalizeDriver(driver string) string {
         return "sqlite"     // All map to modernc.org/sqlite
     case "libsql", "turso":
         return "libsql"     // Turso/libSQL remote database
-    case "postgres", "pgsql", "postgresql":
-        return "pgx"        // pgx is the actual driver name
-    case "mysql", "mariadb":
-        return "mysql"      // MariaDB uses same driver as MySQL
-    case "mssql":
-        return "sqlserver"  // Microsoft driver uses "sqlserver"
-    case "mongodb", "mongo":
-        return "mongodb"    // MongoDB native driver
     default:
         return driver
     }
@@ -6554,6 +6457,7 @@ require github.com/tursodatabase/libsql-client-go v0.0.0-20240902231107-85af5b9d
 
 | Use Case | Driver |
 |----------|--------|
+| Default (no config needed) | `sqlite` (file auto-created at `{data_dir}/db/{internal_name}.db`) |
 | Single server, local data | `sqlite` (modernc.org/sqlite) |
 | Edge/distributed, Turso cloud | `libsql` |
 | Self-hosted libSQL server | `libsql` |
@@ -6564,7 +6468,7 @@ require github.com/tursodatabase/libsql-client-go v0.0.0-20240902231107-85af5b9d
 | Library | Reason | Alternative |
 |---------|--------|-------------|
 | `github.com/mattn/go-sqlite3` | Requires CGO | `modernc.org/sqlite` |
-| `github.com/lib/pq` | Outdated, less performant | `github.com/jackc/pgx/v5` |
+| `github.com/lib/pq` | PostgreSQL driver, not needed | use `libsql` for remote |
 | `github.com/ooni/go-libtor` | Requires CGO | `github.com/cretz/bine` + external Tor |
 | `github.com/dgrijalva/jwt-go` | Unmaintained, security issues | `github.com/golang-jwt/jwt/v5` |
 | `github.com/gorilla/mux` | Archived, no longer maintained | `github.com/go-chi/chi/v5` |
@@ -6584,12 +6488,8 @@ require (
 	// Database drivers
 	modernc.org/sqlite v1.34.5                      // SQLite (pure Go)
 	github.com/tursodatabase/libsql-client-go v0.0.0-20240902231107-85af5b9d094d  // libSQL/Turso (remote)
-	github.com/jackc/pgx/v5 v5.7.2                  // PostgreSQL
-	github.com/go-sql-driver/mysql v1.8.1           // MySQL/MariaDB
-	github.com/microsoft/go-mssqldb v1.8.0          // MSSQL
-	go.mongodb.org/mongo-driver v1.17.2             // MongoDB
 
-	// Cache/Cluster
+	// Cache
 	github.com/redis/go-redis/v9 v9.7.0             // Valkey/Redis
 	github.com/bradfitz/gomemcache v0.0.0-20230905024940-24af94b03874  // Memcache
 
@@ -6615,7 +6515,6 @@ require (
 - Version numbers are examples - always use latest stable versions
 - Not all projects need all modules - include only what you use
 - Clean up unused dependencies: handled automatically by `make build/local/dev`
-- MongoDB uses native driver, not database/sql
 - **NEVER run `go` directly - always use Makefile targets (`make dev`, `make test`, etc.)**
 
 ---
@@ -6857,7 +6756,7 @@ port: 8080
 
 ## Path Normalization & Validation
 
-**All paths MUST be normalized and validated. This is a GLOBAL security rule for all binaries (server, agent, cli) and applies to:**
+**All paths MUST be normalized and validated. This is a GLOBAL security rule for all binaries (server, cli) and applies to:**
 - Configuration values (static_path, etc.)
 - HTTP request paths
 - File paths
@@ -7061,7 +6960,7 @@ func PathSecurityMiddleware(next http.Handler) http.Handler {
 | Request | Result | Status |
 |---------|--------|--------|
 | `GET /server/admin//config//settings` | `/server/admin/config/settings` | 200 |
-| `GET //api///v1//users` | `/api/{api_version}/users` | 200 |
+| `GET //api///v1//items` | `/api/{api_version}/items` | 200 |
 | `GET ///` | `/` | 200 |
 | `GET /static/../server/admin` | Blocked | 400 |
 | `GET /api/{api_version}/files/..%2F..%2Fetc/passwd` | Blocked | 400 |
@@ -7132,21 +7031,15 @@ func setupMiddleware(handler http.Handler) http.Handler {
 |------|---------|
 | **server.yml** | YAML configuration file on disk |
 | **Configuration** | Settings (stored in server.yml OR database) |
-| **Database** | SQLite (local) or PostgreSQL/MySQL (remote) |
+| **Database** | SQLite (local) or libsql/Turso (remote) |
 | **Server Address** | The bind address for the server (e.g., `[::]`, `0.0.0.0`, `127.0.0.1`) |
 | **FQDN** | Fully Qualified Domain Name (e.g., `api.example.com`) |
-| **Node ID** | Unique identifier for a cluster node (default: hostname) |
 
 **IMPORTANT:** We use "Server Address" (bind address), NOT "Server Name". The server address is where the server listens; the FQDN is how clients reach it.
 
 ### Configuration Source of Truth
 
-| Mode | Source of Truth | server.yml Role |
-|------|-----------------|-----------------|
-| **Single Instance (SQLite)** | server.yml | Primary configuration |
-| **Cluster Mode (Remote DB)** | Database | Bootstrap only (connection settings) |
-
-### Single Instance Mode
+`server.yml` is the sole source of truth for configuration. The SQLite (or remote libsql/Turso) database stores resource state, owner tokens, audit log entries, etc. — never user accounts or operator-editable configuration.
 
 ```
 server.yml (source of truth)
@@ -7155,90 +7048,12 @@ server.yml (source of truth)
 Application reads config
      │
      ▼
-Admin panel writes to server.yml
+Operator edits server.yml directly (text editor or config-management tool)
 ```
 
 - All settings stored in `server.yml`
-- Admin panel edits `server.yml` directly
-- SQLite databases for credentials/sessions only
-
-### Cluster Mode
-
-```
-server.yml (cache + backup)
-     │
-     └─ Contains: database connection + cached config
-
-Database (source of truth)
-     │
-     ▼
-Application reads config from DB
-     │
-     ▼
-Admin panel writes to database
-     │
-     ▼
-Changes synced to server.yml cache
-     │
-     ▼
-All nodes see changes immediately
-```
-
-- Database is source of truth
-- `server.yml` is cache AND backup
-- Admin panel writes to database
-- Changes automatically synced to local `server.yml`
-- If database unavailable → read-only mode using cached config
-
-### server.yml as Cache/Backup
-
-**When using external database, server.yml becomes a local cache and backup.**
-
-```
-Normal Operation:
-┌──────────────┐         ┌──────────────┐
-│   Database   │◄───────►│  server.yml  │
-│ (source of   │  sync   │   (cache)    │
-│   truth)     │         │              │
-└──────────────┘         └──────────────┘
-       │
-       ▼
-  Application
-  reads from DB
-
-Database Unavailable:
-┌──────────────┐         ┌──────────────┐
-│   Database   │    ✗    │  server.yml  │
-│   (DOWN)     │         │   (backup)   │
-└──────────────┘         └──────────────┘
-                               │
-                               ▼
-                         Application
-                         READ-ONLY MODE
-                         uses cached config
-```
-
-### Config Sync (Database → server.yml)
-
-**Every config change in database is synced to local server.yml:**
-
-```go
-func onConfigChange(db *sql.DB, key string, value interface{}) {
-    // 1. Write to database (source of truth)
-    writeToDatabase(db, key, value)
-
-    // 2. Sync to local server.yml (cache)
-    syncToLocalConfig(key, value)
-
-    // 3. Update last_sync timestamp
-    updateSyncTimestamp()
-}
-```
-
-**Sync happens:**
-- Immediately after any config change
-- On application startup (DB → server.yml)
-- Periodically (every 5 minutes) to catch any drift
+- Operator edits `server.yml` directly — there is no admin web UI
+- Database stores resource owner tokens, audit log, etc. (not user accounts)
 
 ### Maintenance Mode
 
@@ -7272,7 +7087,7 @@ func onConfigChange(db *sql.DB, key string, value interface{}) {
 | Aspect | Behavior |
 |--------|----------|
 | **Public API** | Read-only operations only |
-| **Admin panel** | Accessible with fix instructions |
+| **Server status endpoint** | Accessible with fix instructions in response body |
 | **Writes** | Rejected with 503 |
 | **Self-healing** | Continuously attempting in background |
 | **Recovery** | Automatic when issue resolved |
@@ -7315,7 +7130,7 @@ Self-Healing Successful?                        │
     │
     └─► NO: Continue in Maintenance Mode
             Retry every 30 seconds
-            Show fix instructions in admin UI
+            Log fix instructions to server log
 ```
 
 ### Admin API in Maintenance Mode
@@ -7333,11 +7148,11 @@ Self-Healing Successful?                        │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Error: Database Connection Failed                          │
+│  Error: Database Open Failed                                │
 │  ─────────────────────────────────────────                  │
-│  Host: db.example.com:5432                                  │
-│  Error: connection refused                                  │
-│  Last successful connection: 5 minutes ago                  │
+│  Path: /var/lib/{project_name}/db.sqlite                    │
+│  Error: unable to open database file                        │
+│  Last successful access: 5 minutes ago                      │
 │                                                             │
 │  Self-Healing Status: Retrying... (attempt 15)              │
 │                                                             │
@@ -7345,18 +7160,17 @@ Self-Healing Successful?                        │
 │                                                             │
 │  📋 Suggested Actions:                                      │
 │                                                             │
-│  1. Check if database server is running                     │
-│     └─ ssh db.example.com "systemctl status postgresql"     │
+│  1. Check database status                                   │
+│     └─ {project_name} db status                             │
 │                                                             │
-│  2. Verify network connectivity                             │
-│     └─ ping db.example.com                                  │
-│     └─ telnet db.example.com 5432                           │
+│  2. Verify network connectivity (libsql/Turso only)         │
+│     └─ ping your-db.turso.io                                │
 │                                                             │
 │  3. Check database credentials                              │
-│     └─ Verify password in server.yml or environment         │
+│     └─ Verify TURSO_AUTH_TOKEN in server.yml or environment │
 │                                                             │
 │  4. Check database logs                                     │
-│     └─ ssh db.example.com "tail /var/log/postgresql/*.log"  │
+│     └─ {project_name} db logs                               │
 │                                                             │
 │  [Test Connection]  [View Full Diagnostics]                 │
 │                                                             │
@@ -7369,12 +7183,10 @@ Self-Healing Successful?                        │
 
 | Check | Command/Action | What to Look For |
 |-------|----------------|------------------|
-| Server running | `systemctl status postgresql` | Active (running) |
-| Network | `ping db.example.com` | Response |
-| Port open | `telnet db.example.com 5432` | Connected |
-| Credentials | Check server.yml | Correct password |
-| Max connections | Check DB logs | "too many connections" |
-| Firewall | Check iptables/ufw | Port 5432 allowed |
+| DB status | `{project_name} db status` | Connected |
+| Network (libsql) | `ping your-db.turso.io` | Response |
+| Credentials | Check server.yml / TURSO_AUTH_TOKEN | Correct token |
+| SQLite file | Check `{data_dir}/db/{internal_name}.db` | File exists and readable |
 
 **Disk Full:**
 
@@ -7508,88 +7320,26 @@ server:
 
 ### What Goes Where
 
-| Setting | Single Instance | Cluster Mode | Read-Only Fallback |
-|---------|-----------------|--------------|-------------------|
-| Database connection | server.yml | server.yml | server.yml |
-| Admin credentials | Local SQLite | Remote DB | Cached in server.yml |
-| Server settings | server.yml | Remote DB | Cached in server.yml |
-| Branding/SEO | server.yml | Remote DB | Cached in server.yml |
-| SSL settings | server.yml | Remote DB | Cached in server.yml |
-| User accounts | Local SQLite | Remote DB | ❌ Unavailable |
-| Sessions | Local SQLite | Remote DB | ❌ Unavailable |
-| API tokens | Local SQLite | Remote DB | ❌ Unavailable |
+| Setting | Location |
+|---------|----------|
+| Database connection | server.yml |
+| Server settings | server.yml |
+| Branding/SEO | server.yml |
+| SSL settings | server.yml |
+| API tokens (resource owner) | Database (`api_tokens`, SHA-256 stored) |
+| Resource state, audit log | Database |
 
-### server.yml Structure (Cluster Mode with Cache)
+### server.yml Structure
 
 ```yaml
-# Database connection (always present)
 server:
   database:
-    driver: postgres
-    host: db.example.com
-    port: 5432
-    name: myapp
-    username: myapp
-    password: ${DB_PASSWORD}
-    sslmode: require
-
-# Cached configuration (synced from file, used as backup when file unavailable)
-_cache:
-  last_sync: "2025-01-15T10:30:00Z"
-
-  branding:
-    title: "My Application"
-    tagline: "The best app ever"
-
-  ssl:
-    enabled: true
-    letsencrypt:
-      enabled: true
-      email: admin@example.com
-
-  # ... all other settings cached here
+    driver: sqlite           # or "libsql" for remote Turso/libsql
+    url: "{data_dir}/db/{internal_name}.db"  # auto-created for sqlite
+    # For remote libsql:
+    # driver: libsql
+    # url: libsql://your-db-name.turso.io?authToken=${TURSO_AUTH_TOKEN}
 ```
-
-### Database Schema for Configuration
-
-**Configuration Table (in remote database):**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `key` | String | Config key (e.g., "branding.title") |
-| `value` | JSON | Config value |
-| `updated_at` | Timestamp | Last update time |
-| `updated_by` | String | Node ID or "admin" |
-
-**Example data:**
-
-| key | value | updated_at |
-|-----|-------|------------|
-| `branding.title` | `"My Application"` | 2025-01-15 10:30:00 |
-| `branding.tagline` | `"The best app"` | 2025-01-15 10:30:00 |
-| `ssl.enabled` | `true` | 2025-01-15 09:00:00 |
-| `ssl.letsencrypt.enabled` | `true` | 2025-01-15 09:00:00 |
-| `rate_limit.enabled` | `true` | 2025-01-14 15:00:00 |
-| `rate_limit.requests` | `0` | 2025-01-14 15:00:00 |
-
-**Cluster State Table:**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `key` | String | State key |
-| `value` | JSON | State value |
-| `node_id` | String | Node that owns this state (or NULL for global) |
-| `updated_at` | Timestamp | Last update |
-
-**Example state data:**
-
-| key | value | node_id | updated_at |
-|-----|-------|---------|------------|
-| `cluster.id` | `"cluster_abc123"` | NULL | 2025-01-10 |
-| `cluster.name` | `"Production"` | NULL | 2025-01-10 |
-| `encryption.key` | `"encrypted..."` | NULL | 2025-01-10 |
-| `tor.onion_address` | `"abc...xyz.onion"` | `node-1` | 2025-01-15 |
-| `tor.onion_address` | `"def...uvw.onion"` | `node-2` | 2025-01-15 |
 
 ### Full Database Schema Summary
 
@@ -7791,7 +7541,7 @@ func (req *CreateUserRequest) Parse() (*User, error) {
 | `TERM` | Terminal type; `TERM=dumb` disables ALL ANSI escapes and forces CLI mode (see PART 7) |
 | `DOMAIN` | FQDN override (highest priority for hostname resolution) |
 | `MODE` | `production` (default) or `development` |
-| `DATABASE_DRIVER` | `file`, `sqlite` (+ `sqlite2`, `sqlite3`), `libsql` (+ `turso`), `postgres` (+ `pgsql`, `postgresql`), `mysql` (+ `mariadb`), `mssql`, `mongodb` (+ `mongo`) |
+| `DATABASE_DRIVER` | `sqlite` (+ `sqlite2`, `sqlite3`), `libsql` (+ `turso`) |
 | `DATABASE_URL` | Database connection string |
 | `SMTP_HOST` | SMTP server hostname (if set, skips autodetect) |
 | `SMTP_PORT` | SMTP server port (default: 587) |
@@ -8229,7 +7979,7 @@ ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]
 
 | Operation | Danger | Authorization Required |
 |-----------|--------|----------------------|
-| `--maintenance setup` | Creates admin account | First-run only OR root |
+| `--maintenance setup` | Resets server configuration to defaults | First-run only OR root |
 | `--maintenance restore` | Overwrites ALL data | Admin auth OR root OR empty database |
 | `--maintenance mode` | Changes server behavior | Admin auth OR root |
 
@@ -8260,13 +8010,13 @@ Binary checks:
 ├─ Is user root?
 │   └─ YES → Allow restore (with confirmation prompt)
 ├─ Is user the service user ({project_name})?
-│   └─ YES → Require admin credentials:
-│            "This will OVERWRITE all data. Enter admin credentials to confirm."
-│            └─ Valid credentials → Allow restore
+│   └─ YES → Require operator password:
+│            "This will OVERWRITE all data. Enter operator password to confirm."
+│            └─ Valid password → Allow restore
 │            └─ Invalid → Reject
 └─ Random user → Reject with:
    "Restore requires administrator authorization.
-    Run as root or provide admin credentials."
+    Run as root or provide operator password."
 ```
 
 **Mode change authorization flow:**
@@ -8278,7 +8028,7 @@ Binary checks:
 ├─ Is user root?
 │   └─ YES → Allow (with warning about security implications)
 ├─ Is user the service user ({project_name})?
-│   └─ YES → Require admin credentials
+│   └─ YES → Require operator password
 └─ Random user → Reject
 ```
 
@@ -8286,7 +8036,7 @@ Binary checks:
 
 | Attack | Without Auth | With Auth |
 |--------|-------------|-----------|
-| Malicious user runs setup | Creates rogue admin account | ❌ Blocked (setup already done) |
+| Malicious user runs setup | Corrupts server configuration | ❌ Blocked (setup already done) |
 | Malicious user restores bad backup | Overwrites database, takes over | ❌ Blocked (needs admin creds) |
 | Malicious user enables dev mode | Exposes debug endpoints | ❌ Blocked (needs admin creds) |
 
@@ -8364,7 +8114,7 @@ func canRestore() (bool, string) {
     if isElevated() {
         return true, "elevated"
     }
-    // Service user: requires admin credentials (prompted)
+    // Service user: requires operator password (prompted)
     if isServiceUser() {
         return false, "need-creds" // Caller must prompt for creds
     }
@@ -8479,7 +8229,7 @@ chmod 755 /var/log/{project_org}/{internal_name}/
 
 | Aspect | System Service | User Service |
 |--------|---------------|--------------|
-| **Installed by** | root/admin | Regular user |
+| **Installed by** | root/admin | Unprivileged OS user |
 | **Runs as** | root → drops to `{project_name}` | Calling user |
 | **Ports** | Any | >1024 only |
 | **Paths** | `/etc/`, `/var/` | `~/.config/`, `~/.local/` |
@@ -8649,10 +8399,10 @@ server:
         schedule: "0 0 * * *"
         max_age: 30d
         max_size: 100MB
-      session_cleanup:
+      token_cleanup:
         enabled: true
-        # Hourly
-        schedule: "@hourly"
+        # Every 15 minutes
+        schedule: "*/15 * * * *"
       backup:
         enabled: true
         # Daily: 2:00 AM
@@ -9467,7 +9217,7 @@ data:
 
 ## Display Environment Detection
 
-**ALL binaries (server, CLI, agent) MUST detect display environment and adapt output accordingly.**
+**ALL binaries (server, CLI) MUST detect display environment and adapt output accordingly.**
 
 ### Display Mode Hierarchy
 
@@ -9644,7 +9394,6 @@ func ShowProgress(env *DisplayEnv, percent int) {
 # Test dumb terminal behavior
 TERM=dumb {project_name} --status
 TERM=dumb {project_name}-cli list
-TERM=dumb {project_name}-agent status
 
 # Should produce plain text output with no escape codes
 TERM=dumb {project_name} --status | cat -v   # No ^[ sequences
@@ -9765,15 +9514,14 @@ func (e *DisplayEnv) detectPlatformDisplay() {
 |--------|-----|-----|-----|----------|
 | **Server** | Status window | Status banner | Commands | Default (daemon) |
 | **CLI** | ✅ Full app | ✅ Full app (default) | ✅ Commands | ❌ Error |
-| **Agent** | Status window | Status banner | Commands | Default (service) |
 
-**Server/Agent just show status banners (not interactive). CLI is the only full TUI/GUI app with a built-in setup wizard.**
+**Server just shows status banners (not interactive). CLI is the only full TUI/GUI app with a built-in setup wizard.**
 
 **See PART 32 for full CLI/TUI/GUI mode implementation details.**
 
 ## Common Go Modules
 
-**Shared packages used by server, CLI, and agent binaries:**
+**Shared packages used by server and CLI binaries:**
 
 ### Module Structure
 
@@ -9803,9 +9551,6 @@ src/
 │   ├── cli/                         # CLI mode
 │   ├── tui/                         # TUI mode (bubbletea)
 │   └── gui/                         # GUI mode (native)
-└── agent/                           # Agent binary
-    ├── cli/                         # Agent CLI commands
-    └── collector/                   # Metrics/data collection
 ```
 
 ### Go Module Imports
@@ -9977,17 +9722,15 @@ func PrintStartupBanner(cfg BannerConfig) {
 | Binary | Default Name | Purpose | Key Flags |
 |--------|--------------|---------|-----------|
 | **Server** | `{project_name}` | Runs the HTTP server | `--config`, `--data`, `--port`, `--mode` |
-| **Agent** | `{project_name}-agent` | Reports to server | `--server`, `--config` |
 | **Client** | `{project_name}-cli` | User interface to server | `--server`, `--token`, `--output` |
 
 **Shared flags (ALL binaries):** `--help`, `--version`, `--shell`, `--debug`, `--color`, `--lang`
 
-**Binary naming rules (ALL binaries: server, agent, client):**
+**Binary naming rules (ALL binaries: server, client):**
 
 | Binary | Default Name | User-Agent |
 |--------|--------------|------------|
 | Server | `{project_name}` | `{project_name}/{version}` |
-| Agent | `{project_name}-agent` | `{project_name}-agent/{version}` |
 | Client | `{project_name}-cli` | `{project_name}-cli/{version}` |
 
 **ALL binaries can be renamed by users. Must show ACTUAL binary name in:**
@@ -10019,11 +9762,11 @@ User-Agent: jokes/1.0.0             # Hardcoded project name
 Default config: /etc/apimgr/jokes/  # Hardcoded project name
 ```
 
-**For client and agent flags, see PART 32.**
+**For client flags, see PART 32.**
 
 ## NO_COLOR Support (ALL Binaries)
 
-**All binaries (server, client, agent) MUST respect the [NO_COLOR](https://no-color.org/) standard.**
+**All binaries (server, client) MUST respect the [NO_COLOR](https://no-color.org/) standard.**
 
 When the `NO_COLOR` environment variable is set and not empty (value doesn't matter), disable ANSI color codes and emojis in terminal output.
 
@@ -10465,7 +10208,7 @@ PHASE 3: Handle maintenance commands (NO startup)
    ├─ --maintenance restore → restore data, exit
    ├─ --maintenance update  → update binary, exit
    ├─ --maintenance mode    → set mode, exit
-   └─ --maintenance setup   → reset admin credentials, exit
+   └─ --maintenance setup   → reset server configuration, exit
 
 PHASE 4: Handle update commands (NO startup)
 ────────────────────────────────────────────
@@ -10574,7 +10317,7 @@ PHASE 5: Server startup (actual server start)
     ├─ Register built-in tasks (key tasks):
     │   ├─ backup_daily (02:00 daily)
     │   ├─ ssl_renewal (03:00 daily)
-    │   ├─ session_cleanup (every 15m)
+    │   ├─ token_cleanup (every 15m)
     │   ├─ geoip_update (03:00 Sunday)
     │   ├─ public_ip_refresh (startup + every 12h, hardcoded)
     │   └─ ... and others (see PART 18)
@@ -11260,7 +11003,7 @@ func stopChildProcesses(timeout time.Duration) {
 
 **Smart Config Reload :**
 
-The app automatically watches config files and hot-reloads what it can. Settings that require restart trigger admin UI notification.
+The app automatically watches config files and hot-reloads what it can. Settings that require restart are logged as a warning.
 
 **Hot-Reloadable (auto-applied on file change):**
 
@@ -11377,55 +11120,17 @@ All projects use SQLite with a single database file:
 
 | Mode | Database | Cache | Use Case |
 |------|----------|-------|----------|
-| Single Instance | SQLite (default) | memory (default) | Development, small deployments |
-| Cluster | 1+ remote databases | 1× Valkey/Redis | Multiple instances, shared state, HA |
-
-**Cluster minimum requirements:**
-- 1× remote database (PostgreSQL, MySQL, MariaDB, or MSSQL)
-- 1× Valkey/Redis instance (does NOT need to be a cluster)
+| Local | SQLite (default) | memory (default) | Default deployment |
+| Remote | libsql/Turso | memory or valkey/redis | Edge-distributed storage |
 
 **Supported Databases:**
 
 | Database | Notes |
 |----------|-------|
-| **PostgreSQL** | Recommended for production. Read replicas supported. SSL/TLS recommended. |
-| **MySQL/MariaDB** | Full support. Read replicas supported. UTF8MB4 required. |
-| **MSSQL** | Full support. Windows environments. |
 | **SQLite** | Embedded, zero config. Default. See below. |
-| **MongoDB** | Project-specific only. See below. |
+| **libsql/Turso** | Remote, edge-distributed, Turso cloud or self-hosted sqld. |
 
-**MongoDB (Project-Specific Use):**
-
-MongoDB is available but NOT used for standard schema (config, sessions, admins, api_keys, etc.). Use for project-specific application data only.
-
-**Good for:**
-- Document/JSON-heavy data (logs, events, analytics)
-- Flexible schemas that change frequently
-- Geospatial data and queries
-- Time-series data
-- Projects migrating from existing MongoDB
-
-**Example use cases:**
-- `quotes` - storing quote collections with varying metadata
-- `jokes` - joke database with categories, tags, nested data
-- `analytics` - event tracking, user behavior logs
-- `search` - document indexing alongside Elasticsearch
-
-**Configuration (when needed):**
-
-```yaml
-# Project-specific MongoDB connection (NOT for standard schema)
-mongodb:
-  url: ${MONGODB_URL}  # mongodb://user:pass@host:27017/dbname
-  database: myapp
-  # Replica set for HA
-  replica_set: rs0
-  # Connection pool
-  max_pool_size: 100
-  min_pool_size: 10
-```
-
-**Standard schema still uses relational DB (SQLite/PostgreSQL/MySQL/MSSQL).**
+**Standard schema uses SQLite (local) or libsql (remote).**
 
 **SQLite Details:**
 
@@ -11447,16 +11152,16 @@ mongodb:
 **NOT good for:**
 - Multiple app instances (no shared state)
 - High write concurrency (SQLite locks on write)
-- Large datasets (> 10GB, consider PostgreSQL)
+- Large datasets (> 10GB, consider libsql/Turso remote)
 
-**SQLite as Local Cache (with remote DB):**
+**SQLite as Local Cache (with remote libsql/Turso DB):**
 
 ```yaml
 database:
-  # Primary: remote database
+  # Primary: remote libsql/Turso database
   primary:
-    driver: postgres
-    url: ${DATABASE_URL}
+    driver: libsql
+    url: ${DATABASE_URL}  # libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
 
   # Local SQLite cache for fast reads and offline resilience
   cache:
@@ -11473,78 +11178,18 @@ When enabled:
 - If remote unavailable, serve from cache (read-only mode)
 - Background sync keeps cache fresh
 
-**Multiple Connections & Mixed Mode:**
-
-Supports multiple database connections of different types with automatic sync:
-
-```yaml
-database:
-  # Primary database (required)
-  primary:
-    driver: postgres
-    url: ${DATABASE_URL}
-
-  # Additional databases (optional, for redundancy/failover)
-  replicas:
-    - name: mariadb-1
-      driver: mysql
-      url: mysql://user:pass@mariadb1.example.com:3306/myapp
-      priority: 1        # Failover priority (lower = higher priority)
-      read_only: true    # Read replica
-
-    - name: mariadb-2
-      driver: mysql
-      url: mysql://user:pass@mariadb2.example.com:3306/myapp
-      priority: 2
-      read_only: true
-
-    - name: postgres-backup
-      driver: postgres
-      url: postgres://user:pass@pg-backup.example.com:5432/myapp
-      priority: 3
-      read_only: false   # Can be promoted to primary
-
-    - name: mssql-legacy
-      driver: mssql
-      url: sqlserver://user:pass@mssql.example.com:1433?database=myapp
-      priority: 10
-      sync: true         # Sync data to this DB
-
-  # Sync settings
-  sync:
-    enabled: true        # Auto-sync between all databases
-    interval: 5s         # Sync check interval
-
-  # Failover settings
-  failover:
-    enabled: true
-    health_check: 10s    # Health check interval
-    threshold: 3         # Failed checks before failover
-```
-
-**Failover Priority:**
-- Lower number = higher priority
-- Primary always tried first
-- On primary failure, try replicas in priority order
-- Auto-promote read-write replica if primary down
-
-**Automatic Sync:**
-- Changes written to primary, synced to all replicas
-- Conflict resolution: primary wins
-- Sync uses Valkey/Redis pub/sub for real-time updates
-
 See **PART 12: SERVER CONFIGURATION** for Valkey/Redis setup.
-See **PART 10: DATABASE & CLUSTER** for full cluster configuration.
+See **PART 10: DATABASE** for full database configuration.
 
 **SQLite vs Remote - Key Differences:**
 
-| Feature | SQLite | PostgreSQL/MySQL |
-|---------|--------|------------------|
-| Files | `server.db` | Single DB, prefixed tables (`srv_*`) |
-| Timestamps | `strftime('%s','now')` | `EXTRACT(EPOCH FROM NOW())` / `UNIX_TIMESTAMP()` |
-| Auto-increment | `AUTOINCREMENT` | `SERIAL` / `AUTO_INCREMENT` |
-| Upsert | `ON CONFLICT DO UPDATE` | `ON CONFLICT DO UPDATE` / `ON DUPLICATE KEY` |
-| Boolean | `INTEGER (0/1)` | `BOOLEAN` / `TINYINT(1)` |
+| Feature | SQLite | libsql/Turso |
+|---------|--------|--------------|
+| Files | `server.db` (local file) | Single remote DB, prefixed tables (`srv_*`) |
+| Timestamps | `strftime('%s','now')` | `strftime('%s','now')` (libsql is SQLite-compatible) |
+| Auto-increment | `AUTOINCREMENT` | `AUTOINCREMENT` |
+| Upsert | `ON CONFLICT DO UPDATE` | `ON CONFLICT DO UPDATE` |
+| Boolean | `INTEGER (0/1)` | `INTEGER (0/1)` |
 
 **Automatic Detection:**
 
@@ -11628,7 +11273,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category);
-CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_type, actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_actor_ip ON audit_log(actor_ip);
+CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_log(target_type, target_id);
 
 -- ----------------------------------------------------------------------------
 -- Scheduler (background task tracking)
@@ -11636,7 +11282,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_type, actor_id);
 CREATE TABLE IF NOT EXISTS scheduler_tasks (
     id          TEXT PRIMARY KEY,              -- Task name: "backup_daily", "backup_hourly", "geoip_update", "cleanup"
     name        TEXT NOT NULL,                 -- Human-readable: "Daily Backup", "Hourly Incremental"
-    task_type   TEXT NOT NULL DEFAULT 'global', -- global (one node) or local (all nodes)
     enabled     INTEGER NOT NULL DEFAULT 1,
     schedule    TEXT NOT NULL,                 -- Cron expression: "0 2 * * *"
     last_run    INTEGER,                       -- Unix timestamp
@@ -11644,9 +11289,7 @@ CREATE TABLE IF NOT EXISTS scheduler_tasks (
     last_status TEXT,                          -- success, failed, running, skipped
     last_error  TEXT,                          -- Error message if failed
     run_count   INTEGER NOT NULL DEFAULT 0,
-    fail_count  INTEGER NOT NULL DEFAULT 0,
-    locked_by   TEXT,                          -- Node ID holding lock (cluster mode)
-    locked_at   INTEGER                        -- When lock was acquired (cluster mode)
+    fail_count  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS scheduler_history (
@@ -11686,6 +11329,29 @@ CREATE TABLE IF NOT EXISTS backups (
 
 CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at);
 
+-- ----------------------------------------------------------------------------
+-- API Tokens (server-generated resource owner tokens)
+-- The server.token (server.yml) is NOT stored here — it is validated
+-- directly from config via constant-time SHA-256 comparison.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash    TEXT NOT NULL UNIQUE,            -- SHA-256 of raw token; NEVER store plaintext
+    token_prefix  TEXT NOT NULL,                   -- First 12 chars for log identification (tok_xxxxxxxx)
+    resource_type TEXT NOT NULL,                   -- Project-defined type: "paste", "upload", "link", etc.
+    resource_id   TEXT NOT NULL,                   -- ID of the resource this token owns
+    created_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    expires_at    INTEGER,                         -- NULL = never expires
+    last_used_at  INTEGER,
+    revoked_at    INTEGER,                         -- NULL = active
+    revoked_reason TEXT                            -- e.g., "tos_violation", "operator_action"
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_tokens_hash     ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix   ON api_tokens(token_prefix);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_resource ON api_tokens(resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL;
+
 ```
 
 **Example Config Data:**
@@ -11701,8 +11367,81 @@ INSERT INTO config (key, value, type) VALUES
     ('ssl.min_version', '"TLS1.2"', 'string'),
     ('cors.allowed_origins', '["https://example.com","https://api.example.com"]', 'array'),
     ('ratelimit.requests_per_minute', '0', 'number'),  -- 0 = use project default from IDEA.md
-    ('branding.site_name', '"My App"', 'string');
+    ('branding.site_name', '"My App"', 'string'),
+    ('server.token', '"tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"', 'string');  -- auto-generated if blank
 ```
+
+### API Token Model
+
+**Two-tier auth. No passwords, no sessions, no user accounts.**
+
+| Tier | Source | Scope | Purpose |
+|------|--------|-------|---------|
+| **`server.token`** | `server.yml` (auto-generated on first run) | Global — all resources | Operator actions: delete any resource, enforce TOS, revoke tokens |
+| **Resource owner token** | Server-generated on resource creation | One resource only | Owner edits/deletes their own resource |
+
+Clients send either as:
+```
+Authorization: Bearer tok_xxxxxxxxxxxxxxxxxxxx
+```
+
+**Token format:** `tok_` prefix + 32 URL-safe random base62 chars. The server stores only the SHA-256 hash; the raw token is shown once (creation response or startup log) and never retrievable again.
+
+---
+
+#### `server.token` — Global Operator Token
+
+Declared in `server.yml` under `server.token`. Auto-generated and written back to `server.yml` on first run if absent or empty. Grants full access to every resource and every server management endpoint.
+
+```yaml
+server:
+  token: tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx  # auto-generated if blank
+```
+
+**Not stored in `api_tokens` DB table.** Validated by SHA-256-hashing the inbound token and comparing against `SHA-256(server.token)` with `subtle.ConstantTimeCompare`. The hash is cached in memory at startup — never written to the DB.
+
+**Use cases:**
+- Delete a paste that violates TOS or breaks a law
+- Revoke a resource owner token
+- Any moderation or emergency operation
+
+---
+
+#### Resource Owner Tokens — Project-Dependent
+
+Whether resources have owner tokens depends on the project (defined in IDEA.md). A pastebin generates one; a read-only stats API generates none.
+
+**Creation flow (example: pastebin):**
+```
+POST /pastes
+→ 201 Created
+  {
+    "ok": true,
+    "data": {
+      "id": "abc123",
+      "url": "/pastes/abc123",
+      "owner_token": "tok_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  }
+```
+The server generates the token, stores `SHA-256(token)` in `api_tokens` with `resource_type="paste"` and `resource_id="abc123"`, then returns the raw token **once**. It is never retrievable again. The client stores it in `localStorage`.
+
+**Ownership check (every write/delete on a resource):**
+1. Extract `Authorization: Bearer tok_...` header
+2. If matches `server.token` hash → **operator access, allow unconditionally**
+3. Otherwise: SHA-256 hash, lookup by prefix in `api_tokens`
+4. Verify hash matches, `revoked_at IS NULL`, `expires_at > now()` or NULL
+5. Verify `resource_type` + `resource_id` match the target resource
+6. Update `last_used_at`
+
+**Anonymous access** (no `Authorization` header): allowed for all public GET endpoints, subject to default rate limits.
+
+**Operator revocation:**
+```
+{project_name} token revoke <prefix>   # revoke a specific resource token
+{project_name} token list              # list active tokens (prefix + resource)
+```
+Token revocation is operator-only via CLI: `{project_name} token revoke <prefix>`
 
 **Config Load/Save Helpers:**
 
@@ -11805,32 +11544,13 @@ func categorizeChanges(changes []string) (hotReload, needsRestart []string) {
 }
 ```
 
-**Admin UI Restart Notification:**
+**Server Restart Notification:**
 
-```go
-// GET /api/{api_version}/server/status returns pending restart info
-func adminStatusHandler(w http.ResponseWriter, r *http.Request) {
-    status := map[string]interface{}{
-        "running":         true,
-        "pending_restart": configManager.PendingRestart(),
-        "restart_reason":  configManager.RestartSettings(),
-    }
-    json.NewEncoder(w).Encode(status)
-}
+When a config change requires a process restart, the server logs a warning to `server.log` and `audit.log`:
 ```
-
-**Admin UI displays:**
+WARN  config_change requires_restart=true settings="ssl.cert,ssl.key" action="restart required"
 ```
-┌─────────────────────────────────────────────────────────┐
-│ ⚠️  Restart Required                                    │
-│                                                         │
-│ The following settings require a restart to take effect:│
-│ • server.port                                           │
-│ • ssl.enabled                                           │
-│                                                         │
-│ [Restart Now]  [Dismiss]                                │
-└─────────────────────────────────────────────────────────┘
-```
+Operators check pending-restart state via CLI: `{project_name} status`
 
 **Health Check Endpoint (`/server/healthz`):**
 
@@ -11888,19 +11608,8 @@ func buildHealthResponse() *HealthResponse {
             Date:   version.Date,
         },
 
-        // Cluster (dynamic - from cluster manager)
-        Cluster: ClusterInfo{
-            Enabled: cfg.Cluster.Enabled,
-            Status:  clusterManager.Status(),    // "connected", "disconnected"
-            Primary: clusterManager.PrimaryURL(),
-            Nodes:   clusterManager.NodeURLs(),
-            Role:    clusterManager.Role(),      // "primary", "member"
-        },
-
         // Features (PUBLIC only - do NOT include /metrics)
         Features: FeaturesInfo{
-            MultiUser:     cfg.Features.MultiUser,
-            Organizations: cfg.Features.Organizations,
             GeoIP:         cfg.Features.GeoIP.Enabled,
             Tor: TorInfo{
                 Enabled:  cfg.Features.Tor.Enabled,
@@ -11917,7 +11626,6 @@ func buildHealthResponse() *HealthResponse {
             Cache:     checkCache(),
             Disk:      checkDisk(),
             Scheduler: checkScheduler(),
-            Cluster:   checkCluster(),
         },
 
         // Stats (public-safe aggregates only)
@@ -12449,7 +12157,7 @@ func GetWildcardDomain() string
 | HTML templates | `BuildURL(r, "/path")` |
 | Swagger/OpenAPI | `servers[0].url` = `BuildURL(r, "")` |
 | GraphQL | `BuildURL(r, "/api/{api_version}/server/graphql")` (or `/api/graphql` alias for the latest version) |
-| Email links | `BuildURL(r, "/verify")` |
+| Email links | `BuildURL(r, "/server/security/report/{id}")` |
 | CORS origins | Auto-include `GetWildcardDomain()` if detected |
 
 ### FQDN Validation Rules
@@ -12806,8 +12514,6 @@ Error with structured context (validation, etc.):
 | `UNAUTHORIZED` | 401 | "Authentication required" |
 | `TOKEN_EXPIRED` | 401 | "Token has expired" |
 | `TOKEN_INVALID` | 401 | "Invalid token" |
-| `2FA_REQUIRED` | 401 | "Two-factor authentication required" |
-| `2FA_INVALID` | 401 | "Invalid 2FA code" |
 | `FORBIDDEN` | 403 | "Permission denied" |
 | `ACCOUNT_LOCKED` | 403 | "Account locked" |
 | `NOT_FOUND` | 404 | "Resource not found" |
@@ -12847,7 +12553,7 @@ func mapAPIErrorCodeToHTTPStatus(code string) int {
     switch code {
     case "BAD_REQUEST", "VALIDATION_FAILED":
         return 400
-    case "UNAUTHORIZED", "TOKEN_EXPIRED", "TOKEN_INVALID", "2FA_REQUIRED", "2FA_INVALID":
+    case "UNAUTHORIZED", "TOKEN_EXPIRED", "TOKEN_INVALID":
         return 401
     case "FORBIDDEN", "ACCOUNT_LOCKED":
         return 403
@@ -12905,7 +12611,7 @@ func logError(ctx context.Context, err *AppError) {
   "request_id": "req_abc123",
   "http_status": 500,
   "internal": "pq: connection refused",
-  "path": "/api/{api_version}/users",
+  "path": "/api/{api_version}/items",
   "method": "GET",
   "ip": "192.168.1.100"
 }
@@ -12972,11 +12678,11 @@ See **PART 12: SERVER CONFIGURATION** for full Valkey/Redis setup.
 
 ### Cache Drivers
 
-| Driver | Mode | Use Case | Notes |
-|--------|------|----------|-------|
-| `memory` | Single instance | Development, small deployments | Default, in-process, lost on restart |
-| `valkey` | Single/Cluster | Production | Preferred, open-source Redis fork |
-| `redis` | Single/Cluster | Production | Full compatibility |
+| Driver | Use Case | Notes |
+|--------|----------|-------|
+| `memory` | Development, small deployments | Default, in-process, lost on restart |
+| `valkey` | Production | Preferred, open-source Redis fork |
+| `redis` | Production | Full compatibility |
 
 ### Cache Key Naming
 
@@ -13101,41 +12807,10 @@ func warmCache(ctx context.Context) error {
 }
 ```
 
-### Distributed Locks
-
-**Use for operations that must run on only one node:**
-
-```go
-func acquireLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
-    // SET key value NX EX ttl
-    return cache.SetNX(ctx, "lock:"+key, nodeID, ttl)
-}
-
-func releaseLock(ctx context.Context, key string) error {
-    // Only release if we own the lock
-    val, _ := cache.Get(ctx, "lock:"+key)
-    if val == nodeID {
-        return cache.Delete(ctx, "lock:"+key)
-    }
-    return nil
-}
-
-// Usage
-func runScheduledBackup(ctx context.Context) error {
-    acquired, err := acquireLock(ctx, "backup", 30*time.Minute)
-    if err != nil || !acquired {
-        return nil // Another node is handling it
-    }
-    defer releaseLock(ctx, "backup")
-
-    return performBackup(ctx)
-}
-```
-
 ---
 
 
-# PART 10: DATABASE & CLUSTER
+# PART 10: DATABASE
 
 ## Database Schema
 
@@ -13190,9 +12865,7 @@ var schemaUpdates = []string{
 // isColumnExistsError checks if error is "column already exists"
 func isColumnExistsError(err error) bool {
     msg := err.Error()
-    return strings.Contains(msg, "duplicate column") ||      // SQLite
-           strings.Contains(msg, "already exists") ||        // PostgreSQL
-           strings.Contains(msg, "Duplicate column name")    // MySQL
+    return strings.Contains(msg, "duplicate column") // SQLite and libsql
 }
 ```
 
@@ -13212,235 +12885,45 @@ func isColumnExistsError(err error) bool {
 **Never rename columns. Add new, migrate, deprecate:**
 
 ```go
-// v1.4.0 - Rename "name" to "display_name" (3-step process)
+// v1.4.0 - Rename "name" to "slug" (3-step process)
 
 // Step 1: Add new column (v1.4.0)
-`ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''`,
+`ALTER TABLE pastes ADD COLUMN slug TEXT DEFAULT ''`,
 
 // Step 2: App code reads from new, writes to both (v1.4.0)
-func (u *User) GetDisplayName() string {
-    if u.DisplayName != "" {
-        return u.DisplayName
+func (p *Paste) GetSlug() string {
+    if p.Slug != "" {
+        return p.Slug
     }
-    return u.Name  // Fallback to old column
+    return p.Name  // Fallback to old column
 }
 
-func (u *User) SetDisplayName(name string) {
-    u.DisplayName = name
-    u.Name = name  // Keep old column in sync
+func (p *Paste) SetSlug(slug string) {
+    p.Slug = slug
+    p.Name = slug  // Keep old column in sync
 }
 
-// Step 3: After all nodes upgraded, old column ignored (v1.5.0+)
+// Step 3: After server upgraded, old column ignored (v1.5.0+)
 // Old column stays in DB (never drop), just unused
 ```
 
 ### Remote Database Updates
 
-**Same approach for SQLite and remote databases (PostgreSQL/MySQL).**
+**Same approach for SQLite and libsql/Turso.**
 
 | Database | `CREATE TABLE IF NOT EXISTS` | `ALTER TABLE ADD COLUMN` |
 |----------|------------------------------|--------------------------|
 | SQLite | ✓ Native support | Ignore "duplicate column" error |
-| PostgreSQL | ✓ Native support | `ADD COLUMN IF NOT EXISTS` (v9.6+) |
-| MySQL | ✓ Native support | Ignore error code 1060 |
-
-**PostgreSQL-specific (v9.6+):**
-```sql
-ALTER TABLE users ADD COLUMN IF NOT EXISTS org_visibility INTEGER DEFAULT 1;
-```
+| libsql | ✓ Remote (via Turso API) | `CREATE TABLE IF NOT EXISTS` |
 
 **Cross-database compatible:**
 ```go
 // Try ALTER, ignore "already exists" errors
-_, err := db.Exec(`ALTER TABLE users ADD COLUMN org_visibility INTEGER DEFAULT 1`)
+_, err := db.Exec(`ALTER TABLE pastes ADD COLUMN slug TEXT DEFAULT ''`)
 if err != nil && !isColumnExistsError(err) {
     return err
 }
 ```
-
-### Cluster Schema Updates
-
-**All nodes must run the same application version.**
-
-| Scenario | Behavior |
-|----------|----------|
-| Rolling upgrade | Each node applies schema updates on startup |
-| First node | Creates tables, adds columns |
-| Subsequent nodes | Statements succeed (idempotent) or ignored |
-| Version mismatch | Older nodes may lack new columns (app handles gracefully) |
-
-**Upgrade order doesn't matter** - schema changes are additive, so:
-- New nodes can read old data (new columns have defaults)
-- Old nodes can read new data (ignore unknown columns)
-
-## Cluster Support
-
-**ALL apps MUST support cluster mode with config sync.**
-
-### What Clustering Provides (Standard for ALL Apps)
-
-| Feature | Description |
-|---------|-------------|
-| **Config Sync** | Change setting on one node → syncs to all nodes |
-| **Session Sharing** | User sessions shared across nodes |
-| **Distributed Locks** | Prevent duplicate task execution |
-| **Primary Election** | One node handles cluster-wide tasks |
-| **Health Monitoring** | Nodes monitor each other |
-
-**This is the BASE functionality. Every project gets this.**
-
-### Single Instance (Auto-detected)
-
-- No external cache/database configured
-- Uses local file/SQLite for state
-- Fully functional, just not clustered
-
-### Cluster Mode (Auto-detected)
-
-- Auto-enabled when external cache or shared database detected
-- Requires: PostgreSQL/MySQL + Valkey/Redis
-- All nodes share same database and cache
-- Config changes propagate automatically
-
-**Cluster join + secret distribution:** new nodes join via the cluster join flow defined in PART 10 → "Cluster". The bootstrap response from the existing node carries every `app_secrets` row (PART 11 → "Cryptographic Keys") inside the encrypted payload — `installation_secret`, `cookie_signing_key`, `csrf_token_secret` are NOT regenerated per node. The pre-existing `server.security.encryption_key` (`server.yml`) is also distributed in the same encrypted payload. All replicas share one set.
-
-**Cluster nodes vs agents (do NOT confuse):**
-
-| Term | What it is | Where it runs | Auth |
-|------|-----------|----------------|------|
-| **Cluster node** | Another instance of THIS server binary, sharing the same DB and cache, behind the same admin namespace | Anywhere reachable from the primary node | Internal — joins via the cluster join token; subsequent traffic uses the shared DB |
-| **Agent** (PART 32) | A separate, purpose-built `{project_name}-agent` binary on a remote machine reporting INTO the server | Customer / operator machines (web hosts, build runners, monitored machines) | None — server is open API; agents connect without auth tokens |
-
-Agents are NEVER cluster nodes; they don't share the DB; they don't get `app_secrets` distributed to them. Cluster nodes are NEVER agents; they don't register via `/agents/register`.
-
-### Cluster Heartbeat & Failure Handling
-
-**Every cluster node sends heartbeats to detect failures.**
-
-| Setting | Value | Description |
-|---------|-------|-------------|
-| Heartbeat interval | 30 seconds | How often nodes send heartbeats |
-| Heartbeat timeout | 90 seconds | 3 missed heartbeats = node considered unresponsive |
-| Degraded threshold | 90 seconds | Node marked as `degraded` |
-| Offline threshold | 5 minutes | Node marked as `offline` |
-| Removal threshold | Manual | Offline nodes require manual removal |
-
-**Node States:**
-
-| State | Meaning | Action |
-|-------|---------|--------|
-| `healthy` | Heartbeat received within 30 seconds | Normal operation |
-| `degraded` | Heartbeat missed (30-90 seconds) | Logged, monitoring continues |
-| `offline` | No heartbeat for 5+ minutes | Node excluded from load balancing |
-| `removed` | Manually removed by admin | Node record deleted |
-
-**Failure Detection Flow:**
-
-```
-Node A sends heartbeat every 30 seconds
-         │
-         ▼
-Other nodes track "last_seen" timestamp
-         │
-         ▼
-If now - last_seen > 90 seconds:
-   Mark as "degraded", log warning
-         │
-         ▼
-If now - last_seen > 5 minutes:
-   Mark as "offline", exclude from cluster operations
-         │
-         ▼
-Admin manually removes dead nodes via CLI command or config file.
-```
-
-**Heartbeat Payload (every 30s, written to `nodes` table):**
-
-| Field | Description |
-|-------|-------------|
-| `node_id` | Hostname or operator-assigned ID |
-| `app_version` | Running binary's version (Tier-2 public-safe per PART 11) |
-| `commit_hash` | Build commit |
-| `installation_secret_version` | The version number of the `installation_secret` row this node currently has loaded (matches `app_secrets.version` for the `installation_secret` name). Used to detect drift. |
-| `server_security_encryption_key_version` | Same idea for the at-rest AES key (`server.security.encryption_key`). |
-| `cookie_signing_key_version` | Same. |
-| `csrf_token_secret_version` | Same. |
-| `learned_origins_version` | Latest `MAX(observed_at)` from the `learned_origins` table this node has read. |
-| `last_seen` | Heartbeat timestamp (server-side, on insert) |
-
-**Secret-version mismatch handling:** if a node's heartbeat reports a `*_version` lower than the cluster's current version (read from `app_secrets`), the primary logs `cluster.secret_version_drift` (which node, which secret, version delta) and the lagging node forces a re-read from the table on its next tick. If the drift exceeds 7 days (the `installation_secret` rotation grace window), the lagging node is marked **`stale`** instead of `healthy` and excluded from cluster ops until it catches up — preventing it from validating in-flight HMACs against an old key.
-
-### Secret Rotation in a Cluster (Anti-Split-Brain)
-
-**Rotating any `app_secrets` row across multiple nodes during a network partition could produce two "current" values. The rotation flow uses an advisory lock + quorum to prevent this.**
-
-| Step | Action |
-|------|--------|
-| 1 | The admin (or scheduler, for auto-rotated keys) calls `INSERT ... ON CONFLICT` on `app_secrets` with the next monotonic `version`, wrapped in an advisory lock keyed on `('rotate', name)`. PostgreSQL: `pg_try_advisory_xact_lock`; SQLite: a `BEGIN IMMEDIATE` transaction with a sentinel row in `cluster_locks`. |
-| 2 | Inside the lock, the node verifies it can reach **majority of healthy nodes** (per the latest heartbeat read; cached up to 30s). Fewer than majority → rotation **aborts** with `cluster.rotation_aborted_no_quorum`. The advisory lock releases without a row inserted. |
-| 3 | If quorum holds, the new row is inserted, the previous version's `expires_at` is set to `now + grace_window`, and the lock releases. |
-| 4 | All other nodes pick up the new version on their next 30s poll (or via Postgres `LISTEN` / Valkey pub-sub if enabled). They store both versions until the previous one's `expires_at` passes. |
-| 5 | If a partition is detected after step 3 (the rotating node is suddenly unable to confirm majority), the rotation is NOT rolled back — the version is in the DB, all nodes that can read the DB will converge. The minority side will mark itself `stale` (per heartbeat handling above) until reconnected. |
-
-**Why this prevents split-brain:** rotations only succeed if the rotating node has at least majority of healthy nodes available at the moment of rotation. Two halves of a partitioned cluster cannot both hit majority simultaneously. Even if a partition forms after rotation, the DB is the source of truth and the minority side knows it's stale.
-
-**Single-node "cluster" (most deployments):** quorum is trivially 1; the lock is still acquired but the majority check passes immediately. No special path.
-
-### Removed-Node Local Cleanup
-
-**When a node is manually removed via CLI command or config file, the database record is deleted, but the node's local on-disk state may still contain valid copies of `app_secrets` (it had them while it was in the cluster). The removal flow MUST handle both sides:**
-
-| Side | Action |
-|------|--------|
-| **Server-side** (from the removing node) | Delete the row from `nodes` table. Mark `app_secrets` versions valid for that node as `revoked_for_node = node_id` so audit can see the removal happened mid-rotation if applicable. Emit `cluster.node_removed` audit event. |
-| **Removed-node-side** (when the removed node next attempts to heartbeat) | Heartbeat returns `403 NODE_REMOVED`. The binary on the removed node MUST: (1) wipe `{config_dir}/security/pgp.priv.asc.enc` if present (PGP keys are cluster-shared and the removed node has lost permission to participate); (2) wipe its `app_secrets` cache; (3) leave `server.yml` minus the cluster section; (4) log `cluster.removed_self_cleanup` to local `audit.log`; (5) refuse to serve requests until re-joined. The binary does NOT delete logs, data files, or user content — those stay on the removed host for forensic / audit purposes. |
-| **If the removed node is offline at removal time** | The cleanup happens whenever the removed node next attempts to communicate. Until then, it's running with stale secrets — but per the secret-version-mismatch flow above, its requests would already fail because `installation_secret` may have rotated. Operators removing a node SHOULD power down or `systemctl stop {internal_name}` first, then remove. The API surfaces this guidance via the cluster status endpoint. |
-
-**Caveat:** removed-node cleanup is best-effort. A truly compromised host that's been removed cannot be trusted to wipe its own secrets — assume the secrets it had ARE in attacker hands. Always rotate `installation_secret`, `cookie_signing_key`, `csrf_token_secret`, `server.security.encryption_key`, and the project PGP keypair after removing a compromised node. The API offers a "Rotate everything" endpoint on the cluster remove flow.
-
-**Primary Election:**
-
-| Event | Action |
-|-------|--------|
-| Cluster starts | Node with lowest ID becomes primary |
-| Primary goes offline | Next healthy node (by ID) becomes primary |
-| Primary comes back | Remains secondary (no preemption) |
-| Split-brain | Database is source of truth (latest write wins) |
-
-**What Primary Node Handles:**
-
-- Scheduled tasks (only primary runs cron jobs)
-- Cluster-wide maintenance
-- GeoIP/blocklist updates (once, shared via DB)
-
-### Extended Node Functions (PER-PROJECT)
-
-**Beyond config sync, what nodes DO varies by project.**
-
-| App Type | Base (Config Sync) | Extended Node Function |
-|----------|:------------------:|------------------------|
-| Jokes API | ✓ | None - sync only |
-| Quotes API | ✓ | None - sync only |
-| Watchtower-type | ✓ | + Manage Docker hosts |
-| DNS Server | ✓ | + HA failover |
-| Monitoring App | ✓ | + Monitor remote servers |
-| Proxmox-type | ✓ | + Manage VMs + HA failover |
-
-**Extended functions are defined in the project's AI.md under "Node Functions".**
-
-### High Availability (Specialized Apps Only)
-
-**HA is NOT standard - only for apps that specifically require failover.**
-
-| HA Requirement | Examples |
-|----------------|----------|
-| DNS failover | DNS servers, domain controllers |
-| Service continuity | Proxmox, cPanel, critical infrastructure |
-| Data redundancy | Database clusters, storage systems |
-
-**If your app needs HA, define it in AI.md under "High Availability Requirements".**
-
-Most apps (Jokes, Quotes, Airports, etc.) do NOT need HA - clustering with config sync is sufficient.
 
 ---
 
@@ -13453,17 +12936,16 @@ Most apps (Jokes, Quotes, Airports, etc.) do NOT need HA - clustering with confi
 ```yaml
 server:
   database:
-    driver: postgres
-    host: localhost
-    port: 5432
-    name: myapp
-    username: myapp
-    password: ${DB_PASSWORD}
+    driver: sqlite           # or "libsql" for Turso remote
+    url: "{data_dir}/db/{internal_name}.db"  # auto-created; omit for default
+    # For Turso remote:
+    # driver: libsql
+    # url: libsql://your-db-name.turso.io?authToken=${TURSO_AUTH_TOKEN}
 
-    # Connection pool settings
+    # Connection pool settings (libsql/remote only; SQLite uses single writer)
     pool:
-      max_open: 25        # Max open connections
-      max_idle: 5         # Max idle connections
+      max_open: 5         # SQLite: 1 writer + readers; libsql: adjust as needed
+      max_idle: 2         # Max idle connections
       max_lifetime: 5m    # Max connection lifetime
       max_idle_time: 1m   # Max idle time before close
 ```
@@ -13473,11 +12955,9 @@ server:
 | Deployment | max_open | max_idle | Reason |
 |------------|----------|----------|--------|
 | Development | 5 | 2 | Minimal resources |
-| Small (1-2 nodes) | 25 | 5 | Default, works for most |
-| Medium (3-5 nodes) | 50 | 10 | More concurrent requests |
-| Large (6+ nodes) | 100 | 20 | High concurrency |
-
-**Formula:** `max_open = (available_connections / num_nodes) * 0.8`
+| Small | 25 | 5 | Default, works for most |
+| Medium | 50 | 10 | More concurrent requests |
+| Large | 100 | 20 | High concurrency |
 
 ### Implementation
 
@@ -13717,10 +13197,9 @@ func WithSerializableRetry(ctx context.Context, db *sql.DB, maxRetries int, fn f
 }
 
 func isSerializationError(err error) bool {
-    // PostgreSQL: 40001 serialization_failure
-    // MySQL: 1213 Deadlock found
-    return strings.Contains(err.Error(), "40001") ||
-           strings.Contains(err.Error(), "1213")
+    // SQLite/libsql: SQLITE_BUSY or database is locked
+    return strings.Contains(err.Error(), "SQLITE_BUSY") ||
+           strings.Contains(err.Error(), "database is locked")
 }
 ```
 
@@ -13746,11 +13225,11 @@ func isSerializationError(err error) bool {
 | Database credentials (password, full DSN, connection string) | Direct credential exposure. |
 | Specific internal IPs / hostnames (`db.internal.lan`, `10.0.0.5`, `192.168.1.5`) | Network topology + lateral-movement aid. |
 | API tokens, session tokens, CSRF tokens of any user | Direct credential exposure. |
-| Recovery keys, MFA secrets, passkey private material | Direct credential exposure. |
+| PGP private keys, signing material | Direct credential exposure. |
 | Other users' email addresses, real names, phone numbers | PII / GDPR. The user's own profile follows `privacy.profile_*_public` config. |
 | Other users' session activity, IP, last-seen | PII / privacy. |
 | Filesystem paths from build output, log paths, config paths | Source-tree disclosure. |
-| Account-existence signals — "username vs password" / "user found vs not" / signup with existing email | Enumeration. |
+| Account-existence signals — "token valid vs not" / "resource found vs not" | Enumeration. |
 | Specific rate-limit thresholds (return generic 429, not "limit X reached") | Helps attacker tune their pace. |
 | Per-user resource counts when not the user's own resources | Enumeration. |
 | Any field tagged `private`, `internal`, or `sensitive` in the data model | Explicit author intent. |
@@ -13768,9 +13247,8 @@ func isSerializationError(err error) bool {
 | `go_version` | `/server/healthz` (under `runtime`) | Build metadata, not a vulnerability vector on its own |
 | `uptime` (seconds or human) | `/server/healthz` | Operational diagnostic |
 | `mode` (`production` / `development`) | `/server/healthz` | Operational diagnostic; debug is gated separately |
-| `db_type` (`sqlite` / `postgres` / `valkey` / etc.) | `/server/healthz` | Just the engine family — no host, no creds |
+| `db_type` (`sqlite` / `libsql`) | `/server/healthz` | Just the engine family — no host, no creds |
 | `db_locality` (`local` / `remote`) | `/server/healthz` | Fuzzy — no host name or IP |
-| `cluster_size`, `is_primary`, `is_secondary` | `/server/healthz` | Cluster state, no addresses |
 | `request_count_24h`, `active_connections`, `total_connections` | `/server/healthz` (under `metrics`) | Operational, aggregate |
 | `unique_visitors_24h`, `peak_concurrent` | `/server/healthz` (aggregate only) | Bragging rights / monitoring; no per-IP detail |
 | Public domain(s) the app serves (`{fqdn}`, learned reverse-proxy hosts) | `/api/autodiscover`, banners | Already public — that's how visitors got here |
@@ -13837,7 +13315,7 @@ When `DEBUG=true` is active and an error occurs, the canonical error body (PART 
 | XSS | Reject control chars / null bytes at input | n/a | HTML-escape on render (templates auto-escape; raw output requires explicit `template.HTML` cast and review) | CSP `'self' + 'unsafe-inline'` blocks cross-origin script loads (PART 11 → CSP) |
 | Enumeration (account existence, valid IDs, valid tokens) | Rate limit per IP + per identifier + global | Constant-time comparison for tokens / passwords | Identical response shape and timing for "not found" vs "no access" | n/a |
 | Timing oracles | n/a | `subtle.ConstantTimeCompare` for all secret comparisons | Identical response time for success/fail by adding artificial sleep when faster than threshold | n/a |
-| Credential stuffing | Rate limit per IP + per username + global | Argon2id on every login attempt (no "fast path" for unknown users) | Generic "invalid credentials" message | Account lockout after N failures |
+| Credential stuffing | Rate limit per IP + per token-prefix + global | Constant-time SHA-256 comparison (no "fast path" for invalid prefixes) | Generic "invalid token" message | Token auto-revoked after N consecutive failures |
 | Path traversal | Validate paths, reject `..` / null bytes | `filepath.Clean()` + base-dir confinement | n/a | OS-level read perms restrict reachable files |
 | Token / credential leakage | n/a | Never `slog.Info("token=", t)` — log token ID hash only | Sanitization layer strips known sensitive query params from URL fields in reports / logs / error contexts (see PART 14 → "Public Reports Scope") | TLS in transit (PART 15) |
 | CSRF | Validate Origin + same-origin check | n/a | CSRF token on cookie-authenticated state-changing requests (PART 16 → CSRF) | `SameSite=Strict` cookies (browser-level enforcement) |
@@ -13946,9 +13424,9 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 |----------|--------|
 | Length | 32 bytes (256 bits) of `crypto/rand` |
 | Generated | First start. Stored in `server.db` row `app_secrets.installation_secret`, base64-encoded. |
-| Scope | Cluster-wide. The first node generates it; subsequent nodes joining the cluster receive it via the secure cluster join protocol (PART 10 → "Cluster" — the join token is HMAC-derived and the `installation_secret` is delivered as part of the same handshake payload). NEVER appears in a request, response, log, or admin UI. |
-| Used by | `{security_id}` HMAC (PART 11 → "Security Reports"); PGP private-key KDF (PART 11 → "GPG Keypair Management"); future derived material (cluster-internal request signing, cookie signing salts). |
-| Rotation | Manual via CLI command or config file. Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt admin password, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
+| Scope | Server-wide. Generated on first start and persisted to `server.db`. NEVER appears in a request, response, or log. |
+| Used by | `{security_id}` HMAC (PART 11 → "Security Reports"); PGP private-key KDF (PART 11 → "GPG Keypair Management"); future derived material (cookie signing salts, etc.). |
+| Rotation | Manual via CLI command or config file. Sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt operator password, log to `audit.log` as `security.installation_secret_rotated`. Rotation re-encrypts the PGP private key and re-bases all live HMACs. The previous secret is kept for 7 days to validate any in-flight `{security_id}` URLs that referenced it. |
 | Backup | Always — see PART 21 → "Backup Contents". Required for any restore: without it, the PGP private key in the backup is undecryptable. |
 | Loss = catastrophic | Lost = cannot decrypt PGP private key (and therefore cannot decrypt in-flight encrypted security reports); cannot validate `{security_id}` URLs on existing security.txt copies until the file regenerates. Recovery requires admin to: regenerate keypair, regenerate `installation_secret`, accept that all in-flight encrypted reports are unreadable. |
 
@@ -13957,15 +13435,15 @@ The root secret all other derived material hangs off. Without it, in-flight HMAC
 | Secret | Length | Storage | Purpose | Rotation |
 |--------|--------|---------|---------|----------|
 | `cookie_signing_key` | 32 bytes (HMAC-SHA256) | `server.db` row `app_secrets.cookie_signing_key` | Signs session cookies to detect tampering. | Auto-rotated every 90 days; previous key valid for 7 days. |
-| `csrf_token_secret` | 32 bytes | `server.db` row `app_secrets.csrf_token_secret` | HMAC base for CSRF tokens (double-submit pattern, PART 16 → CSRF). | Auto-rotated on every admin password change + every 180 days. |
+| `csrf_token_secret` | 32 bytes | `server.db` row `app_secrets.csrf_token_secret` | HMAC base for CSRF tokens (double-submit pattern, PART 16 → CSRF). | Auto-rotated on API key regeneration + every 180 days. |
 
 **Pre-existing key (defined in PART 11 → "Server Encryption Key"):**
 
 | Key | Length | Storage | Purpose | Rotation |
 |-----|--------|---------|---------|----------|
-| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: 2FA secrets, security report bodies (used as the AES fallback when no PGP keypair exists or when an admin has no personal pubkey, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via API (sensitive-op flow). 30-day grace for in-flight encrypted data. |
+| `server.security.encryption_key` | 32 bytes (AES-256-GCM) | `server.yml` (auto-generated on first run) | At-rest encryption for ALL sensitive server data: API token hashes, security report bodies (used as the AES fallback when no PGP keypair exists, see PART 11 → "Security Reports"), and any future at-rest encrypted data. | Manual via API (sensitive-op flow). 30-day grace for in-flight encrypted data. |
 
-**Note on consolidation:** `server.security.encryption_key` is the canonical at-rest AES key — every place the spec talks about "encrypt this sensitive data at rest" resolves to this one key, including security report bodies. It is NOT duplicated in `app_secrets`. The four `app_secrets` rows above are HMAC keys (not AES) and a root-secret for HMAC derivation; they are stored in the DB rather than `server.yml` because they have independent rotation lifecycles and need to be visible to cluster replicas via shared DB read.
+**Note on consolidation:** `server.security.encryption_key` is the canonical at-rest AES key — every place the spec talks about "encrypt this sensitive data at rest" resolves to this one key, including security report bodies. It is NOT duplicated in `app_secrets`. The four `app_secrets` rows above are HMAC keys (not AES) and a root-secret for HMAC derivation; they are stored in the DB rather than `server.yml` because they have independent rotation lifecycles.
 
 **All secrets above:**
 - Generated on first start, before any user-visible operation.
@@ -14002,7 +13480,7 @@ X-Request-ID: <per-request UUID — also echoed back in JSON error envelopes>
 Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 ```
 
-**On logout / account-delete / consent-withdrawal responses (and on any response that revokes a session), also include:**
+**On token-revocation and consent-withdrawal responses, also include:**
 
 ```
 Clear-Site-Data: "cache", "cookies", "storage"
@@ -14049,7 +13527,7 @@ web:
     # Advertising / tracking proposals — disabled by default, regardless of project.
     # The spec's privacy posture (PART 11 → "Public Endpoint Safety Principle") forbids
     # these even if a project's IDEA.md asks for them. Operator can override but the
-    # admin panel surfaces a privacy warning.
+    # operator configuration surfaces a privacy warning.
     attribution-reporting: "()"
     browsing-topics: "()"
     interest-cohort: "()"
@@ -14111,10 +13589,9 @@ web:
     sec_fetch_validation: true         # reject cross-site state-changers (CSRF defense layer)
     server_timing_in_debug_only: true  # never emit Server-Timing in production
     clear_site_data:
-      on_logout: true
-      on_account_delete: true
+      on_token_revocation: true
       on_consent_withdrawal: true
-      execution_contexts: false        # set true to also reload SPA tabs on logout
+      execution_contexts: false        # set true to also reload SPA tabs on token revocation
     nel:
       enabled: true
       max_age_seconds: 2592000         # 30 days
@@ -14144,7 +13621,7 @@ web:
 |--------|-----------|---------|----------|
 | `Sec-GPC: 1` (Global Privacy Control) | inbound | honored | When received, treat the request as opt-out of "sale or sharing of personal data" (CCPA/CPRA), opt-out of behavioral profiling (GDPR Art. 21), and skip non-essential cookies. Logged to audit (`compliance.gpc_honored`). |
 | `DNT: 1` (Do Not Track) | inbound | NOT honored by default | DNT was de-facto removed from Firefox/Chrome — honoring it now penalizes users on browsers that still emit it for legacy reasons. Operators with EU-only audiences can opt in via `web.headers.honor_dnt: true`. |
-| `Clear-Site-Data` | outbound | emitted on session-revoke | Sent on logout, account-delete, password-change, and consent-withdrawal responses. Default value `"cache", "cookies", "storage"`. `"executionContexts"` opt-in only. |
+| `Clear-Site-Data` | outbound | emitted on token-revocation | Sent on token-revocation and consent-withdrawal responses. Default value `"cache", "cookies", "storage"`. `"executionContexts"` opt-in only. |
 
 **`Sec-GPC` is the load-bearing one.** When received, the binary MUST:
 1. Set the request's `gpc_opt_out=true` flag throughout the request lifecycle.
@@ -14357,7 +13834,7 @@ const (
     TargetUnknown       TargetType = iota // Unknown/invalid target
     TargetPublic                          // Public routes (/, /api/{api_version}/, project-specific like /jokes, /weather, /ip)
     TargetServerPages                     // Server pages - about, help, contact, privacy (/server/*, /api/{api_version}/server/*)
-    TargetAdmin                           // Server administration routes (/api/{api_version}/server/*)
+    TargetServer                          // Server administration routes (/api/{api_version}/server/*)
 )
 ```
 
@@ -14554,13 +14031,13 @@ web:
 | Validation window | Server accepts the **current** AND **previous** 48h window's id — prevents boundary failures for researchers who load the security.txt at second 47:59:59 |
 | Where it appears | Only in `/.well-known/security.txt` `Contact:` line. NEVER logged, NEVER returned in any other response. |
 | Failure mode | Invalid / expired id → form silently falls back to normal contact mode. Log to `security.log` as `security.security_id_invalid` (IP, user-agent, supplied id) — useful for catching scrape attempts. |
-| Why HMAC, not random | Determinism — each replica of the cluster computes the same id without coordinating state. The `installation_secret` (cluster-wide, persisted) is the only secret required. |
+| Why HMAC, not random | Determinism — the server computes the same id deterministically from the persisted `installation_secret` without needing to track separate state. |
 
 ### `/server/contact?security_id={id}` — Mode Switch
 
 | Mode | Triggered when | Form changes |
 |------|----------------|--------------|
-| Standard contact | No `security_id`, OR id present but invalid | Standard fields (Name, Email, Subject, Message, Captcha) — see PART 17 → `/server/contact`. |
+| Standard contact | No `security_id`, OR id present but invalid | Standard fields (Name, Email, Subject, Message, Captcha) — see PART 12 → Contact Configuration. |
 | Security report | `security_id` present AND matches current or previous 48h window | Security-research fields appended; submission routes to the security pipeline; tracking id issued. |
 
 **Security-mode form fields (in addition to Name + Email + Captcha):**
@@ -14586,7 +14063,7 @@ web:
 1. Server re-validates the `security_id` server-side (form value can be tampered with).
 2. Allocates a `tracking_id` — `sec_` prefix + 16 random hex chars. Stored in the security-reports table.
 3. **Encryption at rest:** the report body is encrypted with the project's PGP key if one exists; otherwise AES-256-GCM with `server.security.encryption_key` (the spec's canonical at-rest AES key — see PART 11 → "Cryptographic Keys"). Plaintext is NEVER persisted to disk.
-4. **Maintainer notification:** PGP-encrypted email to every Server Admin who has registered a personal pubkey (admin profile setting); falls back to AES-encrypted attachment + warning if no admin has a pubkey.
+4. **Maintainer notification:** PGP-encrypted email to the configured operator contact (see `server.security.contact_email`); falls back to AES-encrypted attachment + warning if no PGP key is configured.
 5. **Researcher acknowledgment:** PGP-encrypted email to researcher's submitted email (using their submitted pubkey if any), containing the `tracking_id` and the URL `/server/security/report/{tracking_id}` (with a one-shot token only the researcher can use).
 6. **Response to the form POST:** canonical success body — `{"ok": true, "data": {"tracking_id": "sec_..."}}` — with a clear "we received your report; check your email for confirmation" message rendered server-side.
 7. **Logging:** one entry to `security.log` as `security.report_received` — `tracking_id`, severity, sanitized affected-component, NO researcher PII, NO vulnerability content. Maintainers see full content only via the encrypted email or the admin tracker (after auth).
@@ -14610,7 +14087,7 @@ web:
 | Concern | Configuration |
 |---------|---------------|
 | **Disclosure feature** — coordinated-disclosure pipeline (reports, policy page, hall of fame, GPG keypair) | Configured via config file; security reports accessible via public `/server/security/*` routes |
-| **Runtime defense** — IP blocks, allow-lists, account lockouts | Configured via config file; see PART 11 → "IP Block Management" |
+| **Runtime defense** — IP blocks, allow-lists, token revocation | Configured via config file; see PART 11 → "IP Block Management" |
 | **`security.txt` content** — `Expires`, languages, keyservers list | Configured via `web.security.*` config keys |
 
 ### GPG Keypair Management (Admin API)
@@ -14623,15 +14100,15 @@ web:
 | **Rotate** | Generates a new keypair, signs the new pubkey with the old key, publishes the rotation to configured keyservers. Old key stays valid for 30 days for in-flight reports. |
 | **Publish to keyservers** | POST the public key to each entry in `web.security.keyservers`. Uses the keyserver's HTTP submission endpoint (`https://keys.openpgp.org/vks/v1/upload` for keys.openpgp.org, similar for ubuntu). Triggered automatically on generate/rotate; manually via "Republish" button. Failures are logged + retried with exponential backoff. |
 | **Export public key** | Use the public URL `/.well-known/pgp-key.asc` or copy `{config_dir}/security/pgp.pub.asc` directly. |
-| **Export private key** | **Full export, ASCII-armored, decrypted with the operator's confirmation password.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt admin password, log to `audit.log` as `security.private_key_exported`, return the file as a single download. **The download is rate-limited to 1 per hour per admin and the audit entry includes admin username, IP, and reason text the admin must type.** |
-| **Import private key** | Upload an existing `pgp.priv.asc` (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — admin can override). |
-| **Delete** | Sensitive-operation flow. Deletes both keys, sets `web.security.publish_pgp_key: false`, removes `Encryption:` line from security.txt. In-flight encrypted reports become un-decryptable — admin warned and must type confirmation. |
+| **Export private key** | **Full export, ASCII-armored, decrypted with the operator's confirmation password.** Triggers a sensitive-operation flow (PART 5 → "Sensitive Operations"): re-prompt operator password, log to `audit.log` as `security.private_key_exported`, return the file as a single download. **The download is rate-limited to 1 per hour per operator and the audit entry includes operator IP and reason text the operator must type.** |
+| **Import private key** | Upload an existing `pgp.priv.asc` (e.g., restoring from backup, migrating from another instance). Same sensitive-operation gate. Validates the key's identity matches the project's expected identity (warns on mismatch — operator can override). |
+| **Delete** | Sensitive-operation flow. Deletes both keys, sets `web.security.publish_pgp_key: false`, removes `Encryption:` line from security.txt. In-flight encrypted reports become un-decryptable — operator warned and must type confirmation. |
 
 **Keypair properties stored in DB (NOT the keys themselves — those are on disk):**
 
 | Field | Description |
 |-------|-------------|
-| `fingerprint` | Full SHA-256 fingerprint, displayed on admin page and in security.txt comments |
+| `fingerprint` | Full SHA-256 fingerprint, returned by the status API and embedded in security.txt comments |
 | `created_at` | When the keypair was generated |
 | `expires_at` | Key expiry (2 years default) |
 | `last_rotated_at` | When most recently rotated (NULL if never) |
@@ -14651,7 +14128,7 @@ web:
 
 **Restore behavior:** restoring a backup re-installs the keypair AND re-publishes the public key to the configured keyservers (idempotent — keyservers de-duplicate by fingerprint). The `installation_secret` is restored from the same backup, so the encrypted private key decrypts correctly.
 
-**Operator UX:** running `{project_name} backup create` and `{project_name} backup restore` covers the security keypair without any extra steps. Admin panel "Test Backup" runs a dry-run restore of the keypair specifically and reports whether the encrypted private key decrypts successfully.
+**Operator UX:** running `{project_name} backup create` and `{project_name} backup restore` covers the security keypair without any extra steps. `{project_name} backup test` runs a dry-run restore of the keypair specifically and reports whether the encrypted private key decrypts successfully.
 
 ## Logging
 
@@ -14698,7 +14175,7 @@ web:
 
 **Fail2ban Format:**
 ```
-2024-10-10 13:55:36 [security] Failed login attempt from 192.168.1.100 for user admin
+2024-10-10 13:55:36 [security] Failed authentication attempt from 192.168.1.100
 2024-10-10 13:55:40 [security] Rate limit exceeded from 192.168.1.100
 ```
 
@@ -14907,22 +14384,13 @@ server:
 | `backup.restored` | Backup restored | Filename |
 | `backup.deleted` | Backup deleted | Filename |
 | `backup.failed` | Backup failed | Error message |
-| `server.started` | Application started | Version, mode, node ID |
+| `server.started` | Application started | Version, mode |
 | `server.stopped` | Application stopped | Reason, uptime |
 | `server.maintenance_entered` | Maintenance mode enabled | Reason |
 | `server.maintenance_exited` | Maintenance mode disabled | Duration |
 | `server.updated` | Application updated | Old version, new version |
 | `scheduler.task_failed` | Scheduled task failed | Task name, error |
 | `scheduler.task_manual_run` | Task manually triggered | Task name, IP |
-
-### Cluster Events
-
-| Event | Description | Logged Data |
-|-------|-------------|-------------|
-| `cluster.node_joined` | Node joined cluster | Node ID, IP |
-| `cluster.node_removed` | Node removed from cluster | Node ID |
-| `cluster.node_failed` | Node became unreachable | Node ID, last seen |
-| `cluster.mode_changed` | Cluster mode changed | Old mode, new mode |
 
 ## Audit Log Format
 
@@ -14945,8 +14413,7 @@ server:
   "details": {
     "changed_keys": ["server.port"]
   },
-  "result": "success",
-  "node_id": "node-1"
+  "result": "success"
 }
 ```
 
@@ -14956,7 +14423,7 @@ server:
 |-------|------|-------------|
 | `id` | String | Unique audit entry ID (ULID format) |
 | `time` | String | ISO 8601 timestamp with milliseconds, UTC |
-| `event` | String | Event type (e.g., `admin.login`) |
+| `event` | String | Event type (e.g., `config.updated`) |
 | `category` | String | Event category (e.g., `authentication`) |
 | `severity` | String | `info`, `warn`, `error`, `critical` |
 | `actor` | Object | Who performed the action |
@@ -14968,7 +14435,6 @@ server:
 |-------|------|-------------|
 | `target` | Object | What was acted upon |
 | `details` | Object | Event-specific details |
-| `node_id` | String | Node ID (cluster mode) |
 | `reason` | String | Reason for action (if provided) |
 
 ## Severity Levels
@@ -15002,7 +14468,6 @@ server:
         security: true        # Rate limit violations and security events
         backup: true          # Backup/restore
         server: true          # Server events (start, stop, maintenance)
-        cluster: true         # Cluster events
 
       # Sensitive data handling
       include_user_agent: true
@@ -15018,7 +14483,7 @@ server:
 | `keep` | `none` | Delete on rotation (no old logs kept) |
 | `compress` | `false` | No compression (deleted immediately) |
 | `mask_emails` | `true` | Mask email addresses |
-| All event categories | `true` | Log config, security, backup, server, cluster events |
+| All event categories | `true` | Log config, security, backup, and server events |
 | `token_usage` | `false` | Don't log every token use |
 
 **Why `keep: none` by default?**
@@ -15167,8 +14632,8 @@ server:
 | Access logging | ✓ | - | ✓ | ✓ | ✓ | ✓ |
 | Breach notification | 72hr | - | 60days | ✓ | ✓ | ✓ |
 | Data residency | ✓ | - | - | - | - | - |
-| MFA requirement | - | - | ✓ | ✓ | ✓ | - |
-| Password policy | ✓ | - | ✓ | ✓ | ✓ | ✓ |
+| Strong auth requirement | - | - | ✓ | ✓ | ✓ | - |
+| Token policy | ✓ | - | ✓ | ✓ | ✓ | ✓ |
 | Session timeout | - | - | ✓ | ✓ | ✓ | - |
 | Vulnerability scanning | - | - | - | ✓ | ✓ | ✓ |
 
@@ -15181,9 +14646,8 @@ server:
 | **Retention period** | Use longest | HIPAA (6yr) beats GDPR (1yr) |
 | **Encryption strength** | Use strongest | AES-256 over AES-128 |
 | **Breach notification** | Use shortest | GDPR (72hr) beats HIPAA (60days) |
-| **Password requirements** | Use strictest | Longest min length, most complexity |
+| **Token requirements** | Use strictest | Longest expiry, strongest entropy |
 | **Session timeout** | Use shortest | 15min beats 30min |
-| **MFA requirement** | Required if ANY standard requires it | |
 | **Right to erasure vs retention** | See below | |
 
 **Special Case: Right to Erasure vs Retention Requirements**
@@ -15202,8 +14666,8 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | Feature | Behavior |
 |---------|----------|
 | Cookie consent | Required popup before any tracking |
-| Data export | `/users/data/export` endpoint enabled |
-| Data deletion | `/users/data/delete` endpoint enabled |
+| Data export | `{project_name} data export` CLI command |
+| Data deletion | `{project_name} data delete` CLI command |
 | Consent tracking | All consents logged with timestamp |
 | Data residency | Configurable allowed regions |
 | Privacy policy | Required, must specify data processing |
@@ -15218,7 +14682,7 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 | Audit trail | 6-year minimum retention, tamper-evident |
 | Access controls | Role-based with minimum necessary access |
 | Session timeout | 15 minutes maximum idle |
-| MFA | Required for all users |
+| Token auth | Required for all API access |
 | BAA tracking | Business Associate Agreements logged |
 | Breach notification | 60-day notification system |
 
@@ -15249,9 +14713,9 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 
 | Feature | Behavior |
 |---------|----------|
-| Data disclosure | `/users/data/export` - what data is collected (we do not sell data) |
+| Data disclosure | `{project_name} data export` - what data is collected (we do not sell data) |
 | Opt-out of sale | Dynamic: if `data.sold=false` shows notice; if `data.sold=true` shows opt-out toggle |
-| Right to delete | `/users/data/delete` endpoint enabled |
+| Right to delete | `{project_name} data delete` CLI command |
 | Non-discrimination | Cannot deny service for exercising rights |
 | Privacy notice | Dynamic based on `server.privacy.data.sold` setting |
 | Verification | Identity verification before data requests |
@@ -15352,37 +14816,10 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/users/data/export` | GET | Request personal data export (GDPR/CCPA) |
-| `/users/data/export/{id}` | GET | Download data export |
-| `/users/data/delete` | POST | Request account deletion (GDPR/CCPA) |
-| `/users/consents` | GET | View consent history |
-| `/users/consents` | PATCH | Update consent preferences |
 | `/server/privacy` | GET | Privacy policy |
 | `/server/dpo` | GET | Data Protection Officer contact (GDPR) |
 
-### Compliance API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/users/data/export` | POST | Request data export |
-| `/api/{api_version}/users/data/export/{export_id}` | GET | Download export |
-| `/api/{api_version}/users/data/delete` | POST | Request deletion |
-| `/api/{api_version}/users/consents` | GET | Get consents |
-| `/api/{api_version}/users/consents` | PATCH | Update consents |
-
-### Admin UI: Compliance Dashboard
-
-**Location:** Compliance dashboard is managed via config file.
-
-| Section | Description |
-|---------|-------------|
-| Enabled Standards | Toggle switches for each standard |
-| Compliance Score | Per-standard compliance percentage |
-| Issues | Outstanding compliance issues |
-| Data Requests | Pending export/deletion requests |
-| Breach Log | Data breach history |
-| Reports | Generate/download compliance reports |
-| Upcoming | Scheduled audits, certificate renewals |
+**Compliance is configured entirely in `server.yml`. Consent state is stored client-side (localStorage/cookies) — there is no server-side user consent table. Operators run `{project_name} compliance report` for a compliance summary.**
 
 ### Compliance Audit Events
 
@@ -15408,11 +14845,9 @@ When GDPR/CCPA (right to erasure) conflicts with HIPAA/SOC2 (retention requireme
 
 | Data Type | Protection | Method |
 |-----------|------------|--------|
-| Passwords | Always hashed | Argon2id |
+| Config passwords (backup, etc.) | Always hashed | Argon2id |
 | API tokens | Always hashed | SHA-256 |
-| 2FA secrets | Always encrypted | AES-256-GCM (server key) |
-| Recovery keys | Always hashed | SHA-256 |
-| Backups | Encrypted if password set | AES-256-GCM (user password) |
+| Backups | Encrypted if password set | AES-256-GCM (derived key) |
 | Database at rest | OS responsibility | Use encrypted filesystem |
 | Data in transit | Always TLS | TLS 1.2+ required |
 
@@ -15560,7 +14995,7 @@ type AllowlistEntry struct {
     // Human-readable label (required for clarity)
     Description string    `yaml:"description" json:"description"`
     AddedAt     time.Time `json:"added_at"`
-    AddedBy     string    `json:"added_by"`  // admin username or "config" if from YAML
+    AddedBy     string    `json:"added_by"`  // "operator" or "config" if from YAML
 }
 ```
 
@@ -15829,8 +15264,8 @@ server:
 server:
   contact:
     # ---- Admin (server notifications) ----
-    # Recipient for server-internal alerts: error rate spike, cluster split,
-    # cert renewal failure, scheduled task crash, backup failure, etc.
+    # Recipient for server-internal alerts: error rate spike, cert renewal
+    # failure, scheduled task crash, backup failure, etc.
     # NEVER public. Used as the universal fallback when a role-specific
     # address is empty.
     admin:
@@ -15875,7 +15310,7 @@ server:
 
 | Role | Resolution |
 |------|------------|
-| `admin` | Required. Empty → startup warning. The very first server admin's profile email is auto-populated here on first install if unset. |
+| `admin` | Required. Empty → startup warning. Auto-populated from the operator's email on first install if unset. |
 | `security` | `server.contact.security.email` (default `security@{fqdn}` per RFC 2142). If explicitly set to `""`, falls back to `server.contact.admin.email`. Same fallback for each webhook transport (security.webhooks.telegram → admin.webhooks.telegram). |
 | `general` | `server.contact.general.email` if set → else `server.contact.admin.email`. Same fallback for webhooks. |
 
@@ -15906,7 +15341,7 @@ Every outbound webhook POST includes these headers so the receiver can verify th
 | `X-Webhook-Signature` | `sha256=<hex_hmac>` where `hmac = HMAC-SHA256(per_webhook_secret, request_body_bytes)`. The `per_webhook_secret` is auto-generated when the webhook URL is first saved (random 32 bytes, persisted in `server.yml` next to the URL as `webhooks.<name>_secret`) and returned ONCE in the API response for the operator to configure on the receiving end. |
 | `X-Webhook-Timestamp` | Unix seconds — receiver SHOULD reject if delta exceeds `±5 min` to prevent replay |
 | `X-Webhook-ID` | UUID v7 (PART 13) — idempotency key the receiver can use to deduplicate retries |
-| `X-Webhook-Event` | The event type (e.g., `security.report_received`, `admin.cluster_failover`) |
+| `X-Webhook-Event` | The event type (e.g., `security.report_received`, `admin.backup_failed`) |
 | `User-Agent` | `{project_name}/{project_version} (+{app_url})` |
 
 The signature applies to **all** transports — even built-in adapters (Telegram, Discord, Slack) get an `X-Webhook-Signature` header in the unlikely case their endpoint is forwarded somewhere that wants to verify origin. Adapters that the target service doesn't read (Telegram doesn't care about the header) ignore it harmlessly.
@@ -15928,7 +15363,7 @@ if !subtle.ConstantTimeCompare([]byte(got), []byte(want)) {
 
 | Role | When triggered | What is sent |
 |------|----------------|--------------|
-| `admin` | Server-internal events: error rate spike, panic, cluster failover, backup failure, cert renewal, security report received (summary only) | Subject + body + severity. NEVER includes user content. |
+| `admin` | Server-internal events: error rate spike, panic, backup failure, cert renewal, security report received (summary only) | Subject + body + severity. NEVER includes user content. |
 | `security` | Incoming security report (full content, encrypted), researcher status update, CVE assignment milestone | PGP-encrypted body if a researcher pubkey or admin pubkey is configured (PART 11 → "GPG Keypair Management"). |
 | `general` | `/server/contact` form submission (non-security) | Sender name, sender email, subject, message body. Spam-filtered before dispatch. |
 
@@ -16427,11 +15862,6 @@ server:
       data_collection: |
         **We collect only what is necessary to provide our service:**
 
-        **Account Information:**
-        - Email address (for account recovery and notifications)
-        - Username (for identification)
-        - Password (stored securely hashed, never in plain text)
-
         **Usage Information (with consent):**
         - Pages visited and features used
         - Browser type and device information
@@ -16439,7 +15869,7 @@ server:
 
         **Technical Information:**
         - IP address (for security and abuse prevention)
-        - Session data (for keeping you logged in)
+        - API token identifiers (hashed, never stored in plain text)
 
         **We do NOT collect:**
         - Payment information (unless explicitly required by the service)
@@ -16450,7 +15880,7 @@ server:
       data_usage: |
         **Your data is used solely to:**
 
-        - **Provide the service:** Account management, authentication, core functionality
+        - **Provide the service:** Authentication, core functionality
         - **Improve the experience:** Performance optimization, bug fixes, feature improvements
         - **Ensure security:** Prevent abuse, detect fraud, protect your account
         - **Communicate:** Service updates, security alerts, and (with consent) product news
@@ -16464,7 +15894,7 @@ server:
       data_usage_if_sold: |
         **Your data may be used to:**
 
-        - **Provide the service:** Account management, authentication, core functionality
+        - **Provide the service:** Authentication, core functionality
         - **Improve the experience:** Performance optimization, bug fixes, feature improvements
         - **Ensure security:** Prevent abuse, detect fraud, protect your account
         - **Communicate:** Service updates, security alerts, and (with consent) product news
@@ -16480,7 +15910,7 @@ server:
         **How we protect your data:**
 
         - All data is stored on our servers (not third-party cloud services unless specified)
-        - Passwords are hashed using Argon2id (industry-standard, memory-hard algorithm)
+        - API tokens are stored as SHA-256 hashes (never in plain text)
         - All connections are encrypted (HTTPS/TLS)
         - Regular security audits and updates
         - Access controls and audit logging for admin actions
@@ -16741,23 +16171,12 @@ func CanLoadAnalytics(r *http.Request) bool {
 
 ## Cache Configuration
 
-**EVERY application MUST support Valkey/Redis.** This is REQUIRED for:
-- Clustering (session sharing, state sync)
-- Mixed Mode (cross-database synchronization)
-- Horizontal scaling
-- Rate limiting in distributed deployments
-
-| Mode | Cache Requirement |
-|------|-------------------|
-| **Single Instance** | `memory` (default) - works standalone |
-| **Cluster** | `valkey` or `redis` - REQUIRED for state sync |
-| **Mixed Mode** | `valkey` or `redis` - REQUIRED for cross-DB sync |
+**Cache is optional.** Defaults to `memory` (in-process). Valkey/Redis is supported when an external cache is desired (persistent counters across restarts, rate limits, etc.).
 
 ```yaml
 server:
   cache:
     # Type: none (disabled), memory (default), valkey, redis
-    # IMPORTANT: Use valkey/redis for cluster or mixed mode deployments
     type: memory
 
     # Connection: Use EITHER url OR host/port/password (not both)
@@ -16787,11 +16206,6 @@ server:
 
     # Default TTL
     ttl: 1h
-
-    # Cluster settings (when using Valkey/Redis Cluster)
-    cluster: false
-    # e.g., ["node1:6379", "node2:6379", "node3:6379"]
-    cluster_nodes: []
 ```
 
 ### Connection Methods
@@ -16833,20 +16247,6 @@ server:
     prefix: "{project_name}:"
 ```
 
-**Valkey/Redis Cluster:**
-```yaml
-server:
-  cache:
-    type: valkey
-    cluster: true
-    cluster_nodes:
-      - valkey1.example.com:6379
-      - valkey2.example.com:6379
-      - valkey3.example.com:6379
-    password: ${VALKEY_PASSWORD}
-    prefix: "{project_name}:"
-```
-
 ### Cache Usage in Application
 
 | Feature | Uses Cache | Purpose |
@@ -16854,9 +16254,6 @@ server:
 | Sessions | Yes | Session data storage |
 | Rate limiting | Yes | Request counters per IP/user |
 | API responses | Optional | Response caching |
-| Cluster heartbeat | Yes | Node liveness detection |
-| Pub/Sub events | Yes | Real-time state sync |
-| Distributed locks | Yes | Prevent duplicate task execution |
 
 ## Settings Configuration (config file)
 
@@ -16895,7 +16292,7 @@ All settings above are configured via config file:
 
 | Type | Description | Defined Where |
 |------|-------------|---------------|
-| **Global (this template)** | Complete structure: project, status, version, build, runtime, cluster, features, checks, stats | Below (comprehensive) |
+| **Global (this template)** | Complete structure: project, status, version, build, runtime, features, checks, stats | Below (comprehensive) |
 | **App-specific (extend)** | Additional features, stats, checks relevant to your app | IDEA.md |
 
 **How to extend:**
@@ -16928,7 +16325,7 @@ All settings above are configured via config file:
 
 #### Backend Structure (Go)
 
-**Based on template PARTS: branding (PART 16), modes (PART 6), cluster (PART 10), features (PARTS 20, 32), scheduler (PART 18).**
+**Based on template PARTS: branding (PART 16), modes (PART 6), database (PART 10), features (PARTS 20, 32), scheduler (PART 18).**
 
 ```go
 // HealthResponse - canonical field order for /server/healthz
@@ -16953,19 +16350,16 @@ type HealthResponse struct {
     Mode      string    `json:"mode"`         // "production" or "development"
     Timestamp time.Time `json:"timestamp"`    // current UTC time
 
-    // 5. Cluster info (PART 10: database & cluster)
-    Cluster ClusterInfo `json:"cluster"`
-
-    // 6. Features - PUBLIC only (PARTS 20, 32)
+    // 5. Features - PUBLIC only (PARTS 20, 32)
     Features FeaturesInfo `json:"features"`
 
-    // 7. Component health checks
+    // 6. Component health checks
     Checks ChecksInfo `json:"checks"`
 
-    // 8. Statistics (public-safe aggregates)
+    // 7. Statistics (public-safe aggregates)
     Stats StatsInfo `json:"stats"`
 
-    // 9. APP-SPECIFIC: Add custom fields here
+    // 8. APP-SPECIFIC: Add custom fields here
     // AppData AppSpecificInfo `json:"app_data,omitempty"`
 }
 
@@ -16980,16 +16374,6 @@ type ProjectInfo struct {
 type BuildInfo struct {
     Commit string `json:"commit"` // git short hash (7 chars)
     Date   string `json:"date"`   // ISO 8601 build timestamp
-}
-
-// ClusterInfo - from cluster manager (PART 10)
-type ClusterInfo struct {
-    Enabled   bool     `json:"enabled"`
-    Status    string   `json:"status,omitempty"`    // "connected", "disconnected"
-    Primary   string   `json:"primary,omitempty"`   // primary node public URL
-    Nodes     []string `json:"nodes,omitempty"`     // all node public URLs
-    NodeCount int      `json:"node_count,omitempty"` // total nodes (healthy + degraded + offline)
-    Role      string   `json:"role,omitempty"`      // "primary" or "member"
 }
 
 // FeaturesInfo - PUBLIC features only (no /metrics - PART 20 is internal)
@@ -17019,7 +16403,6 @@ type ChecksInfo struct {
     Cache     string `json:"cache"`               // PART 10: "ok" or "error"
     Disk      string `json:"disk"`                // Disk space check
     Scheduler string `json:"scheduler"`           // PART 18: "ok" or "error"
-    Cluster   string `json:"cluster,omitempty"`   // PART 10: "ok" or "error" (if enabled)
     Tor       string `json:"tor,omitempty"`       // PART 31: "ok" or "error" (if enabled)
     // APP-SPECIFIC: Add your checks here
     // Example: Storage string `json:"storage"`
@@ -17049,14 +16432,12 @@ type StatsInfo struct {
 | `build.date` | `version.Date` (build var) | 7 |
 | `uptime` | `formatUptime(startTime)` | - |
 | `mode` | `cfg.Server.Mode` | 6 |
-| `cluster.*` | `clusterManager.*` | 10 |
 | `features.tor.*` | `torManager.*` | 32 |
 | `features.geoip` | `cfg.GeoIP.Enabled` (true/false) | 20 |
 | `features.*` (project-specific) | Show actual status when project-specific optional features used | - |
 | `checks.database` | `checkDatabase()` | 10 |
 | `checks.cache` | `checkCache()` | 10 |
 | `checks.scheduler` | `checkScheduler()` | 19 |
-| `checks.cluster` | `checkCluster()` | 10 |
 | `checks.tor` | `checkTor()` | 32 |
 | `stats.*` | `statsCollector.*` | - |
 
@@ -17070,10 +16451,9 @@ type StatsInfo struct {
 | 2 | **Status** | `status` | `.status-banner.status-ok/error/warning` | Large centered banner with icon |
 | 3 | **Version & Build** | `version`, `go_version`, `build.*` | `.section-card` + `.info-list` | Key-value pairs, version/commit in `<code>` |
 | 4 | **Runtime** | `uptime`, `mode`, `timestamp` | `.section-card` + `.info-list` | Uptime as text, mode as `.badge` |
-| 5 | **Cluster** | `cluster.*` | `.section-card` + `.info-list` + `.node-list` | Status badge, node_count, URLs with copy buttons |
-| 6 | **Features** | `features.*` | `.section-card` + `.feature-list` | Icons per feature, Tor address (56 chars) with copy button |
-| 7 | **Checks** | `checks.*` | `.section-card` + `.table-wrapper` + `.data-table` | Table with `.status-ok`/`.status-error` badges |
-| 8 | **Stats** | `stats.*` | `.section-card` + `.info-list` | Key-value with formatted numbers (commas) |
+| 5 | **Features** | `features.*` | `.section-card` + `.feature-list` | Icons per feature, Tor address (56 chars) with copy button |
+| 6 | **Checks** | `checks.*` | `.section-card` + `.table-wrapper` + `.data-table` | Table with `.status-ok`/`.status-error` badges |
+| 7 | **Stats** | `stats.*` | `.section-card` + `.info-list` | Key-value with formatted numbers (commas) |
 
 #### Field Display Rules
 
@@ -17090,10 +16470,6 @@ type StatsInfo struct {
 | Uptime | plain text | No | `2d 5h 30m` |
 | Mode | `.badge` | No | `<span class="badge badge-production">Production</span>` |
 | Timestamp | `<time>` | No | `<time datetime="...">Jan 15, 2024 10:30 AM</time>` |
-| Cluster status | `.status` | No | `<span class="status status-ok">✅ Connected</span>` |
-| Cluster node_count | plain text | No | `3 nodes` |
-| Node URLs | `.code-block` | **Yes** | With copy button, horizontal scroll (56 char onion) |
-| Primary URL | `.code-block` | **Yes** | With copy button, horizontal scroll |
 | Tor address | `.code-block` | **Yes** | 56-char v3 onion, copy button, horizontal scroll |
 | Feature enabled | `.feature-enabled` | No | `<li class="feature-enabled">🌍 GeoIP</li>` |
 | Feature disabled | `.feature-disabled` | No | Muted, strikethrough |
@@ -17114,13 +16490,11 @@ type StatsInfo struct {
 | Uptime: "2d 5h" | File paths on server |
 | Mode: "production" | Environment variables |
 | Checks: "ok"/"error" | Config file contents |
-| Node ID (opaque) | |
-| Cluster node count | |
 
 **Database/cache checks MUST be vague:**
 - ✅ `"database": "ok"` or `"database": "error"`
-- ❌ `"database": "postgresql://user:pass@host:5432/db"`
-- ❌ `"database": {"host": "10.0.0.5", "port": 5432}`
+- ❌ `"database": "libsql://user:token@host/db"` (exposes credentials)
+- ❌ `"database": {"path": "/var/lib/{project_name}/db.sqlite"}` (exposes filesystem layout)
 
 ### /server/healthz Response Formats
 
@@ -17138,7 +16512,7 @@ type StatsInfo struct {
 | Layout | Standard public layout (header, main.container, footer) |
 | CSS patterns | PART 16 global classes |
 | Field order | Same as backend struct (1-8) |
-| Copy buttons | Required for node URLs, Tor address |
+| Copy buttons | Required for Tor address and other long identifiers |
 
 **HTML Structure:**
 
@@ -17187,51 +16561,7 @@ type StatsInfo struct {
       </dl>
     </section>
 
-    <!-- Cluster Info (if enabled) -->
-    <section class="section-card">
-      <h2>🔗 Cluster</h2>
-      <dl class="info-list">
-        <dt>Status</dt>
-        <dd><span class="status status-ok">✅ Connected</span></dd>
-
-        <dt>👑 Primary</dt>
-        <dd>
-          <div class="code-block">
-            <code class="code-content">https://node1.example.com</code>
-            <button class="copy-btn" data-copy="https://node1.example.com">
-              <span class="copy-icon">📋</span><span class="copy-text">Copy</span>
-            </button>
-          </div>
-        </dd>
-
-        <dt>🎭 Role</dt>
-        <dd>Member</dd>
-      </dl>
-
-      <h3>🖥️ Nodes</h3>
-      <ul class="node-list">
-        <li>
-          <div class="code-block">
-            <code class="code-content">https://node1.example.com</code>
-            <button class="copy-btn" data-copy="https://node1.example.com">
-              <span class="copy-icon">📋</span>
-            </button>
-          </div>
-          <span class="badge badge-primary">👑 Primary</span>
-        </li>
-        <li>
-          <div class="code-block">
-            <code class="code-content">https://node2.example.com</code>
-            <button class="copy-btn" data-copy="https://node2.example.com">
-              <span class="copy-icon">📋</span>
-            </button>
-          </div>
-          <span class="status status-ok">✅</span>
-        </li>
-      </ul>
-    </section>
-
-    <!-- 6. Features (NON-NEGOTIABLE only, show actual status) -->
+    <!-- 5. Features (NON-NEGOTIABLE only, show actual status) -->
     <section class="section-card">
       <h2>🎛️ Features</h2>
       <!-- Only NON-NEGOTIABLE features. Show actual enabled/disabled status. -->
@@ -17246,11 +16576,7 @@ type StatsInfo struct {
           </div>
         </li>
         <li class="feature-enabled">🌍 GeoIP</li>
-        <!-- PROJECT-SPECIFIC: If using optional PARTS, show actual status -->
-        <!-- <li class="feature-enabled">👥 Multi-User</li> -->           <!-- if enabled -->
-        <!-- <li class="feature-disabled">👥 Multi-User</li> -->          <!-- if disabled by admin -->
-        <!-- <li class="feature-enabled">🏢 Organizations</li> -->
-        <!-- <li class="feature-disabled">🏢 Organizations</li> -->       <!-- if disabled by admin -->
+        <!-- PROJECT-SPECIFIC: Add project-specific feature flags here if applicable -->
       </ul>
     </section>
 
@@ -17265,7 +16591,6 @@ type StatsInfo struct {
             <tr><td>💾 Cache</td><td><span class="status status-ok">✅ OK</span></td></tr>
             <tr><td>💿 Disk</td><td><span class="status status-ok">✅ OK</span></td></tr>
             <tr><td>⏰ Scheduler</td><td><span class="status status-ok">✅ OK</span></td></tr>
-            <tr><td>🔗 Cluster</td><td><span class="status status-ok">✅ OK</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -17368,18 +16693,6 @@ type StatsInfo struct {
   "uptime": "2d 5h 30m",
   "mode": "production",
   "timestamp": "2024-01-15T10:30:00Z",
-  "cluster": {
-    "enabled": true,
-    "status": "connected",
-    "primary": "https://node1.example.com",
-    "nodes": [
-      "https://node1.example.com",
-      "https://node2.example.com",
-      "https://node3.example.com"
-    ],
-    "node_count": 3,
-    "role": "member"
-  },
   "features": {
     "tor": {
       "enabled": true,
@@ -17394,7 +16707,6 @@ type StatsInfo struct {
     "cache": "ok",
     "disk": "ok",
     "scheduler": "ok",
-    "cluster": "ok",
     "tor": "ok"
   },
   "stats": {
@@ -17427,9 +16739,8 @@ type StatsInfo struct {
 |----------|---------------|---------|
 | **Version** | App version, Go version, build info | `1.0.0`, `<runtime.Version()>` |
 | **Status** | Health status, uptime | `healthy`, `2d 5h` |
-| **Features** | Enabled PUBLIC features only (not /metrics) | `multi_user: true` |
+| **Features** | Enabled PUBLIC features only (not /metrics) | `tor: enabled` |
 | **Checks** | Service status (ok/error only) | `database: ok` |
-| **Cluster** | Public node URLs | `https://node1.example.com` |
 | **Stats** | Aggregate counts only | `requests_total: 12345` |
 | **Mode** | Production/development | `production` |
 
@@ -17463,33 +16774,20 @@ uptime: 2d 5h 30m
 mode: production
 timestamp: 2024-01-15T10:30:00Z
 
-# 5. Cluster (PART 10)
-cluster.enabled: true
-cluster.status: connected
-cluster.primary: https://node1.example.com
-cluster.nodes: https://node1.example.com, https://node2.example.com, https://node3.example.com
-cluster.node_count: 3
-cluster.role: member
-
-# 6. Features - NON-NEGOTIABLE only (show actual status)
+# 5. Features - NON-NEGOTIABLE only (show actual status)
 features.tor.enabled: true
 features.tor.running: true
 features.tor.status: healthy
 features.tor.hostname: abc123xyz456abcdef789xyz456abcdef789xyz456abcdef789xyz.onion
 features.geoip: true
-# PROJECT-SPECIFIC: If using optional PARTS, show actual status
-# features.multi_user: true       (or false if admin disabled)
-# features.organizations: false   (disabled by admin)
-
-# 7. Checks
+# 6. Checks
 checks.database: ok
 checks.cache: ok
 checks.disk: ok
 checks.scheduler: ok
-checks.cluster: ok
 checks.tor: ok
 
-# 8. Stats
+# 7. Stats
 stats.requests_total: 1234567
 stats.requests_24h: 45678
 stats.active_connections: 42
@@ -17502,56 +16800,6 @@ Same underlying health response as `/server/healthz`, but formatted using the st
 - `.txt`: text
 - `Accept: text/plain`: text
 - non-interactive API clients: text
-
-### Single Instance Response
-
-When not in cluster mode:
-
-```json
-{
-  "project": {
-    "name": "My Application",
-    "description": "A brief description of what this application does"
-  },
-  "status": "healthy",
-  "version": "1.0.0",
-  "mode": "production",
-  "uptime": "2d 5h 30m",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "go_version": "<runtime.Version()>",
-  "build": {
-    "commit": "abc1234",
-    "date": "2024-01-10T10:00:00Z"
-  },
-  "cluster": {
-    "enabled": false,
-    "primary": "",
-    "nodes": []
-  },
-  "features": {
-    "multi_user": false,
-    "organizations": false,
-    "tor": {
-      "enabled": false,
-      "running": false,
-      "status": "",
-      "hostname": ""
-    },
-    "geoip": true
-  },
-  "checks": {
-    "database": "ok",
-    "cache": "ok",
-    "disk": "ok",
-    "scheduler": "ok"
-  },
-  "stats": {
-    "requests_total": 12345,
-    "requests_24h": 678,
-    "active_connections": 5
-  }
-}
-```
 
 ### Health Response Fields
 
@@ -17567,11 +16815,6 @@ When not in cluster mode:
 | `go_version` | Go runtime version |
 | `build.commit` | Git commit hash (short) |
 | `build.date` | Build timestamp |
-| `cluster.enabled` | Whether cluster mode is active |
-| `cluster.status` | connected, degraded, disconnected |
-| `cluster.primary` | Primary node URL (for failover) |
-| `cluster.nodes` | Array of all node URLs (for failover) |
-| `cluster.role` | member (all nodes are equal) |
 | `features.*` | Enabled features (bool or object) |
 | `features.tor.enabled` | Tor hidden service enabled (auto-detected or admin setting) |
 | `features.tor.running` | Tor process currently running |
@@ -17582,15 +16825,10 @@ When not in cluster mode:
 | `stats.requests_24h` | Requests in last 24 hours |
 | `stats.active_connections` | Current active connections |
 
-**Cluster fields for agent/CLI failover:**
-- `cluster.primary` - The primary server URL
-- `cluster.nodes` - All available nodes (agents/CLI use for automatic failover)
-
 **Who uses health endpoints:**
 - Browsers, curl, and uptime checks use `/server/healthz`
-- CLI and agents use `/api/{api_version}/server/healthz` for cluster discovery and failover updates
+- CLI uses `/api/{api_version}/server/healthz` for status checks
 - Unversioned `/api/healthz` exists for machine-friendly versionless probing
-- Cluster nodes do **NOT** use `/server/healthz` or `/api/{api_version}/server/healthz` as the authoritative failover signal; node liveness and primary election use shared DB state and heartbeats
 
 ## Versioning
 
@@ -17682,12 +16920,12 @@ OS/Arch: {GOOS}/{GOARCH}
 
 | Rule | Requirement | Wrong | Correct |
 |------|-------------|-------|---------|
-| **Versioning** | All API routes MUST be versioned | `/api/users` | `/api/{api_version}/users` |
-| **Plural nouns** | All resource names MUST be plural | `/api/{api_version}/user` | `/api/{api_version}/users` |
-| **Lowercase** | All routes MUST be lowercase | `/api/{api_version}/Users` | `/api/{api_version}/users` |
+| **Versioning** | All API routes MUST be versioned | `/api/items` | `/api/{api_version}/items` |
+| **Plural nouns** | All resource names MUST be plural | `/api/{api_version}/item` | `/api/{api_version}/items` |
+| **Lowercase** | All routes MUST be lowercase | `/api/{api_version}/Items` | `/api/{api_version}/items` |
 | **Hyphens** | Multi-word routes use hyphens | `/api/{api_version}/api_keys` | `/api/{api_version}/api-keys` |
-| **No trailing slash** | Routes MUST NOT end with `/` (see PART 16 URL Normalization) | `/api/{api_version}/users/` | `/api/{api_version}/users` |
-| **No verbs** | Routes are nouns, not actions | `/api/{api_version}/getUsers` | `GET /api/{api_version}/users` |
+| **No trailing slash** | Routes MUST NOT end with `/` (see PART 16 URL Normalization) | `/api/{api_version}/items/` | `/api/{api_version}/items` |
+| **No verbs** | Routes are nouns, not actions | `/api/{api_version}/getItems` | `GET /api/{api_version}/items` |
 
 ### Frontend-Backend Integration
 
@@ -17695,11 +16933,9 @@ OS/Arch: {GOOS}/{GOARCH}
 
 | API Type | Frontend Required | Example |
 |----------|-------------------|---------|
-| **User-facing features** | Yes | `/api/{api_version}/users` → `/users` page |
+| **Project-specific features** | Yes | `/api/{api_version}/items` → `/items` page |
 | **Admin features** | No (config file only) | Server administration is file-only — no web routes |
 | **Health/status** | Yes | `/server/healthz` has HTML frontend (with emojis), `/api/{api_version}/server/healthz` is JSON, `/api/healthz` is direct alias JSON |
-| **Agent endpoints** | No | `/api/{api_version}/*/agents/*` - CLI/agent only |
-| **Cluster nodes** | No | Node-to-node cluster communication only |
 
 | Requirement | Description |
 |-------------|-------------|
@@ -17708,22 +16944,15 @@ OS/Arch: {GOOS}/{GOARCH}
 | **Full functionality** | User-facing features work completely in browser |
 | **CRUD parity** | If user can do it in API, they can do it in frontend |
 
-**Example - User Features:**
+**Example - Project-Specific API Features:**
 
 | Backend API | Frontend | Purpose |
 |-------------|----------|---------|
-| `GET /api/{api_version}/users` | `GET /users` | View user profile |
-| `PATCH /api/{api_version}/users` | `POST /users` (form) | Update user profile |
-| `GET /api/{api_version}/users/tokens` | `GET /users/tokens` | List tokens |
-| `POST /api/{api_version}/users/tokens` | `POST /users/tokens` (form) | Create token |
-| `DELETE /api/{api_version}/users/tokens/{id}` | `POST /users/tokens/{id}/delete` | Delete token |
-
-**API-only (no frontend needed):**
-
-| API Endpoint | Why No Frontend |
-|--------------|-----------------|
-| `/api/{api_version}/server/config/agents/*` | Agent binary uses directly |
-| `/api/{api_version}/server/config/nodes/*` | Node-to-node cluster communication |
+| `GET /api/{api_version}/{resource}` | `GET /{resource}` | List resources |
+| `POST /api/{api_version}/{resource}` | `POST /{resource}` (form) | Create resource |
+| `GET /api/{api_version}/{resource}/{id}` | `GET /{resource}/{id}` | View resource |
+| `PATCH /api/{api_version}/{resource}/{id}` | `POST /{resource}/{id}` (form) | Update resource |
+| `DELETE /api/{api_version}/{resource}/{id}` | `POST /{resource}/{id}/delete` | Delete resource |
 
 ### Frontend Functionality Requirements
 
@@ -17790,7 +17019,7 @@ Before adding ANY route, verify:
 - [ ] Is it lowercase with hyphens? (`api-keys`, not `API_Keys`)
 - [ ] Does the route follow scope rules? (`/server/`, `/api/{api_version}/*`)
 - [ ] If user-facing: does frontend route exist and work?
-- [ ] If system/agent: documented as API-only?
+- [ ] If system-only: documented as API-only?
 
 ## Route Naming Convention
 
@@ -17832,7 +17061,6 @@ Before adding ANY route, verify:
 
 | Direction | Example | Reason |
 |-----------|---------|--------|
-| **API-only** | `/api/{api_version}/server/config/agents/*`, `/api/{api_version}/server/config/nodes/*` | Machine/system use only (see table above) |
 | **Frontend-only** | `/server` → `/server/about` redirect | UX convenience redirects, no API equivalent needed |
 
 ### ID/Slug Consistency
@@ -17973,10 +17201,9 @@ server:
   address: 0.0.0.0
   port: 80
 
-  users:
-    enabled: false
-    registration:
-      mode: disabled
+  features:
+    geoip:
+      enabled: false
 ⏎
 ```
 
@@ -18028,7 +17255,7 @@ function handleClick(event) {
     name: "test"
   };
 
-  fetch('/api/{api_version}/users', {
+  fetch('/api/{api_version}/items', {
     method: 'POST',
     body: JSON.stringify(data)
   });
@@ -18149,14 +17376,14 @@ func getAPIResponseFormat(r *http.Request) string {
 | `/api/{api_version}/jokes/random` | JSON | Text | Text | Text |
 | `/api/{api_version}/server/healthz` | JSON | Text | Text | Text |
 | `/api/{api_version}/status` | JSON | Text | Text | Text |
-| `/api/{api_version}/users/{username}` | JSON | Text | Text | Text |
+| `/api/{api_version}/items/{id}` | JSON | Text | Text | Text |
 
 **Frontend Routes (smart detection):**
 
 | Endpoint | Browser | CLI/curl | Accept: text/plain | Accept: text/html |
 |----------|---------|----------|-------------------|-------------------|
 | `/jokes/random` | HTML | Text | Text | HTML |
-| `/{username}` | HTML | Text | Text | HTML |
+| `/items/{id}` | HTML | Text | Text | HTML |
 | `/server/healthz` | HTML | Text | Text | HTML |
 | `/` | HTML | Text | Text | HTML |
 
@@ -18169,7 +17396,7 @@ func getAPIResponseFormat(r *http.Request) string {
 
 **Frontend with smart detection:**
 - `curl -q -LSsf https://example.com/joke/random` → Auto-detects CLI, returns text (no .txt needed)
-- `curl -q -LSsf -H "Accept: text/plain" https://example.com/users/123` → Plain text
+- `curl -q -LSsf -H "Accept: text/plain" https://example.com/items/123` → Plain text
 - Browser visit to `/joke/random` → HTML page
 - Command-line tools get text automatically
 
@@ -19039,7 +18266,6 @@ This is NOT optional. This is NOT about "adding compatibility." If you're buildi
 | **HTTP Server** | RFC 7230-7235, 9110-9114, etc. | FULL - ALL HTTP RFCs |
 | **FTP Server** | RFC 959, 2428, 4217, etc. | FULL - ALL FTP RFCs |
 | **NTP Server** | RFC 5905, 5906, etc. | FULL - ALL NTP RFCs |
-| **LDAP Server** | RFC 4510-4519, etc. | FULL - ALL LDAP RFCs |
 | **WebDAV Server** | RFC 4918, etc. | FULL - ALL WebDAV RFCs |
 
 **Why this is critical:**
@@ -19091,7 +18317,7 @@ User: "Build a Matrix homeserver"
 AI Response:
 "Matrix is a complete protocol requiring full specification compliance.
 I'll implement ALL Matrix Client-Server API endpoints per the spec:
-- Account registration and login
+- Client authentication (login/token flow)
 - Room creation and management
 - Event sending and syncing
 - Media uploads
@@ -19150,7 +18376,7 @@ Need additional compatible endpoints?"
 | `/server/docs/swagger` | GET | None | Swagger UI (interactive REST explorer; fetches spec from `/api/swagger`) |
 | `/server/docs/graphql` | GET | None | GraphiQL UI (interactive GraphQL explorer; POSTs to `/api/graphql`) |
 | `/metrics` | GET | Optional | Prometheus metrics |
-| `/api/autodiscover` | GET | None | Server settings, config schema, and options for CLI/agent (non-versioned) |
+| `/api/autodiscover` | GET | None | Server settings, config schema, and options for CLI (non-versioned) |
 | `/api/swagger` | GET | None | OpenAPI JSON spec — direct alias for current `{api_version}` |
 | `/api/graphql` | POST | None | GraphQL queries — direct alias for current `{api_version}` |
 | `/api/healthz` | GET | None | Health check JSON — direct alias for current `{api_version}` |
@@ -19171,10 +18397,10 @@ Need additional compatible endpoints?"
 |--------------------|----------------------|
 | The endpoint is *operationally* useful to clients that haven't picked a version yet (spec discovery, GraphQL entry, debug tooling) | The endpoint is *data*-shaped and could change between versions (resources, business logic) |
 | The contract is stable across versions OR the alias is documented as "current version's contract" | The contract is version-specific and clients should pin a version |
-| The cost of forcing clients to read `/api/autodiscover` first is real | Versioning is the whole point (e.g., `/api/{api_version}/users`) |
+| The cost of forcing clients to read `/api/autodiscover` first is real | Versioning is the whole point (e.g., `/api/{api_version}/items`) |
 
 **Examples that get an alias:** `/api/swagger`, `/api/graphql`, `/api/healthz`, `/api/debug/*` (current set).
-**Examples that do NOT get an alias:** `/api/{api_version}/users`, `/api/{api_version}/orgs`, `/api/{api_version}/server/contact` (these stay versioned only).
+**Examples that do NOT get an alias:** `/api/{api_version}/items`, `/api/{api_version}/server/contact` (these stay versioned only).
 
 **Why "served directly — no redirect" (not a 301/302 to the versioned URL):**
 
@@ -19358,8 +18584,6 @@ Before proceeding, confirm you understand:
 | `rfc2136` | `nameserver`, `tsig_key`, `tsig_secret`, `tsig_algorithm` |
 
 **Note:** Full provider list from [lego DNS providers](https://go-acme.github.io/lego/dns/). Fields are determined dynamically at runtime.
-
-**Custom domain support (user/org branded domains) is an optional per-project feature — implement via IDEA.md if needed.**
 
 ### FQDN Resolution
 
@@ -20290,33 +19514,27 @@ Startup (for configured FQDN)
 | **Same validation** | Frontend validates same rules as backend |
 | **Real-time feedback** | Frontend shows success/error from backend responses |
 
-**User-facing features work in browser. System/agent endpoints are API-only (see PART 14).**
+**User-facing features work in browser. System-only endpoints are API-only (see PART 14).**
 
 ### Frontend Route Structure
 
 | API Route | Frontend Route | Page Type |
 |-----------|----------------|-----------|
-| `GET /api/{api_version}/users` | `GET /users` | Current user profile |
-| `PATCH /api/{api_version}/users` | `POST /users` | Profile update form |
-| `GET /api/{api_version}/users/tokens` | `GET /users/tokens` | Token list page |
-| `GET /api/{api_version}/users/settings` | `GET /users/settings` | User settings page |
-| `GET /api/{api_version}/users/security` | `GET /users/security` | Security settings page |
-| `GET /api/{api_version}/orgs` | `GET /orgs` | User's org list |
-| `GET /api/{api_version}/orgs/{slug}` | `GET /orgs/{slug}` | Org detail page |
+| `GET /api/{api_version}/{resource}` | `GET /{resource}` | Resource list page |
+| `POST /api/{api_version}/{resource}` | `POST /{resource}` | Create resource form |
+| `GET /api/{api_version}/{resource}/{id}` | `GET /{resource}/{id}` | Resource detail page |
 | `GET /api/{api_version}/server/about` | `GET /server/about` | About page |
 
-### Vanity URLs (OPTIONAL - project-specific, requires multi-user support)
+### Vanity URLs (OPTIONAL - project-specific)
 
-**For apps with public user/org profiles, support short vanity URLs at root level.**
+**For apps with public resource profiles, support short vanity URLs at root level.**
 
-This is OPTIONAL and only applies to apps where user/org profiles are a core feature (social platforms, code hosting, link aggregators, etc.).
+This is OPTIONAL and only applies to apps where public short paths are a core feature (link shorteners, public profile pages, etc.).
 
 | Vanity URL | Maps To | API Equivalent | Example Apps |
 |------------|---------|----------------|--------------|
-| `/{username}` | `/users/{username}` | `/api/{api_version}/users/{username}` | GitHub, Linktree, Twitter |
-| `/{org_name}` | `/orgs/{org_name}` | `/api/{api_version}/orgs/{org_name}` | GitHub, GitLab, Gitea |
-| `/{username}/{project}` | `/users/{username}/{project}` | `/api/{api_version}/users/{username}/projects/{project}` | GitHub repos |
-| `/{org_name}/{project}` | `/orgs/{org_name}/{project}` | `/api/{api_version}/orgs/{org_name}/projects/{project}` | GitHub org repos |
+| `/{slug}` | `/{resource}/{slug}` | `/api/{api_version}/{resource}/{slug}` | Link shorteners, public profiles |
+| `/{slug}/{sub}` | `/{resource}/{slug}/{sub}` | `/api/{api_version}/{resource}/{slug}/{sub}` | Nested public resources |
 
 **Route Priority (NON-NEGOTIABLE when implemented):**
 
@@ -20419,10 +19637,10 @@ func URLNormalizeMiddleware(next http.Handler) http.Handler {
 
 | Input | Output | Action |
 |-------|--------|--------|
-| `/users/` | `/users` | 301 redirect |
+| `/items/` | `/items` | 301 redirect |
 | `/server/about/` | `/server/about` | 301 redirect |
-| `/api/{api_version}/users/` | `/api/{api_version}/users` | 301 redirect |
-| `/users` | `/users` | No redirect (canonical) |
+| `/api/{api_version}/items/` | `/api/{api_version}/items` | 301 redirect |
+| `/items` | `/items` | No redirect (canonical) |
 | `/` | `/` | No redirect (root exception) |
 | `/static/css/style.css` | `/static/css/style.css` | No redirect (file) |
 | `/dir/index.html` | `/dir/index.html` | No redirect (file) |
@@ -20529,8 +19747,8 @@ func detectClientType(r *http.Request) string {
 | Route | Browser | curl/CLI | Accept: text/plain | Accept: text/html | Accept: application/json |
 |-------|---------|----------|-------------------|-------------------|--------------------------|
 | `/` | HTML page | Text | Text | HTML | JSON |
-| `/users` | HTML list | Text list | Text list | HTML list | JSON array |
-| `/users/123` | HTML profile | Text (username) | Text | HTML profile | JSON object |
+| `/items` | HTML list | Text list | Text list | HTML list | JSON array |
+| `/items/123` | HTML detail | Text (name) | Text | HTML detail | JSON object |
 | `/jokes/random` | HTML joke page | Just the joke | Just the joke | HTML page | JSON object |
 
 ### CRUD Operations MUST Work in All Modes
@@ -20566,11 +19784,11 @@ func detectClientType(r *http.Request) string {
 
 ```bash
 # Easy: Test text output (no HTML parsing needed)
-curl -q -LSsf /users/123                  # Auto-detects CLI, returns text
-curl -q -LSsf -H "Accept: text/plain" /users/123  # Explicitly request text
+curl -q -LSsf /items/123                  # Auto-detects CLI, returns text
+curl -q -LSsf -H "Accept: text/plain" /items/123  # Explicitly request text
 
 # Hard: Testing HTML requires parsing
-curl -q -LSsf -H "Accept: text/html" /users/123 | grep "<title>"  # Fragile
+curl -q -LSsf -H "Accept: text/html" /items/123 | grep "<title>"  # Fragile
 ```
 
 **Recommended testing approach:**
@@ -20582,15 +19800,15 @@ curl -q -LSsf -H "Accept: text/html" /users/123 | grep "<title>"  # Fragile
 **Test scripts should:**
 ```bash
 # Test frontend returns text for CLI
-RESULT=$(curl -q -LSsf http://localhost:80/users/123)
-if echo "$RESULT" | grep -q "testuser"; then
-    echo "✓ Frontend returns user data"
+RESULT=$(curl -q -LSsf http://localhost:80/items/123)
+if echo "$RESULT" | grep -q "testitem"; then
+    echo "✓ Frontend returns item data"
 else
-    echo "✗ FAILED: User data not returned"
+    echo "✗ FAILED: Item data not returned"
 fi
 
 # Test frontend returns HTML for browser (optional, just check Content-Type)
-CONTENT_TYPE=$(curl -q -LSsfI -H "Accept: text/html" http://localhost:80/users/123 | grep -i "content-type")
+CONTENT_TYPE=$(curl -q -LSsfI -H "Accept: text/html" http://localhost:80/items/123 | grep -i "content-type")
 if echo "$CONTENT_TYPE" | grep -q "text/html"; then
     echo "✓ Frontend serves HTML to browsers"
 fi
@@ -20906,7 +20124,6 @@ document.addEventListener('click', function(e) {
 |--------------|--------------|--------|
 | Tor .onion addresses | **Yes** | Long, complex, users need to copy |
 | API tokens | **Yes** | Users need to paste elsewhere |
-| Node URLs | **Yes** | Users may need to copy for config |
 | Git clone URLs | **Yes** | Users copy to terminal |
 | Build commit hash | Optional | May be useful for bug reports |
 | Version numbers | No | Short, rarely copied |
@@ -21184,8 +20401,7 @@ document.addEventListener('click', function(e) {
 
 ```html
 <ul class="feature-list">
-  <li class="feature-enabled">👥 Multi-User</li>
-  <li class="feature-enabled">🏢 Organizations</li>
+  <li class="feature-enabled">🌍 GeoIP</li>
   <li class="feature-enabled">
     🧅 Tor:
     <span class="status status-ok">✅ healthy</span>
@@ -21233,9 +20449,9 @@ document.addEventListener('click', function(e) {
 }
 ```
 
-### Node/URL Lists
+### URL Lists
 
-**For cluster nodes, endpoints, etc.:**
+**For endpoints, related resources, etc.:**
 
 ```html
 <ul class="node-list">
@@ -21524,7 +20740,7 @@ Does user need to make a decision or provide input?
 ```javascript
 // TOAST - Non-blocking feedback
 async function saveSettings(data) {
-    const result = await api.post('/users/settings', data);
+    // server config is file-only (server.yml); no API endpoint
     if (result.ok) {
         showToast('Settings saved', 'success');  // Non-blocking, auto-dismiss
     } else {
@@ -21968,7 +21184,6 @@ dismissAllToasts();
 | **HTTPS** | Required for service workers | Non-negotiable |
 | **Push Notifications** | Web Push API via Service Worker | User opt-in required |
 | **Geolocation** | GPS access via Geolocation API | User permission required |
-| **User Sessions** | Tokens in localStorage/IndexedDB | Persists across restarts |
 | **Background Sync** | Queue actions when offline, sync when online | Seamless offline |
 | **App Updates** | Detect new SW version, prompt user | Keep app current |
 
@@ -22493,55 +21708,76 @@ async function checkLocationPermission() {
 }
 ```
 
-### User Sessions in PWA
+### API Token Storage in PWA
 
-**PWA maintains user login across app restarts.**
+**PWA maintains API token across app restarts.**
 
 | Storage | Use Case | Cleared |
 |---------|----------|---------|
-| **localStorage** | Session token, user preferences | Manual/logout |
-| **IndexedDB** | Offline data, cached responses | Manual/logout |
-| **Cookies** | Server-side session (fallback) | Expiry/logout |
+| **localStorage** | API token (optional), UI preferences | Manual/revocation |
+| **IndexedDB** | Offline data, cached responses | Manual/revocation |
+| **Cookies** | Bearer token (httpOnly fallback) | Expiry/revocation |
 
-**Session persists when:**
+**Token persists when:**
 - App is closed and reopened
 - Device is restarted
 - Switching between browser and installed PWA
 
-**Logout clears all:** localStorage, IndexedDB, service worker cache of user data.
+**Token revocation clears credentials** (UI preferences are kept — they are not sensitive):
 
 ```javascript
-// Complete logout - clear all user data
-async function logout() {
-  // Clear localStorage
-  localStorage.removeItem('auth_token');
-  localStorage.removeItem('user_prefs');
+// Revoke local token — keeps UI preferences (theme, lang) intact
+async function revokeLocalToken() {
+  // Remove stored API token
+  localStorage.removeItem('api_token');
 
-  // Clear IndexedDB
+  // Clear any cached private/token-scoped data from IndexedDB
   const databases = await indexedDB.databases();
   for (const db of databases) {
-    indexedDB.deleteDatabase(db.name);
-  }
-
-  // Clear service worker cache (user data only)
-  const cacheKeys = await caches.keys();
-  for (const key of cacheKeys) {
-    if (key.includes('user-data')) {
-      await caches.delete(key);
+    if (db.name.includes('private') || db.name.includes('token')) {
+      indexedDB.deleteDatabase(db.name);
     }
   }
 
-  // Unsubscribe from push
+  // Unsubscribe from push (was associated with token)
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
   if (subscription) {
     await subscription.unsubscribe();
   }
 
-  // Redirect to login
-  window.location.href = '/login';
+  // Reload page — public content still accessible
+  window.location.reload();
 }
 ```
+
+### Client-Side Preferences (localStorage)
+
+**User preferences are stored in localStorage — zero server persistence, zero user account needed.**
+
+| Key | Values | Default |
+|-----|--------|---------|
+| `theme` | `"dark"` \| `"light"` \| `"auto"` | `"dark"` |
+| `lang` | BCP 47 tag: `"en"`, `"es"`, `"fr"`, … | Browser `navigator.language` |
+| `cookieConsent` | `"accepted"` \| `"declined"` | unset (banner shown) |
+| `ccpaDoNotSell` | `"true"` | unset |
+
+**Preference reads/writes:**
+```javascript
+// Read with default fallback
+const theme = localStorage.getItem('theme') ?? 'dark';
+const lang  = localStorage.getItem('lang')  ?? navigator.language.split('-')[0] ?? 'en';
+
+// Write
+localStorage.setItem('theme', 'light');
+localStorage.setItem('lang', 'fr');
+```
+
+**Rules:**
+- Preferences survive token revocation — they are UI state, not account data
+- Never sync preferences to the server — they live entirely on the client
+- Never store PII in localStorage
+- Always read with a safe default fallback
 
 ### Offline Behavior
 
@@ -22970,7 +22206,7 @@ async function requestPersistentStorage() {
 
 ## Unified Response Format
 
-**ALL responses (server → client/agent) use this exact format. Simple to parse everywhere.**
+**ALL responses (server → client) use this exact format. Simple to parse everywhere.**
 
 ### Success Response
 
@@ -22991,17 +22227,15 @@ async function requestPersistentStorage() {
 }
 ```
 
-### Standard Error Codes (server sends, client/agent parses)
+### Standard Error Codes (server sends, client parses)
 
 | Error Code | HTTP | Message | Client/Agent Display |
 |------------|------|---------|---------------------|
 | `BAD_REQUEST` | 400 | "Invalid request format" | Invalid request |
 | `VALIDATION_FAILED` | 400 | "Validation failed: {field}" | Check input: {field} |
-| `UNAUTHORIZED` | 401 | "Authentication required" | Please log in |
-| `TOKEN_EXPIRED` | 401 | "Token has expired" | Session expired, log in again |
-| `TOKEN_INVALID` | 401 | "Invalid token" | Invalid session |
-| `2FA_REQUIRED` | 401 | "Two-factor authentication required" | Enter 2FA code |
-| `2FA_INVALID` | 401 | "Invalid 2FA code" | Wrong code, try again |
+| `UNAUTHORIZED` | 401 | "Authentication required" | Authentication required |
+| `TOKEN_EXPIRED` | 401 | "Token has expired" | Token expired, please re-authenticate |
+| `TOKEN_INVALID` | 401 | "Invalid token" | Invalid token |
 | `FORBIDDEN` | 403 | "Permission denied" | Access denied |
 | `ACCOUNT_LOCKED` | 403 | "Account locked" | Account locked, try later |
 | `NOT_FOUND` | 404 | "Resource not found" | Not found |
@@ -23013,10 +22247,10 @@ async function requestPersistentStorage() {
 
 ### Parsing Rules
 
-**All consumers (client binary, agent binary, WebUI, external tools) parse the same way:**
+**All consumers (client binary, WebUI, external tools) parse the same way:**
 
 ```go
-// Universal API response parser - works for server, client, agent
+// Universal API response parser - works for server, client
 type APIResponse struct {
     OK      bool            `json:"ok"`
     Data    json.RawMessage `json:"data,omitempty"`
@@ -23032,7 +22266,7 @@ func ParseAPIResponse(body []byte) (*APIResponse, error) {
     return &r, nil
 }
 
-// Usage in client/agent
+// Usage in client
 resp, _ := ParseAPIResponse(body)
 if !resp.OK {
     // Display: resp.Message (human) or handle by resp.Error (code)
@@ -23114,7 +22348,7 @@ if !resp.OK {
 
 ## Text Response Format
 
-**CLI/agent text output uses standardized format. Easy to parse with grep/awk/cut.**
+**CLI text output uses standardized format. Easy to parse with grep/awk/cut.**
 
 ### Success Response (text/plain)
 
@@ -23157,7 +22391,7 @@ ERROR: VALIDATION_FAILED: email must be valid
 
 ## Server Response Rules
 
-**These rules apply SERVER-WIDE to ALL responses (API, frontend AJAX, CLI, agent, webhooks).**
+**These rules apply SERVER-WIDE to ALL responses (API, frontend AJAX, CLI, webhooks).**
 
 ### Content-Type Detection
 
@@ -23362,31 +22596,18 @@ See **JavaScript Rules** section below for `app.js` structure.
 ```
 src/server/template/
 ├── layout/
-│   ├── public.tmpl         # Public-facing layout (/, /server/*, project routes)
-│   └── admin.tmpl          # Admin layout (reserved for future use)
+│   └── public.tmpl         # Public-facing layout (/, /server/*, project routes)
 ├── partial/
 │   ├── public/
 │   │   ├── header.tmpl     # Public header (logo, nav, theme toggle)
 │   │   ├── nav.tmpl        # Public navigation
 │   │   └── footer.tmpl     # Public footer (about, privacy, etc.)
-│   ├── admin/
-│   │   ├── header.tmpl     # Admin header (logo, search, notifications, logout)
-│   │   ├── sidebar.tmpl    # Admin sidebar navigation
-│   │   └── footer.tmpl     # Admin footer (version, docs)
 │   ├── head.tmpl           # <head> contents (meta, CSS)
 │   └── scripts.tmpl        # JavaScript includes
 ├── page/
 │   ├── index.tmpl          # Home page
 │   ├── healthz.tmpl        # Health check page
 │   └── error.tmpl          # Error pages (404, 500, 502, 503, etc.) - MUST use site theme
-├── auth/
-│   ├── login.tmpl          # Login page
-│   ├── register.tmpl       # Registration page
-│   └── forgot.tmpl         # Password reset
-├── admin/
-│   ├── dashboard.tmpl      # Admin dashboard
-│   ├── settings.tmpl       # Settings page
-│   └── ...
 └── component/
     ├── modal.tmpl          # Reusable modal component
     ├── toast.tmpl          # Toast notifications
@@ -23475,8 +22696,8 @@ src/server/template/
 **Public nav contains (project-specific):**
 - Home (`/`)
 - App-specific feature pages (e.g., API docs, features, pricing)
-- Login/Register (if multi-user) or just Login link
-- User menu (if logged in): Profile, Settings, Logout
+- Login link (if authentication is a project feature)
+- User menu (if logged in): Settings, Logout
 
 **Public nav NEVER contains:**
 - ❌ Admin link
@@ -23499,7 +22720,7 @@ src/server/template/
 │  🔒 Security │          (content area)                          │
 │  🌐 Network  │                                                  │
 │  👥 Users    │                                                  │
-│  🔗 Cluster  │                                                  │
+│  ⚙️ Settings  │                                                  │
 │              │                                                  │
 │  Sidebar     │                                                  │
 ├──────────────┴──────────────────────────────────────────────────┤
@@ -23571,8 +22792,7 @@ html.theme-light {
 | Context | Preference Source | Fallback |
 |---------|-------------------|----------|
 | Public (guest) | `localStorage.theme` | `dark` |
-| Public (user) | `user_preferences.theme` | `dark` |
-| Admin | `admin_preferences.theme` | `dark` |
+| Operator | `operator_preferences.theme` | `dark` |
 
 **JavaScript theme switching (shared):**
 
@@ -23593,16 +22813,13 @@ function setTheme(theme) {
 
 ### Layout Partials
 
-| Partial | Public | Admin | Purpose |
-|---------|:------:|:-----:|---------|
-| `partial/public/header.tmpl` | ✓ | | Logo + top nav + login/user menu |
-| `partial/public/nav.tmpl` | ✓ | | Horizontal navigation links |
-| `partial/public/footer.tmpl` | ✓ | | About, Privacy, Contact links |
-| `partial/admin/header.tmpl` | | ✓ | Logo + search + bell + admin menu |
-| `partial/admin/sidebar.tmpl` | | ✓ | Collapsible sidebar navigation |
-| `partial/admin/footer.tmpl` | | ✓ | Version, docs, status |
-| `partial/head.tmpl` | ✓ | ✓ | Shared `<head>` contents |
-| `partial/scripts.tmpl` | ✓ | ✓ | Shared JavaScript includes |
+| Partial | Purpose |
+|---------|---------|
+| `partial/public/header.tmpl` | Logo + top nav |
+| `partial/public/nav.tmpl` | Horizontal navigation links |
+| `partial/public/footer.tmpl` | About, Privacy, Contact links |
+| `partial/head.tmpl` | Shared `<head>` contents |
+| `partial/scripts.tmpl` | Shared JavaScript includes |
 
 ### Static Assets Organization
 
@@ -23763,7 +22980,7 @@ layout/public.tmpl
 | Rule | Description |
 |------|-------------|
 | **Shared partials** | `partial/head.tmpl`, `partial/scripts.tmpl` |
-| **Context partials** | `partial/public/*`, `partial/admin/*` |
+| **Context partials** | `partial/public/*` |
 | **Component partials** | Reusable UI: `partial/toast.tmpl`, `partial/modal.tmpl` |
 | **No page-specific partials** | If used once, it's not a partial |
 | **Self-contained** | Partials include their own styles/scripts if needed |
@@ -23773,14 +22990,10 @@ layout/public.tmpl
 partial/
 ├── head.tmpl           # <head> - meta, CSS links (REQUIRED)
 ├── scripts.tmpl        # JS includes before </body> (REQUIRED)
-├── public/
-│   ├── header.tmpl     # Public header (REQUIRED)
-│   ├── nav.tmpl        # Public nav (REQUIRED)
-│   └── footer.tmpl     # Public footer (REQUIRED)
-└── admin/
-    ├── header.tmpl     # Admin header (REQUIRED)
-    ├── sidebar.tmpl    # Admin sidebar (REQUIRED)
-    └── footer.tmpl     # Admin footer (REQUIRED)
+└── public/
+    ├── header.tmpl     # Public header (REQUIRED)
+    ├── nav.tmpl        # Public nav (REQUIRED)
+    └── footer.tmpl     # Public footer (REQUIRED)
 ```
 
 **Optional Component Partials:**
@@ -24079,13 +23292,12 @@ Projects can create additional partials for functionality unique to that applica
 
 **App-Specific Partials (add to existing structure):**
 
-See **Template Structure** above for mandatory partials (`partial/public/*`, `partial/admin/*`, `partial/head.tmpl`, `partial/scripts.tmpl`).
+See **Template Structure** above for mandatory partials (`partial/public/*`, `partial/head.tmpl`, `partial/scripts.tmpl`).
 
 Projects add app-specific partials alongside the mandatory ones:
 ```
 src/server/template/partial/
 ├── public/                  # MANDATORY (see Template Structure)
-├── admin/                   # MANDATORY (see Template Structure)
 ├── head.tmpl                # MANDATORY
 ├── scripts.tmpl             # MANDATORY
 ├── search-box.tmpl          # APP-SPECIFIC - search component
@@ -24253,7 +23465,6 @@ var staticFS embed.FS
 
 **Theme system applies to THE ENTIRE PROJECT - ALL interfaces share the same colors and settings:**
 - Web interface (HTML pages)
-- Admin panel
 - Swagger UI
 - GraphiQL interface
 - CLI colored output
@@ -24576,12 +23787,11 @@ server:
 | Public documentation pages (project-defined, if any) | Dynamic | 0.8 | weekly |
 | API docs (`/server/docs/swagger`, `/server/docs/graphql`) | Always | 0.7 | weekly |
 | Project-specific public resources | Dynamic | 0.6 | weekly |
-| Admin pages | **NEVER** | - | - |
+| Authenticated server-management pages | **NEVER** | - | - |
 | API endpoints (`/api/*`) | **NEVER** | - | - |
 
 **Dynamic Content:**
 - Project resource pages: Include only if public/published
-- Custom domain pages: Include with their custom domain URL
 
 **Sitemap Configuration:**
 
@@ -24932,7 +24142,7 @@ web:
 
 ## CSRF Protection
 
-**CSRF protects cookie-authenticated browser forms from cross-site forgery. It does NOT apply to Bearer/API-token requests, public endpoints, read-only methods, or callers that don't carry browser cookies — applying it there breaks legitimate clients (CLI tools, agents, webhooks, OAuth callbacks) without adding security value.**
+**CSRF protects cookie-authenticated browser forms from cross-site forgery. It does NOT apply to Bearer/API-token requests, public endpoints, read-only methods, or callers that don't carry browser cookies — applying it there breaks legitimate clients (CLI tools, webhooks, OAuth callbacks) without adding security value.**
 
 ### When CSRF Validation Runs
 
@@ -24963,7 +24173,7 @@ web:
 |--------|------------|-----|
 | Session cookie (default) | `Strict` | Most browser auth is same-origin; `Strict` blocks cross-site cookie attachment entirely, neutralizing most CSRF before the token is even checked. |
 | OAuth-callback cookie (state, PKCE-verifier) | `Lax` | OAuth providers redirect cross-site back to our callback; `Strict` would drop the cookie. CSRF token is the second layer here. |
-| Pre-login cookies (e.g., 2FA continuation) | `Strict` | Set after first auth step; never crosses sites. |
+| Pre-auth cookies (e.g., auth continuation) | `Strict` | Set during auth flow; never crosses sites. |
 
 **Modern browsers default to `SameSite=Lax` if unset.** Always set `SameSite` explicitly — never rely on the default.
 
@@ -24990,7 +24200,7 @@ web:
 | Token in cookie + matching value in form/header | Double-submit cookie pattern. Token cookie is `SameSite=Strict`, `HttpOnly=false` (the form needs to read it), `Secure` per `csrf.secure`. |
 | Forms include hidden `<input name="csrf_token" value="…">` | Server-rendered HTML inserts the token automatically — no manual work in templates. |
 | Non-GET requests under cookie-session auth check the token | Per the "When CSRF Validation Runs" table above — Bearer/public/read-only paths skip the check. |
-| Token regenerated on login, logout, and privilege change | Prevents fixation. |
+| Token regenerated on session init and token revocation | Prevents fixation. |
 | Validation failure → `403 FORBIDDEN` with canonical error body | `{"ok": false, "error": "CSRF_FAILED", "message": "CSRF token validation failed"}` (PART 14 → "Error Response"). |
 | Reject if cookie present and header/form missing, or if values mismatch | No silent fallback. |
 | Log to `security.log` as `security.csrf_failure` | IP, endpoint, reason — see PART 11. |
@@ -25077,7 +24287,7 @@ func ValidateFooterHTML(html string) (string, error) {
         return "", errors.New("custom HTML contained only disallowed elements")
     }
 
-    // Warn if content was modified (for admin UI feedback)
+    // Warn if content was modified (sanitization applied)
     if html != sanitized && html != "" && html != " " {
         log.Warnf("footer custom_html was sanitized: removed potentially dangerous content")
     }
@@ -25193,107 +24403,6 @@ When admin submits `custom_html` via API, the response includes:
   <a href="/server/healthz">Last update: {build_datetime}</a>
 </footer>
 ```
-
-### Default Admin Footer
-
-**Location:** `partial/admin/footer.tmpl`
-
-```html
-<footer class="admin-footer">
-  <div class="admin-footer-content">
-    <!-- Version info -->
-    <span class="admin-footer-version">
-      <a href="/server/info">{project_name} {projectversion}</a>
-    </span>
-
-    <span class="admin-footer-separator">•</span>
-
-    <!-- Documentation link -->
-    <span class="admin-footer-docs">
-      <a href="https://{RTD_URL}" target="_blank" rel="noopener">  <!-- Use actual RTD URL -->
-        Docs
-      </a>
-    </span>
-
-    <span class="admin-footer-separator">•</span>
-
-    <!-- Server status indicator -->
-    <span class="admin-footer-status">
-      {{ if .ServerStatus.Healthy }}
-        <span class="status-indicator status-ok" title="All systems operational">●</span>
-        <span>Healthy</span>
-      {{ else if .ServerStatus.Degraded }}
-        <span class="status-indicator status-warning" title="Some issues detected">●</span>
-        <span>Degraded</span>
-      {{ else }}
-        <span class="status-indicator status-error" title="System issues">●</span>
-        <span>Issues</span>
-      {{ end }}
-    </span>
-  </div>
-</footer>
-```
-
-**Admin Footer CSS:**
-```css
-.admin-footer {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
-  text-align: center;
-  font-size: 0.875rem;
-  color: var(--text-muted);
-}
-
-.admin-footer-content {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
-.admin-footer-separator {
-  color: var(--text-muted);
-}
-
-.admin-footer a {
-  color: var(--text-muted);
-  text-decoration: none;
-}
-
-.admin-footer a:hover {
-  color: var(--primary-color);
-  text-decoration: underline;
-}
-
-/* Status indicators */
-.status-indicator {
-  font-size: 0.75rem;
-  margin-right: 0.25rem;
-}
-
-.status-ok { color: var(--success-color); }
-.status-warning { color: var(--warning-color); }
-.status-error { color: var(--danger-color); }
-```
-
-**Admin Footer Contents:**
-
-| Element | Description |
-|---------|-------------|
-| Version | Links to `/server/info` - shows project name and version |
-| Docs | External link to ReadTheDocs documentation |
-| Status | Server health indicator (green/yellow/red) with status text |
-
-**Admin Footer Rules:**
-
-| Rule | Description |
-|------|-------------|
-| **Compact** | Single line, minimal height |
-| **Informational** | Version, docs, status - no navigation |
-| **Status indicator** | Real-time server health from `/server/healthz` |
-| **Same position rules** | Bottom of page, scrolls with content, centered |
 
 ### Footer Configuration (config file)
 
@@ -26258,10 +25367,7 @@ curl -H "Accept: application/xml" https://jokes.example.com/api/v1/joke</code></
 | Section | Description |
 |---------|-------------|
 | Acceptance | Agreement to terms by using the service |
-| Account terms | User account responsibilities |
 | Acceptable use | What is/isn't allowed |
-| Content | User-generated content rules |
-| Termination | When/how accounts can be terminated |
 | Liability | Limitation of liability |
 | Changes | How terms may be updated |
 | Governing law | Jurisdiction |
@@ -26485,9 +25591,9 @@ server:
 - ✓ Show clear message: "Email features require SMTP configuration"
 
 **API Behavior:**
-- If SMTP not configured, `GET /api/{api_version}/server/config/settings` returns `email.configured: false`
+- If SMTP not configured, the startup log reports `email.configured=false`
 - Email-dependent features disabled until SMTP configured
-- `POST /api/{api_version}/server/config/email/test` validates SMTP actually works before enabling email features
+- `{project_name} email test` validates SMTP actually works before enabling email features
 
 ## Default Templates
 
@@ -26682,7 +25788,7 @@ Next run: {next_run}
 
 ## Email Template Configuration
 
-Templates are stored as files on disk. Override any built-in template by placing a file in the configured template directory. Use `POST /api/{api_version}/server/config/email/test` to send a test email and verify configuration.
+Templates are stored as files on disk. Override any built-in template by placing a file in the configured template directory. Use `{project_name} email test` to send a test email and verify configuration.
 
 **Editor Features:**
 - Syntax highlighting for `{variables}`
@@ -26808,9 +25914,9 @@ Templates are stored as files on disk. Override any built-in template by placing
 | Rate limit hit | ✓ | | ✓ |
 | IP blocked | ✓ | | ✓ |
 
-## Server Admin Notifications
+## Operator Notifications
 
-**Notifications shown to Server Admins.**
+**Notifications shown to operators.**
 
 | Event | Toast | Banner | Center | Description |
 |-------|:-----:|:------:|:------:|-------------|
@@ -26884,12 +25990,12 @@ Templates are stored as files on disk. Override any built-in template by placing
 
 **WebUI notifications are stored in the database for persistence.**
 
-| Storage | Server Admin | Regular User |
-|---------|--------------|--------------|
-| Table | `admin_notifications` | `user_notifications` |
-| Retention | 30 days (configurable) | 30 days (configurable) |
-| Max stored | 100 per admin | 100 per user |
-| Sync | Real-time via WebSocket | Real-time via WebSocket |
+| Storage | Details |
+|---------|---------|
+| Table | `notifications` |
+| Retention | 30 days (configurable) |
+| Max stored | 100 per operator |
+| Sync | Real-time via WebSocket |
 
 **Notification Record:**
 ```json
@@ -26898,7 +26004,7 @@ Templates are stored as files on disk. Override any built-in template by placing
   "type": "warning",
   "title": "SSL Certificate Expiring",
   "message": "Certificate expires in 3 days",
-  "link": "/server/config/ssl",
+  "link": "/server/help#ssl",
   "read": false,
   "created_at": "2025-01-15T10:30:00Z"
 }
@@ -26912,117 +26018,16 @@ Templates are stored as files on disk. Override any built-in template by placing
 | Toast duration | `5` seconds | Auto-dismiss time (0 = manual) |
 | Error dismiss | `manual` | Errors require manual dismiss |
 | Notification retention | `30` days | How long to keep in center |
-| Max notifications | `100` | Per user/admin limit |
+| Max notifications | `100` | Per operator limit |
 | Real-time updates | `enabled` | WebSocket for instant updates |
 
-## Notification Preferences
-
-**Both Server Admins and users can configure their notification preferences.**
-
-### Admin Notification Preferences
+## Operator Notification Preferences
 
 | Category | Events | Default | Can Disable? |
 |----------|--------|---------|--------------|
-| **Security** | Login alerts, 2FA changes, password changes | All ON | No (required) |
 | **Server** | SSL expiring, updates available, disk space | All ON | Yes |
 | **Backup** | Backup complete, backup failed | Failed ON, Complete OFF | Yes |
 | **Scheduler** | Task failed, task manual run | Failed ON | Yes |
-| **Other Admins** | Admin login/logout | ON | Yes |
-
-**Security notifications cannot be disabled** - these are critical for account security.
-
-```
-Admin Notification Preferences
-┌─────────────────────────────────────────────────────────────┐
-│  Notification Preferences                                   │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  🔒 Security (cannot be disabled)                           │
-│     ☑ Login from new IP/device                              │
-│     ☑ Password changed                                      │
-│     ☑ 2FA enabled/disabled                                  │
-│     ☑ API token regenerated                                 │
-│                                                             │
-│  ⚙️ Server                                          WebUI Email│
-│     SSL certificate expiring                        [✓]  [✓] │
-│     SSL certificate renewed                         [✓]  [ ] │
-│     Update available                                [✓]  [ ] │
-│     Disk space low                                  [✓]  [✓] │
-│                                                             │
-│  💾 Backup                                                   │
-│     Backup completed                                [✓]  [ ] │
-│     Backup failed                                   [✓]  [✓] │
-│                                                             │
-│  📅 Scheduler                                                │
-│     Task failed                                     [✓]  [✓] │
-│     Task manually triggered                         [✓]  [ ] │
-│                                                             │
-│  👥 Other Admins                                             │
-│     Admin logged in                                 [✓]  [ ] │
-│     Admin logged out                                [ ]  [ ] │
-│                                                             │
-│  [Save Preferences]                                         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### User Notification Preferences (`/users/settings/notifications`)
-
-| Category | Events | Default | Can Disable? |
-|----------|--------|---------|--------------|
-| **Security** | Login alerts, password changes, 2FA changes | All ON | No (required) |
-| **Account** | Email verified, profile updated | All ON | Yes |
-| **Sessions** | Session expired, new device | All ON | Partial |
-
-```
-User Notification Preferences (/users/settings/notifications)
-┌─────────────────────────────────────────────────────────────┐
-│  Notification Preferences                                   │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  🔒 Security (cannot be disabled)                           │
-│     ☑ Login from new IP/device                              │
-│     ☑ Password changed                                      │
-│     ☑ 2FA enabled/disabled                                  │
-│     ☑ Recovery key used                                     │
-│                                                             │
-│  👤 Account                                         WebUI Email│
-│     Email verified                                  [✓]  [✓] │
-│     Profile updated                                 [✓]  [ ] │
-│                                                             │
-│  🔑 Sessions                                                 │
-│     Session expired                                 [✓]  [ ] │
-│     Logged in from new device                       [✓]  [✓] │
-│                                                             │
-│  [Save Preferences]                                         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Preference Storage
-
-| User Type | Storage | Key |
-|-----------|---------|-----|
-| Server Admin | `admin_preferences` table | `admin_id` |
-| Regular User | `user_preferences` table | `user_id` |
-
-**Preference Schema:**
-```json
-{
-  "notifications": {
-    "webui": {
-      "backup_complete": true,
-      "backup_failed": true,
-      "ssl_expiring": true,
-      "admin_login": true
-    },
-    "email": {
-      "backup_complete": false,
-      "backup_failed": true,
-      "ssl_expiring": true,
-      "admin_login": false
-    }
-  }
-}
-```
 
 ## Configuration
 
@@ -27085,7 +26090,6 @@ server:
 | **Always Running** | Scheduler starts with application and runs until shutdown |
 | **Persistent State** | Task state survives restarts (stored in server.db) |
 | **Automatic Recovery** | Missed tasks run on startup if within catch-up window |
-| **Cluster Aware** | Only one node runs each task in cluster mode |
 | **No External Dependencies** | Built-in, no cron or external scheduler needed |
 
 ## NEVER Use External Schedulers
@@ -27107,12 +26111,11 @@ server:
 | Reason | Explanation |
 |--------|-------------|
 | **Single source of truth** | All schedules visible via API |
-| **Cluster aware** | External cron doesn't know about cluster nodes |
 | **State tracking** | Tracks last run, next run, success/failure |
 | **Catch-up logic** | Runs missed tasks on restart |
 | **No deployment complexity** | No cron files to manage, sync, or debug |
 | **Portable** | Works identically on all platforms |
-| **Observable** | Logs, metrics, admin UI for all tasks |
+| **Observable** | Logs and metrics for all tasks |
 
 ### What If User Asks for Cron?
 
@@ -27128,10 +26131,9 @@ To configure backup schedule:
 
 External schedulers (cron, Task Scheduler, etc.) are not supported
 because the built-in scheduler provides:
-- Cluster-aware execution
 - Automatic catch-up for missed runs
 - State tracking and logging
-- Admin panel visibility
+- Visibility via `{project_name} scheduler list` CLI command
 ```
 
 ### Exceptions (NONE)
@@ -27156,14 +26158,12 @@ Every project MUST include these scheduled tasks:
 | `geoip_update` | Weekly (Sunday 03:00) | Download/update ip-location-db GeoIP databases | Yes |
 | `blocklist_update` | Daily at 04:00 | Download/update IP/domain blocklists | Yes |
 | `cve_update` | Daily at 05:00 | Download/update CVE/security databases | Yes |
-| `session_cleanup` | Every 15 minutes | Remove expired sessions | No |
-| `token_cleanup` | Every 15 minutes | Remove expired tokens | No |
+| `token_cleanup` | Every 15 minutes | Remove expired API tokens and sessions | No |
 | `log_rotation` | Daily at 00:00 | Rotate and compress old logs | No |
 | `backup_daily` | Daily at 02:00 | Full backup + daily incremental (default: 2 files) | Yes |
 | `backup_hourly` | Hourly | Hourly incremental (disabled by default) | Yes |
 | `healthcheck_self` | Every 5 minutes | Self-health verification | No |
 | `tor_health` | Every 10 minutes | Check Tor connectivity, restart if needed | No (when Tor installed) |
-| `cluster_heartbeat` | Every 30 seconds | Cluster node heartbeat (cluster mode only) | No |
 
 ### Task Configuration
 
@@ -27204,11 +26204,6 @@ server:
         enabled: true
         retry_on_fail: true
         retry_delay: 1h
-
-      # Every 15 minutes
-      session_cleanup:
-        schedule: "@every 15m"
-        enabled: true
 
       # Every 15 minutes
       token_cleanup:
@@ -27287,8 +26282,6 @@ Task state is stored in `server.db`:
 | `run_count` | Integer | Total successful runs |
 | `fail_count` | Integer | Total failed runs |
 | `enabled` | Boolean | Is task enabled |
-| `locked_by` | String | Node ID holding lock (cluster mode) |
-| `locked_at` | Timestamp | When lock was acquired |
 
 ### Startup Behavior
 
@@ -27314,51 +26307,6 @@ Start scheduler loop
 Scheduler runs continuously until shutdown
 ```
 
-### Cluster Mode Task Distribution
-
-In cluster mode, tasks are distributed to prevent duplicate execution:
-
-| Task Type | Execution |
-|-----------|-----------|
-| **Global Tasks** | Run on ONE node only (primary election) |
-| **Local Tasks** | Run on EVERY node |
-
-**Global Tasks (run once per cluster):**
-- `ssl_renewal`
-- `geoip_update`
-- `blocklist_update`
-- `backup_daily`
-
-**Local Tasks (run on each node):**
-- `session_cleanup`
-- `token_cleanup`
-- `healthcheck_self`
-- `cluster_heartbeat`
-
-### Task Locking (Cluster Mode)
-
-```
-Task Ready to Run
-       │
-       ▼
-Attempt to acquire lock in database
-       │
-       ├─► Lock acquired
-       │   │
-       │   ▼
-       │   Execute task
-       │   │
-       │   ▼
-       │   Release lock, update last_run
-       │
-       └─► Lock held by another node
-           │
-           ▼
-           Skip execution (other node handling it)
-```
-
-**Lock timeout:** 5 minutes (auto-release if node dies during task)
-
 ### Task Execution Flow
 
 ```
@@ -27368,11 +26316,6 @@ Task Triggered (scheduled or manual)
 Check if enabled
        │
        ├─► Disabled: Skip
-       │
-       ▼
-Acquire lock (cluster mode)
-       │
-       ├─► Lock failed: Skip (another node running)
        │
        ▼
 Execute task
@@ -27404,7 +26347,7 @@ Execute task
 
 The scheduler status is available via the server status API. Task execution can be triggered or toggled via CLI commands.
 
-**Admin UI - Scheduler Overview:**
+**CLI - Scheduler Overview** (`{project_name} scheduler list`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -27427,7 +26370,7 @@ The scheduler status is available via the server status API. Task execution can 
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Admin UI - Task Detail (Backup):**
+**CLI - Task Detail** (`{project_name} scheduler show backup`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -27436,7 +26379,7 @@ The scheduler status is available via the server status API. Task execution can 
 │                                                                             │
 │  Status:      ✓ Enabled                                                    │
 │  Schedule:    0 2 * * * (Daily at 02:00)                                   │
-│  Type:        Global (runs on one cluster node)                            │
+│  Type:        Scheduled                                                    │
 │  Last Run:    2025-01-15 02:00:05 (15.1s)                                  │
 │  Next Run:    2025-01-16 02:00:00                                          │
 │  Run Count:   342 successful, 2 failed                                     │
@@ -27497,17 +26440,16 @@ The scheduler status is available via the server status API. Task execution can 
 **What backup_hourly creates (if enabled: +1 file):**
 - `{project_name}-hourly.tar.gz[.enc]` - Hourly incremental
 
-### API Endpoints
+### CLI Commands
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/server/config/scheduler` | GET | List all tasks |
-| `/api/{api_version}/server/config/scheduler/{id}` | GET | Get task details |
-| `/api/{api_version}/server/config/scheduler/{id}` | PATCH | Update task settings |
-| `/api/{api_version}/server/config/scheduler/{id}/run` | POST | Run task immediately |
-| `/api/{api_version}/server/config/scheduler/{id}/enable` | POST | Enable task |
-| `/api/{api_version}/server/config/scheduler/{id}/disable` | POST | Disable task |
-| `/api/{api_version}/server/config/scheduler/{id}/history` | GET | Get execution history |
+| Command | Description |
+|---------|-------------|
+| `{project_name} scheduler list` | List all tasks and status |
+| `{project_name} scheduler show <id>` | Get task details |
+| `{project_name} scheduler run <id>` | Run task immediately |
+| `{project_name} scheduler enable <id>` | Enable task |
+| `{project_name} scheduler disable <id>` | Disable task |
+| `{project_name} scheduler history <id>` | Get execution history |
 
 ### Shutdown Behavior
 
@@ -27542,10 +26484,9 @@ Shutdown complete
 
 1. **Use Go's time/ticker** - No external cron libraries required
 2. **Database-backed state** - All state in server.db, survives restarts
-3. **Graceful shutdown** - Complete running tasks, release locks
-4. **Cluster-safe** - Distributed locking for global tasks
-5. **Audit logging** - All task executions logged
-6. **Notifications** - Failed tasks trigger notifications (if configured)
+3. **Graceful shutdown** - Complete running tasks before exit
+4. **Audit logging** - All task executions logged
+5. **Notifications** - Failed tasks trigger notifications (if configured)
 
 ---
 
@@ -27938,16 +26879,6 @@ server:
 | `go_gc_runs_total` | Counter | - | Total garbage collection runs |
 | `go_gc_pause_total_seconds` | Counter | - | Total time spent in GC pauses |
 
-### Cluster Metrics (if using PART 10 clustering)
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `cluster_nodes_total` | Gauge | - | Total nodes in cluster |
-| `cluster_nodes_healthy` | Gauge | - | Healthy nodes in cluster |
-| `cluster_is_primary` | Gauge | - | 1 if this node is primary, 0 otherwise |
-| `cluster_sync_lag_seconds` | Gauge | - | Replication lag from primary |
-| `cluster_elections_total` | Counter | - | Total primary elections |
-
 ### Tor Metrics (if using PART 31 Tor)
 
 | Metric | Type | Labels | Description |
@@ -28082,18 +27013,6 @@ server:
 # HELP {project_name}_go_gc_runs_total Total number of GC runs
 # TYPE {project_name}_go_gc_runs_total counter
 {project_name}_go_gc_runs_total 1523
-
-# HELP {project_name}_cluster_nodes_total Total nodes in cluster
-# TYPE {project_name}_cluster_nodes_total gauge
-{project_name}_cluster_nodes_total 3
-
-# HELP {project_name}_cluster_nodes_healthy Healthy nodes in cluster
-# TYPE {project_name}_cluster_nodes_healthy gauge
-{project_name}_cluster_nodes_healthy 3
-
-# HELP {project_name}_cluster_is_primary 1 if this node is primary
-# TYPE {project_name}_cluster_is_primary gauge
-{project_name}_cluster_is_primary 1
 
 # HELP {project_name}_tor_enabled 1 if Tor is enabled
 # TYPE {project_name}_tor_enabled gauge
@@ -29202,26 +28121,12 @@ When `server.compliance.enabled: true`:
 {project_name} --maintenance backup
 # Prompts for password, creates encrypted backup
 
-# Override with explicit password:
-{project_name} --maintenance backup --password "mypassword"
-
 # Restore encrypted backup:
 {project_name} --maintenance restore backup.tar.gz.enc
 # Prompts for password
 ```
 
-**API Backup with Encryption:**
-
-```
-POST /api/{api_version}/server/config/backup
-Content-Type: application/json
-
-{
-  "password": "backup-encryption-password"
-}
-```
-
-**Note:** The `password` field is required if encryption is enabled.
+**Note:** The `--password` flag is required if encryption is enabled.
 
 **Warning Shown if Encryption Not Enabled:**
 
@@ -29230,7 +28135,7 @@ Content-Type: application/json
 │  ⚠️  BACKUP ENCRYPTION NOT CONFIGURED                               │
 │                                                                      │
 │  Your backups are NOT encrypted. If someone gains access to your    │
-│  backup files, they can read all data including admin credentials.  │
+│  backup files, they can read all data including server configuration.  │
 │                                                                      │
 │  [Set Encryption Password]  [Remind Me Later]  [Don't Show Again]   │
 └─────────────────────────────────────────────────────────────────────┘
@@ -29309,7 +28214,7 @@ Every backup is verified **immediately after creation** - backups must be 100% w
 
 **Only delete old backups if new backup passes ALL verification checks.**
 
-**Admin UI:**
+**Configuration (`server.yml` → `server.backup`):**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -29492,39 +28397,6 @@ on a Sunday counts as daily + weekly + monthly + yearly - uses highest priority)
 
 **Daily incremental is NOT counted** in retention - it's always exactly 1 file that gets replaced.
 
-### Cluster Backup Rules
-
-**In cluster mode, EVERY node must maintain its own valid backups.**
-
-| Rule | Description |
-|------|-------------|
-| **Per-node backups** | Each node creates and stores its own backups |
-| **Same retention** | All nodes use same `max_backups` setting |
-| **Same schedule** | All nodes backup at same time (staggered by 5min per node) |
-| **Same encryption** | All nodes use same encryption password |
-| **Local storage** | Backups stored in node's local `{backup_dir}` |
-| **Shared storage (optional)** | Can configure shared NFS/S3 for centralized backups |
-
-**Cluster Backup Verification:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  CLUSTER BACKUP STATUS                                          │
-├─────────────────────────────────────────────────────────────────┤
-│  Node              Last Backup      Status    Backups  Daily   │
-│  ─────────────────────────────────────────────────────────────  │
-│  node1.example.com 2025-01-15 02:05 ✓ Valid   4/4      ✓       │
-│  node2.example.com 2025-01-15 02:10 ✓ Valid   4/4      ✓       │
-│  node3.example.com 2025-01-15 02:15 ✓ Valid   4/4      ✓       │
-│                                                                 │
-│  [Backup All Now]  [Verify All]  [Download from Node...]       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Cluster Backup Alerts:**
-- Alert if ANY node has no valid backups
-- Alert if ANY node's daily backup is missing or invalid
-- Alert if nodes have different backup counts (sync issue)
-
 ## Restore Command
 
 ```bash
@@ -29539,7 +28411,7 @@ on a Sunday counts as daily + weekly + monthly + yearly - uses highest priority)
 |-----------|--------------|
 | Database empty (first-run) | ✅ Allowed (nothing to protect) |
 | Running as root | ✅ Allowed (with confirmation) |
-| Running as service user | 🔐 Requires admin credentials |
+| Running as service user | 🔐 Requires operator password |
 | Random user | ❌ Denied |
 
 ### Restore Password Handling
@@ -29549,7 +28421,6 @@ on a Sunday counts as daily + weekly + monthly + yearly - uses highest priority)
 | Interface | Password Not Provided | Behavior |
 |-----------|----------------------|----------|
 | **CLI** | Interactive prompt | Prompts: `Enter backup password:` |
-| **CLI** | `--password` flag | Uses provided password |
 | **WebUI** | Shows dialog | Password input dialog before restore |
 | **API** | Returns 400 error | `{"error": "password_required", "message": "Encrypted backup requires password"}` |
 
@@ -29561,9 +28432,6 @@ on a Sunday counts as daily + weekly + monthly + yearly - uses highest priority)
 Enter backup password: ••••••••••••
 Verifying backup integrity... OK
 Restoring...
-
-# Encrypted backup - password via flag
-{project_name} --maintenance restore backup_2025-01-15.tar.gz.enc --password "mypassword"
 
 # Unencrypted backup - no password needed
 {project_name} --maintenance restore backup_2025-01-15.tar.gz
@@ -29584,21 +28452,15 @@ Restoring...
 └─────────────────────────────────────────┘
 ```
 
-**API Restore:**
+**CLI Restore:**
 
 ```bash
 # Encrypted backup - password required
-POST /api/{api_version}/server/config/backup/restore
-{
-  "backup_file": "backup_2025-01-15.tar.gz.enc",
-  "password": "backup-encryption-password"
-}
+{project_name} --maintenance restore backup_2025-01-15.tar.gz.enc
+# Prompts for password
 
 # Unencrypted backup - no password
-POST /api/{api_version}/server/config/backup/restore
-{
-  "backup_file": "backup_2025-01-15.tar.gz"
-}
+{project_name} --maintenance restore backup_2025-01-15.tar.gz
 ```
 
 ### Restore Verification
@@ -29622,145 +28484,8 @@ POST /api/{api_version}/server/config/backup/restore
 | Scenario | Behavior |
 |----------|----------|
 | **Restore to same server** | Overwrites current config and database |
-| **Restore to new server** | Primary admin must re-authenticate |
+| **Restore to new server** | Server restarts with restored configuration |
 | **Version mismatch** | Warning shown, schema updates applied if needed |
-
-### Primary Admin Re-Setup on Restore
-
-**When restoring a backup to a NEW server, the Primary Admin must re-authenticate:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🔑 RESTORE COMPLETE - RE-AUTHENTICATION REQUIRED           │
-├─────────────────────────────────────────────────────────────┤
-│  Your existing password and settings have been preserved.   │
-│  Log in with your existing admin credentials to continue.   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Why Re-Authentication?**
-- Prevents stolen backup from granting immediate admin access
-- Verifies person restoring has server-level access (can see console)
-- Preserves existing admin credentials (just requires re-verification)
-
-**What is Preserved:**
-- Admin username
-- Admin password (still valid after re-auth)
-- Admin 2FA settings
-- Admin API token
-- All configuration
-- All user accounts
-
-### Additional Admins on Restore
-
-| Admin Type | Restore Behavior |
-|------------|------------------|
-| **Primary Admin** | Can log in with existing credentials after restore |
-| **Additional Admins (local)** | Can log in immediately with existing credentials |
-| **OIDC/LDAP Admins** | Can log in if OIDC/LDAP provider accessible |
-
-## Admin Recovery Command
-
-```bash
-{project_name} --maintenance setup
-```
-
-**Purpose:** Resets admin credentials. This is the ONLY way for a Server Admin to recover access if they have lost their password, API token, AND recovery keys.
-
-### Setup Authorization
-
-**Setup is a sensitive operation - requires authorization (see PART 5: Sensitive Operations).**
-
-| Condition | Authorization |
-|-----------|--------------|
-| Database empty (first-run) | ✅ Allowed (initial setup) |
-| Running as root | ✅ Allowed (with confirmation) |
-| Random user | ❌ Denied |
-
-### What It Does
-
-| Action | Description |
-|--------|-------------|
-| **Clears admin password** | Admin password is set to null/empty |
-| **Clears admin API token** | Admin API token is invalidated |
-| **Preserves everything else** | User accounts, data, configuration unchanged |
-
-### What It Does NOT Do
-
-| Preserved | Description |
-|-----------|-------------|
-| **User accounts** | All user accounts remain intact |
-| **User passwords** | No user credentials are modified |
-| **User data** | All user data is preserved |
-| **Configuration** | All settings except admin credentials |
-| **Database** | No data is deleted or modified |
-| **SSL certificates** | Certificates remain valid |
-
-### Usage
-
-```bash
-# Stop the service first (recommended)
-{project_name} --service stop
-
-# Run setup reset
-{project_name} --maintenance setup
-
-# Output:
-# ┌─────────────────────────────────────────────────────────────┐
-# │  🔑 ADMIN CREDENTIALS RESET                                 │
-# ├─────────────────────────────────────────────────────────────┤
-# │  Admin password and API token have been cleared.            │
-# │                                                             │
-# │  Edit server.yml to set new admin credentials, then         │
-# │  start the service: {project_name} --service start           │
-# └─────────────────────────────────────────────────────────────┘
-
-# Start the service
-{project_name} --service start
-```
-
-### Security Considerations
-
-| Consideration | Requirement |
-|---------------|-------------|
-| **Requires authorization** | Root (see Setup Authorization above) |
-| **Logged** | Action logged to audit log (if available) |
-| **Service should be stopped** | Recommended to stop service first |
-
-### When to Use
-
-| Scenario | Use `--maintenance setup` |
-|----------|---------------------------|
-| Config file is corrupt or missing | ✓ Yes |
-| Server needs re-initialization | ✓ Yes |
-| Routine config reset | ✗ No (edit `server.yml` directly) |
-
-### Recovery Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    ADMIN RECOVERY FLOW                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Admin locked out (no password, no token, no recovery keys)     │
-│                           │                                     │
-│                           ▼                                     │
-│  Root runs: {project_name} --maintenance setup                   │
-│                           │                                     │
-│                           ▼                                     │
-│  Admin credentials cleared                                      │
-│                           │                                     │
-│                           ▼                                     │
-│  Edit server.yml to set new admin credentials                   │
-│                           │                                     │
-│                           ▼                                     │
-│  Start the service: {project_name} --service start               │
-│                           │                                     │
-│                           ▼                                     │
-│  Admin access restored, new recovery keys issued                │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
 
 ---
 
@@ -30400,7 +29125,7 @@ Maintenance commands:
                     production    - Normal operation (default)
                     development   - Debug logging, dev endpoints
 
-  setup             Reset admin credentials (first-run or root only)
+  setup             Reset server configuration (first-run or root only)
 
 Examples:
   {project_name} --maintenance backup
@@ -30466,106 +29191,6 @@ Current:
   Latest:   {latest_version} (if different)
 ```
 
-## CLI Admin Help Output
-
-```bash
-$ {project_name}-cli --admin --help
-Admin CLI - manage server configuration, statistics, and blocklists.
-
-Commands:
-  config                Server configuration (--admin config --help)
-    get [key]           Get config value(s)
-    set <key> <value>   Set config value
-    list                List all config keys
-    reset <key>         Reset config to default
-
-  stats                 Server statistics (--admin stats --help)
-    overview            General server statistics
-    storage             Storage usage
-    performance         Performance metrics
-
-  blocklist             IP/domain blocklist management (--admin blocklist --help)
-    list                List all blocklist sources with stats
-    update [--source NAME]  Update all or specific blocklist
-    check <IP>          Check if IP is in any blocklist
-    add                 Add new blocklist source
-    remove <NAME>       Remove blocklist source
-    stats               Show aggregate blocklist statistics
-
-Global Flags:
-  --format {table|json|yaml}  Output format (default: table)
-  --quiet               Suppress non-essential output
-
-Examples:
-  {project_name}-cli --admin config list
-  {project_name}-cli --admin config get server.fqdn
-  {project_name}-cli --admin config set branding.title "My Server"
-  {project_name}-cli --admin stats overview
-  {project_name}-cli --admin blocklist list
-  {project_name}-cli --admin blocklist check 1.2.3.4
-```
-
-## CLI Admin Config Help Output
-
-```bash
-$ {project_name}-cli --admin config --help
-Server configuration commands:
-
-  get [key]             Get configuration value
-                        Without key: shows all config
-    --format FORMAT     Output format (table|json|yaml)
-
-  set <key> <value>     Set configuration value
-                        Changes take effect immediately (config file reload)
-    --no-reload         Don't reload config after change
-
-  list                  List all configuration keys
-    --category CAT      Filter by category (server|email|rate_limit|backup)
-
-  reset <key>           Reset configuration to default value
-    --force             Skip confirmation prompt
-
-Common Configuration Keys:
-  server.fqdn               Server FQDN (fully qualified domain name)
-  branding.title            Server display title
-  branding.description      Server description
-  server.rate_limit.read.requests   Read endpoint rate limit (per minute)
-  server.rate_limit.write.requests  Write endpoint rate limit (per minute)
-  email.smtp_host           SMTP server hostname
-  email.from_address        From email address
-
-Examples:
-  {project_name}-cli --admin config list
-  {project_name}-cli --admin config get server.fqdn
-  {project_name}-cli --admin config set branding.title "My Server"
-  {project_name}-cli --admin config reset server.rate_limit.write.requests
-```
-
-## CLI Admin Stats Help Output
-
-```bash
-$ {project_name}-cli --admin stats --help
-Server statistics commands:
-
-  overview              General server statistics
-                        Uptime, version, request counts, error rates
-
-  storage               Storage usage
-                        Database size, file storage, cache usage
-
-  performance           Performance metrics
-                        Response times, throughput, resource usage
-
-Flags:
-  --format FORMAT       Output format (table|json|yaml)
-  --period PERIOD       Time period (1h|24h|7d|30d, default: 24h)
-
-Examples:
-  {project_name}-cli --admin stats overview
-  {project_name}-cli --admin stats storage --format json
-  {project_name}-cli --admin stats performance
-```
-
 ## System User Requirements
 
 | Requirement | Value |
@@ -30621,7 +29246,7 @@ Examples:
 | 982 | saned | Scanner access |
 | 981 | usbmux | iOS USB mux |
 | 980 | cups-pk-helper | CUPS printing |
-| 170-179 | postgres, mysql | Database servers |
+| 170-179 | (reserved, legacy DB servers) | Not used |
 | 101-110 | sshd, postfix, dovecot | Common services |
 
 **Safe range recommendation: 200-899** (avoid top and bottom of 100-999 range)
@@ -30712,7 +29337,7 @@ macOS uses `dscl` (Directory Service Command Line) to create system users. The u
 |-------|---------|
 | 0-99 | System accounts (reserved by Apple) |
 | 100-499 | System services (macOS range) |
-| 500+ | Regular users |
+| 500+ | Normal OS users |
 
 **Safe range recommendation: 200-399** (avoid well-known service IDs at top/bottom)
 
@@ -31393,7 +30018,6 @@ format_version_tag() {
 |--------|------------|--------------|
 | **Server** | `{project_name}` | `{project_name}-{os}-{arch}` |
 | **CLI** | `{project_name}-cli` | `{project_name}-cli-{os}-{arch}` |
-| **Agent** | `{project_name}-agent` | `{project_name}-agent-{os}-{arch}` |
 
 ### Examples
 
@@ -31401,7 +30025,6 @@ format_version_tag() {
 |--------|------|-------------|---------------|
 | Server | `jokes` | `jokes-linux-amd64` | `jokes-windows-amd64.exe` |
 | CLI | `jokes-cli` | `jokes-cli-linux-amd64` | `jokes-cli-windows-amd64.exe` |
-| Agent | `jokes-agent` | `jokes-agent-linux-amd64` | `jokes-agent-windows-amd64.exe` |
 
 ### Directory Structure
 
@@ -31409,7 +30032,6 @@ format_version_tag() {
 binaries/
 ├── {project_name}                      # Local server binary
 ├── {project_name}-cli                  # Local CLI binary (if src/client/ exists)
-├── {project_name}-agent                # Local agent binary (if src/agent/ exists)
 ├── {project_name}-linux-amd64          # Server distributions
 ├── {project_name}-linux-arm64
 ├── {project_name}-darwin-amd64
@@ -31421,9 +30043,6 @@ binaries/
 ├── {project_name}-cli-linux-amd64      # CLI distributions
 ├── {project_name}-cli-linux-arm64
 ├── ...
-├── {project_name}-agent-linux-amd64    # Agent distributions
-├── {project_name}-agent-linux-arm64
-└── ...
 ```
 
 ### Local/Testing
@@ -31542,19 +30161,6 @@ build: clean
 		done; \
 	fi
 
-	# Build agent for all platforms (if exists)
-	@if [ -d "src/agent" ]; then \
-		for platform in $(PLATFORMS); do \
-			OS=$${platform%/*}; \
-			ARCH=$${platform#*/}; \
-			OUTPUT=$(BINDIR)/$(PROJECTNAME)-agent-$$OS-$$ARCH; \
-			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
-			echo "Building agent $$OS/$$ARCH..."; \
-			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-				go build -ldflags \"$(LDFLAGS)\" \
-				-o $$OUTPUT ./src/agent" || exit 1; \
-		done; \
-	fi
 
 	@echo "Build complete: $(BINDIR)/"
 
@@ -31583,12 +30189,6 @@ local: clean
 			go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
 	fi
 
-	# Build agent binary (if exists)
-	@if [ -d "src/agent" ]; then \
-		echo "Building $(PROJECTNAME)-agent..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-agent ./src/agent"; \
-	fi
 
 	@echo "Local build complete: $(BINDIR)/"
 
@@ -31675,7 +30275,7 @@ test:
 # DEV - Quick build for local development/testing (to random temp dir)
 # =============================================================================
 # Fast: local platform only, no ldflags, random temp dir for isolation
-# Builds server + CLI + agent (if they exist)
+# Builds server + CLI (if they exist)
 dev:
 	@mkdir -p $(GOCACHE) $(GODIR)
 	@$(GO_DOCKER) go mod tidy
@@ -31687,10 +30287,6 @@ dev:
 		if [ -d "src/client" ]; then \
 			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
 			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-cli"; \
-		fi && \
-		if [ -d "src/agent" ]; then \
-			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-agent ./src/agent && \
-			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-agent"; \
 		fi && \
 		echo "Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
 
@@ -31726,7 +30322,7 @@ var (
 
 **Build date format:** Uses build system timezone or `TZ` env var.
 
-**OfficialSite usage:** If set, CLI/Agent use this as default `--server` value. If empty, users must provide `--server` flag or configure in cli.yml/agent.yml.
+**OfficialSite usage:** If set, CLI uses this as default `--server` value. If empty, users must provide `--server` flag or configure in cli.yml.
 
 ## Go Module Caching
 
@@ -31799,7 +30395,7 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 
 1. **Runs `clean` first** (removes previous build artifacts)
 2. Builds local platform binaries only (fast)
-3. Outputs to `binaries/` (server, cli, agent if applicable)
+3. Outputs to `binaries/` (server, cli)
 4. Full `-ldflags` (version info embedded)
 5. Uses Docker (`golang:alpine`) - keeps local machine clean
 6. **Use for local testing before full cross-platform build**
@@ -31820,7 +30416,7 @@ All Docker builds use persistent Go module caching to avoid re-downloading depen
 | **1. Coding** | `make dev` | Rapid iteration - builds to temp dir, no version info |
 | **2. Quick Test** | Run binary in Docker | Debug with curl, file, bash tools |
 | **3. Unit Tests** | `make test` | Verify logic, coverage |
-| **4. Integration** | `./tests/run_tests.sh` | Full server + CLI + agent tests |
+| **4. Integration** | `./tests/run_tests.sh` | Full server + CLI tests |
 | **5. Production Test** | `make local` | Build with version info to `binaries/` |
 | **6. Release** | `make build` | Full cross-platform build (8 platforms) |
 
@@ -32120,7 +30716,6 @@ docker/
 ├── db/                               # All database storage
 │   ├── sqlite/                       # SQLite databases
 │   │   └── server.db                # Main app database
-│   ├── postgres/                     # PostgreSQL data (if used)
 │   └── valkey/                       # Valkey/Redis data (if used)
 ├── log/                              # Log files
 │   └── {project_name}/               # App logs
@@ -32138,7 +30733,6 @@ docker/
 | `/config/{project_name}/` | App config (server.yml, ssl/, tor/) |
 | `/data/{project_name}/` | App data (uploads, cache, tor/) |
 | `/data/db/sqlite/` | SQLite databases (server.db) |
-| `/data/db/postgres/` | PostgreSQL data directory |
 | `/data/db/valkey/` | Valkey/Redis persistence |
 | `/data/log/{project_name}/` | App logs |
 | `/data/backups/{project_name}/` | Backup archives |
@@ -32169,7 +30763,6 @@ volumes:
     ├── {project_name}/        # App data
     ├── db/
     │   ├── sqlite/           # SQLite databases (server.db)
-    │   ├── postgres/         # PostgreSQL (if multi-service)
     │   └── valkey/           # Valkey (if multi-service)
     ├── log/
     └── backups/
@@ -32179,7 +30772,7 @@ volumes:
 - Binary owns Tor completely - Tor dirs are under `{project_name}/`, not separate
 - All SQLite databases in `/data/db/sqlite/` (not scattered)
 - Database name is ALWAYS `server.db` (globally consistent)
-- External services (postgres, valkey) have their own `/data/db/{service}/` dirs
+- External services (valkey) have their own `/data/db/{service}/` dirs
 - Compose mounts entire `/config` and `/data` - not individual subdirectories
 
 ### OCI Meta Labels (Required)
@@ -32570,8 +31163,9 @@ services:
 ### Multi-Service Example
 
 ```yaml
-# {project_name} - with PostgreSQL + Valkey
+# {project_name} - with Valkey cache
 # nginx proxy address - http://172.17.0.1:64580
+# Database: SQLite (local, auto-created) or set DATABASE_URL for libsql/Turso remote
 
 name: {project_name}
 
@@ -32594,10 +31188,10 @@ services:
       - PORT=80
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
-      - DB_HOST={project_name}-db
-      - DB_NAME={project_name}
-      - DB_USER={project_name}
       - CACHE_HOST={project_name}-cache
+      # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
+      # - DATABASE_DRIVER=libsql
+      # - DATABASE_URL=libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
@@ -32610,31 +31204,8 @@ services:
       retries: 3
       start_period: 90s
     depends_on:
-      {project_name}-db:
-        condition: service_healthy
       {project_name}-cache:
         condition: service_healthy
-    networks:
-      - {project_name}
-
-  {project_name}-db:
-    image: postgres:alpine
-    pull_policy: always
-    container_name: {project_name}-db
-    restart: always
-    logging: *default-logging
-    environment:
-      - POSTGRES_DB={project_name}
-      - POSTGRES_USER={project_name}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-{project_name}}
-    volumes:
-      - './volumes/data/db/postgres/{project_name}:/var/lib/postgresql/data:z'
-    healthcheck:
-      test: pg_isready -U {project_name} -d {project_name}
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
     networks:
       - {project_name}
 
@@ -32753,30 +31324,28 @@ networks:
 
 ## All-in-One Database and Cache
 
-**Database:** PostgreSQL (preferred for AIO)
-- Better defaults out of the box
-- Strong ACID compliance
-- Superior handling of concurrent connections
-- Built-in connection pooling
+**Database:** SQLite (embedded, zero config — auto-created at `{data_dir}/db/{internal_name}.db`)
+- Zero configuration, no server required
+- Ships with the binary
+- Automatic backups via `--maintenance backup`
 
 **Cache:** Valkey (Redis-compatible)
 - Low memory footprint
 - Persistence via AOF
 - Unix socket for local communication (faster than TCP)
 
-**Port Exposure:** Only port 80 (server) is exposed. Database (5432) and cache (6379) ports are internal-only - no external access.
+**Port Exposure:** Only port 80 (server) is exposed. Cache (6379) port is internal-only - no external access.
 
 | Service | Internal Port | External Port | Access |
 |---------|---------------|---------------|--------|
 | App | 80 | 80 | Exposed |
-| PostgreSQL | 5432 | - | Internal only |
 | Valkey | 6379 (or socket) | - | Internal only |
 | Tor | 9050 | - | Internal only |
 
 **All-in-One Dockerfile (`docker/Dockerfile.aio`):**
 
 ```dockerfile
-# All-in-One Dockerfile - includes app + postgresql + valkey + tor
+# All-in-One Dockerfile - includes app + valkey + tor
 # Build: golang:alpine (static binary, CGO_ENABLED=0)
 # Runtime: debian:latest (stable, broad compatibility)
 # Image name: {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:latest-aio
@@ -32809,32 +31378,27 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o {project_name} ./src
 
 # =============================================================================
-# Stage 2: Runtime image with PostgreSQL + Valkey + Tor
+# Stage 2: Runtime image with Valkey + Tor
 # =============================================================================
 FROM debian:latest
 
 # No LABEL blocks — image metadata applied as OCI annotations at build time.
 
-# Install dependencies (PostgreSQL + Valkey + Tor + Supervisor)
+# Install dependencies (Valkey + Tor + Supervisor)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    postgresql \
-    postgresql-contrib \
     valkey \
     supervisor \
     tor \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# Create directories for EXTERNAL services only (PostgreSQL, Valkey)
+# Create directories for EXTERNAL services only (Valkey)
 # NOTE: App directories (config, data, sqlite, logs, backups) created by server binary
-# External services need dirs pre-created with special ownership (postgres user)
-RUN mkdir -p /config/postgres /config/valkey \
-             /data/db/postgres /data/db/valkey \
-             /data/log/postgres \
-             /run/postgresql /run/valkey \
-    && chown -R postgres:postgres /data/db/postgres /data/log/postgres /run/postgresql
+RUN mkdir -p /config/valkey \
+             /data/db/valkey \
+             /run/valkey
 
 # Copy configs and entrypoint
 COPY docker/rootfs/ /
@@ -32850,10 +31414,6 @@ ENV MODE=production \
     DEBUG=false \
     TZ=America/New_York \
     DATABASE_DIR=/data/db/sqlite \
-    PGDATA=/data/db/postgres \
-    DB_HOST=/run/postgresql \
-    DB_NAME={project_name} \
-    DB_USER={project_name} \
     VALKEY_SOCKET=/run/valkey/valkey.sock
 
 # Only expose app port - db/cache are internal
@@ -32872,15 +31432,6 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 nodaemon=true
 logfile=/data/log/supervisord.log
 pidfile=/var/run/supervisord.pid
-
-[program:postgresql]
-command=/usr/bin/postgres -D /data/db/postgres
-user=postgres
-autostart=true
-autorestart=true
-priority=10
-stdout_logfile=/data/log/postgres/postgresql.log
-stderr_logfile=/data/log/postgres/postgresql.log
 
 [program:valkey]
 command=/usr/bin/valkey-server /config/valkey/valkey.conf
@@ -32905,47 +31456,6 @@ autorestart=true
 priority=100
 stdout_logfile=/data/log/app.log
 stderr_logfile=/data/log/app.log
-```
-
-**All-in-One PostgreSQL config (`docker/rootfs/config/postgres/postgresql.conf`):**
-
-```ini
-# PostgreSQL configuration optimized for AIO containers
-# Low memory footprint, single-container deployment
-
-# Connection settings (unix socket only - no TCP)
-listen_addresses = ''
-unix_socket_directories = '/run/postgresql'
-max_connections = 50
-
-# Memory (conservative for AIO - adjust based on container limits)
-shared_buffers = 64MB
-effective_cache_size = 128MB
-work_mem = 4MB
-maintenance_work_mem = 32MB
-
-# WAL settings (balanced durability/performance)
-wal_level = replica
-max_wal_size = 256MB
-min_wal_size = 64MB
-checkpoint_completion_target = 0.9
-
-# Query planner
-random_page_cost = 1.1
-effective_io_concurrency = 200
-
-# Logging
-log_destination = 'stderr'
-logging_collector = off
-log_min_duration_statement = 1000
-log_line_prefix = '%t [%p]: '
-
-# Autovacuum (lighter for AIO)
-autovacuum_max_workers = 2
-autovacuum_naptime = 60s
-
-# Disable features not needed for AIO
-ssl = off
 ```
 
 **All-in-One Valkey config (`docker/rootfs/config/valkey/valkey.conf`):**
@@ -32997,39 +31507,15 @@ if [ -n "$TZ" ]; then
     echo $TZ > /etc/timezone
 fi
 
-# Setup directories for EXTERNAL services only (PostgreSQL, Valkey)
-# NOTE: App directories (config, data, sqlite, logs) are created by the server binary
-# External services need special ownership that binary can't set
-mkdir -p /data/db/postgres /data/db/valkey /run/postgresql /run/valkey
-chown -R postgres:postgres /data/db/postgres /run/postgresql
-chmod 700 /data/db/postgres
+# Setup directories for EXTERNAL services only (Valkey)
+# NOTE: App directories (config, data, sqlite, logs, backups) are created by the server binary
+mkdir -p /data/db/valkey /run/valkey
 chmod 755 /run/valkey
-
-# Initialize PostgreSQL if not already done
-if [ ! -f /data/db/postgres/PG_VERSION ]; then
-    echo "Initializing PostgreSQL database..."
-    su - postgres -c "initdb -D /data/db/postgres"
-
-    # Copy optimized config from /config/postgres/
-    cp /config/postgres/postgresql.conf /data/db/postgres/postgresql.conf
-
-    # Start PostgreSQL temporarily to create database and user
-    su - postgres -c "pg_ctl -D /data/db/postgres -l /data/log/postgres/init.log start"
-    sleep 3
-
-    # Create application database and user
-    su - postgres -c "psql -c \"CREATE USER ${DB_USER:-{project_name}} WITH PASSWORD '${DB_PASSWORD:-{project_name}}';\""
-    su - postgres -c "psql -c \"CREATE DATABASE ${DB_NAME:-{project_name}} OWNER ${DB_USER:-{project_name}};\""
-    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME:-{project_name}} TO ${DB_USER:-{project_name}};\""
-
-    # Stop PostgreSQL (supervisor will start it)
-    su - postgres -c "pg_ctl -D /data/db/postgres stop"
-fi
 
 # Set Tor enabled flag for supervisor
 export TOR_ENABLED="${TOR_ENABLED:-false}"
 
-# Start supervisor (manages postgresql + valkey + tor + app)
+# Start supervisor (manages valkey + tor + app)
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
@@ -33038,7 +31524,7 @@ exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 | Image | Dockerfile | Description |
 |-------|------------|-------------|
 | `{name}:latest` | `Dockerfile` | Standard image (app only, alpine) |
-| `{name}:latest-aio` | `Dockerfile.aio` | All-in-one (app + postgresql + valkey + tor, debian) |
+| `{name}:latest-aio` | `Dockerfile.aio` | All-in-one (app + valkey + tor, debian) |
 
 **AIO Environment Variables:**
 
@@ -33048,16 +31534,15 @@ exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 | `PORT` | `80` | Application port |
 | `DEBUG` | `false` | Debug mode |
 | `TZ` | `America/New_York` | Timezone |
-| `DB_NAME` | `{project_name}` | PostgreSQL database name |
-| `DB_USER` | `{project_name}` | PostgreSQL username |
-| `DB_PASSWORD` | `{project_name}` | PostgreSQL password |
+| `DATABASE_DRIVER` | `sqlite` | Database driver (`sqlite` or `libsql`) |
+| `DATABASE_URL` | (auto) | SQLite path or libsql URL |
 | `TOR_ENABLED` | `false` | Enable Tor hidden service |
 
 **App Connection Strings (internal):**
 
 ```go
-// PostgreSQL via unix socket (faster than TCP)
-dbURL := "postgres:///projectname?host=/run/postgresql"
+// SQLite (default, auto-created)
+dbURL := "/data/db/sqlite/server.db"
 
 // Valkey via unix socket
 valkeyURL := "unix:///run/valkey/valkey.sock"
@@ -33080,8 +31565,7 @@ docker build -t {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_name}:late
 - Self-contained deployment (single `docker pull && docker run`)
 
 **When to use Multi-Service:**
-- Need separate database (PostgreSQL, MySQL)
-- Cache needs dedicated resources
+- Need dedicated cache (Valkey) with separate resources
 - Horizontal scaling of specific components
 - Microservice architecture
 
@@ -33106,7 +31590,7 @@ docker/
 
 **Runtime `./volumes/`** (never committed from repo-local runs):
 ```
-# Production (Server Admin's choice of location):
+# Production (operator's choice of location):
 /path/to/deployment/
 ├── docker-compose.yml   # copied from repo
 └── volumes/             # RUNTIME - created on server
@@ -33143,7 +31627,7 @@ $TEMP_DIR/
 | `/data/{project_name}/` | Binary's {data_dir} |
 | `/data/{project_name}/security/` | Security DBs (geoip, blocklists, cve, trivy) |
 | `/data/{project_name}/tor/` | Tor data (hidden service keys) - binary owns Tor |
-| `/data/db/{dbtype}/` | Database data (postgres, valkey, sqlite, etc.) |
+| `/data/db/{dbtype}/` | Database data (sqlite, valkey) |
 | `/data/log/{project_name}/` | App logs (access.log, error.log, tor.log) |
 | `/data/log/{internal_name}/` | Service logs (nginx, caddy, etc.) |
 | `/data/backups/{project_name}/` | Backup files |
@@ -33388,7 +31872,7 @@ cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 rm -rf "$TEMP_DIR"  # Cleanup after tests
 ```
 
-### Docker Compose with Database Example
+### Docker Compose with Cache Example
 
 **Location:** `docker/docker-compose.yml`
 
@@ -33402,7 +31886,7 @@ services:
     container_name: {project_name}-app
     restart: always
     depends_on:
-      {project_name}-db:
+      {project_name}-cache:
         condition: service_healthy
     environment:
       # Tor auto-enabled (tor binary installed in image)
@@ -33411,11 +31895,9 @@ services:
       # DOMAIN (optional - containers behind reverse proxy auto-detect from headers)
       # Only set if NOT behind reverse proxy, comma-separated list supported
       # - DOMAIN=myapp.com,www.myapp.com,api.myapp.com
-      - DB_HOST={project_name}-db
-      - DB_PORT=5432
-      - DB_NAME={project_name}
-      - DB_USER={project_name}
-      - DB_PASSWORD=${DB_PASSWORD:-{project_name}}
+      # For remote libsql/Turso: set DATABASE_DRIVER and DATABASE_URL
+      # - DATABASE_DRIVER=libsql
+      # - DATABASE_URL=libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
     ports:
       # Production: bound to Docker bridge only (reverse proxy handles external)
       - "172.17.0.1:64580:80"
@@ -33425,20 +31907,15 @@ services:
     networks:
       - {project_name}
 
-  {project_name}-db:
-    image: postgres:alpine
+  {project_name}-cache:
+    image: valkey/valkey:alpine
     pull_policy: always
-    container_name: {project_name}-db
+    container_name: {project_name}-cache
     restart: always
-    environment:
-      - POSTGRES_DB={project_name}
-      - POSTGRES_USER={project_name}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-{project_name}}
-      - TZ=America/New_York
     volumes:
-      - ./volumes/data/db/postgres/{project_name}:/var/lib/postgresql/data:z
+      - ./volumes/data/db/valkey/{project_name}:/data:z
     healthcheck:
-      test: pg_isready -U {project_name} -d {project_name}
+      test: valkey-cli ping || exit 1
       interval: 10s
       timeout: 5s
       retries: 3
@@ -33464,7 +31941,7 @@ networks:
 | Tor config dir | `/config/{project_name}/tor/` (binary owns Tor) |
 | Data dir | `/data/{project_name}/` (binary's {data_dir}) |
 | Tor data dir | `/data/{project_name}/tor/` (binary owns Tor) |
-| Database dir | `/data/db/{dbtype}/` (postgres, valkey, sqlite) |
+| Database dir | `/data/db/{dbtype}/` (sqlite, valkey) |
 | Log dir | `/data/log/{project_name}/` |
 | Backup dir | `/data/backups/{project_name}/` |
 | Binary | `/usr/local/bin/{project_name}` |
@@ -33894,23 +32371,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -34086,23 +32546,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -34270,23 +32713,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -34338,7 +32764,7 @@ jobs:
 | Image | Dockerfile | Tag Suffix | Base | Contents |
 |-------|------------|------------|------|----------|
 | **Standard** | `docker/Dockerfile` | (none) | alpine | App only |
-| **All-in-One** | `docker/Dockerfile.aio` | `-aio` | debian | App + PostgreSQL + Valkey + Tor |
+| **All-in-One** | `docker/Dockerfile.aio` | `-aio` | debian | App + Valkey + Tor |
 
 ### Triggers and Tags
 
@@ -34543,7 +32969,7 @@ jobs:
             org.opencontainers.image.vendor={project_org}
             org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
-            org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
+            org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + valkey + tor)
             org.opencontainers.image.version=${{ env.VERSION }}
             org.opencontainers.image.created=${{ env.BUILD_DATE }}
             org.opencontainers.image.revision=${{ env.COMMIT_ID }}
@@ -34555,7 +32981,7 @@ jobs:
             manifest:org.opencontainers.image.vendor={project_org}
             manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
-            manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
+            manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + valkey + tor)
             manifest:org.opencontainers.image.version=${{ env.VERSION }}
             manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
             manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
@@ -34757,23 +33183,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -34935,23 +33344,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -35119,23 +33511,6 @@ jobs:
           name: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.PROJECTNAME }}-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-      # Agent build - only if src/agent/ directory exists
-      - name: Build Agent
-        if: hashFiles('src/agent/') != ''
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
-          go build -ldflags "${LDFLAGS}" -o ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src/agent
-
-      - name: Upload Agent artifact
-        if: hashFiles('src/agent/') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.PROJECTNAME }}-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
     needs: build
@@ -35393,7 +33768,7 @@ jobs:
             org.opencontainers.image.vendor={project_org}
             org.opencontainers.image.authors={project_org}
             org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
-            org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
+            org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + valkey + tor)
             org.opencontainers.image.version=${{ env.VERSION }}
             org.opencontainers.image.created=${{ env.BUILD_DATE }}
             org.opencontainers.image.revision=${{ env.COMMIT_ID }}
@@ -35405,7 +33780,7 @@ jobs:
             manifest:org.opencontainers.image.vendor={project_org}
             manifest:org.opencontainers.image.authors={project_org}
             manifest:org.opencontainers.image.title=${{ env.PROJECTNAME }}-aio
-            manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + postgresql + valkey + tor)
+            manifest:org.opencontainers.image.description=${{ env.PROJECTNAME }} - all-in-one (debian + valkey + tor)
             manifest:org.opencontainers.image.version=${{ env.VERSION }}
             manifest:org.opencontainers.image.created=${{ env.BUILD_DATE }}
             manifest:org.opencontainers.image.revision=${{ env.COMMIT_ID }}
@@ -35531,7 +33906,6 @@ build:linux-amd64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-amd64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-linux-amd64*
@@ -35548,7 +33922,6 @@ build:linux-arm64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-linux-arm64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-linux-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-linux-arm64*
@@ -35565,7 +33938,6 @@ build:darwin-amd64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-amd64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-darwin-amd64*
@@ -35582,7 +33954,6 @@ build:darwin-arm64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-darwin-arm64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-darwin-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-darwin-arm64*
@@ -35599,7 +33970,6 @@ build:windows-amd64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-amd64.exe ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-amd64.exe ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-windows-amd64*.exe
@@ -35616,7 +33986,6 @@ build:windows-arm64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-windows-arm64.exe ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-windows-arm64.exe ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-windows-arm64*.exe
@@ -35633,7 +34002,6 @@ build:freebsd-amd64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-amd64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-freebsd-amd64*
@@ -35650,7 +34018,6 @@ build:freebsd-arm64:
   script:
     - go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-freebsd-arm64 ./src
     - if [ -d "src/client" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
-    - if [ -d "src/agent" ]; then go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-freebsd-arm64*
@@ -35754,14 +34121,6 @@ build:beta:
     - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
     - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
     # Build Agent if exists
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-*
@@ -35802,14 +34161,6 @@ build:daily:
     - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-amd64 ./src/client; fi
     - if [ -d "src/client" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-freebsd-arm64 ./src/client; fi
     # Build Agent if exists
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-linux-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-darwin-arm64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent; fi
-    - if [ -d "src/agent" ]; then GOOS=freebsd GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent; fi
   artifacts:
     paths:
       - ${PROJECT_NAME}-*
@@ -35928,7 +34279,7 @@ docker:build-aio:
         --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
         --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
         --label "org.opencontainers.image.title=${PROJECT_NAME}-aio" \
-        --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
+        --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + valkey + tor)" \
         --label "org.opencontainers.image.licenses=MIT" \
         --label "org.opencontainers.image.version=${VERSION}" \
         --label "org.opencontainers.image.created=${BUILD_DATE}" \
@@ -35939,7 +34290,7 @@ docker:build-aio:
         --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
         --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
         --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}-aio" \
-        --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
+        --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + valkey + tor)" \
         --annotation "manifest:org.opencontainers.image.licenses=MIT" \
         --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
         --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
@@ -36102,7 +34453,6 @@ pipeline {
                     env.OFFICIALSITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIALSITE:-}"', returnStdout: true).trim()
                     env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildDate=${env.BUILD_DATE}' -X 'main.OfficialSite=${env.OFFICIALSITE}'"
                     env.HAS_CLI = sh(script: '[ -d src/client ] && echo true || echo false', returnStdout: true).trim()
-                    env.HAS_AGENT = sh(script: '[ -d src/agent ] && echo true || echo false', returnStdout: true).trim()
                 }
                 sh 'mkdir -p ${BINDIR} ${RELDIR}'
                 echo "Build type: ${BUILD_TYPE}, Version: ${VERSION}"
@@ -36415,160 +34765,7 @@ pipeline {
             }
         }
 
-        // Agent builds - only if src/agent/ exists (matches GitHub Actions)
-        stage('Build Agent') {
-            when {
-                expression { env.HAS_AGENT == 'true' }
-            }
-            parallel {
-                stage('Agent Linux AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=linux \
-                                -e GOARCH=amd64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-linux-amd64 ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent Linux ARM64') {
-                    agent { label 'arm64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=linux \
-                                -e GOARCH=arm64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-linux-arm64 ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent Darwin AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=darwin \
-                                -e GOARCH=amd64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-darwin-amd64 ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent Darwin ARM64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=darwin \
-                                -e GOARCH=arm64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-darwin-arm64 ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent Windows AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=windows \
-                                -e GOARCH=amd64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-windows-amd64.exe ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent Windows ARM64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=windows \
-                                -e GOARCH=arm64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-windows-arm64.exe ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent FreeBSD AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=freebsd \
-                                -e GOARCH=amd64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-freebsd-amd64 ./src/agent
-                        '''
-                    }
-                }
-                stage('Agent FreeBSD ARM64') {
-                    agent { label 'amd64' }
-                    steps {
-                        sh '''
-                            docker run --rm -it \
-                                --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-                                -v ${WORKSPACE}:/build \
-                                -v ${GOCACHE}:/root/.cache/go-build \
-                                -v ${GODIR}:/go \
-                                -w /build \
-                                -e CGO_ENABLED=0 \
-                                -e GOOS=freebsd \
-                                -e GOARCH=arm64 \
-                                golang:alpine \
-                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-agent-freebsd-arm64 ./src/agent
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Test') {
+        stage('Test')        stage('Test') {
             agent { label 'amd64' }
             steps {
                 sh '''
@@ -36755,7 +34952,7 @@ pipeline {
                             --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
                             --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --label "org.opencontainers.image.title=${PROJECT_NAME}-aio" \
-                            --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
+                            --label "org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + valkey + tor)" \
                             --label "org.opencontainers.image.licenses=MIT" \
                             --label "org.opencontainers.image.version=${VERSION}" \
                             --label "org.opencontainers.image.created=${BUILD_DATE}" \
@@ -36766,7 +34963,7 @@ pipeline {
                             --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
                             --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --annotation "manifest:org.opencontainers.image.title=${PROJECT_NAME}-aio" \
-                            --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + postgresql + valkey + tor)" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECT_NAME} - all-in-one (debian + valkey + tor)" \
                             --annotation "manifest:org.opencontainers.image.licenses=MIT" \
                             --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
                             --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
@@ -36798,8 +34995,8 @@ pipeline {
 | Setting | Value |
 |---------|-------|
 | Agent labels | `amd64` and `arm64` MUST be available |
-| Docker | Required on all agents (builds use golang:alpine) |
-| Docker buildx | Required on amd64 agent for multi-arch builds |
+| Docker | Required for builds (golang:alpine) |
+| Docker buildx | Required on amd64 runner for multi-arch builds |
 | Go caches | `/tmp/{project_org}/go-cache` and `/tmp/{project_org}/go-mod-cache` |
 
 ### Credentials Setup (Jenkins → Credentials → Add Credentials)
@@ -36994,8 +35191,7 @@ Config files are NEVER in the repository. They are generated at RUNTIME:
 
 1. **First run** - Binary auto-generates config in OS config directory with sane defaults
 2. **Flags/env override** - Command-line flags and environment variables override config
-3. **Admin panel** - WebUI for all settings (server)
-4. **Manual edit** - Users can edit generated config file if needed
+3. **Manual edit** - Operators edit generated `server.yml` directly (there is no admin web UI)
 
 **Configuration precedence (highest to lowest):**
 1. Command-line flags
@@ -37171,7 +35367,7 @@ rm -rf "${TMPDIR:-/tmp}/${PROJECT_ORG}/"
 | Put it in... | Use for... | Why it belongs there |
 |--------------|------------|----------------------|
 | `*_test.go` | Package logic, pure functions, validation, parsing, normalization, config loading, path helpers, mode detection, data transforms, error mapping, handler logic that can be tested with mocks/httptest | `go test -cover` measures Go code coverage here. These tests are fast, deterministic, and prove every branch/error path in the package logic |
-| `./tests/*.sh` | Full running server behavior, route coverage, auth flows, content negotiation, `.txt` endpoints, CLI/server/agent interaction, service install/startup behavior, container/Incus scenarios | These tests prove the real binaries work together end-to-end in a realistic environment. They verify behavior that unit tests alone cannot prove |
+| `./tests/*.sh` | Full running server behavior, route coverage, auth flows, content negotiation, `.txt` endpoints, CLI/server interaction, service install/startup behavior, container/Incus scenarios | These tests prove the real binaries work together end-to-end in a realistic environment. They verify behavior that unit tests alone cannot prove |
 
 **Decision rule:**
 - If the behavior can be proven without starting the full application, it belongs in `*_test.go`
@@ -37544,11 +35740,6 @@ test_endpoint GET "/api/{api_version}/jokes/random"
 test_endpoint GET "/api/{api_version}/jokes/categories"
 test_endpoint GET "/api/{api_version}/jokes/{id}"
 
-# SERVER API (with auth)
-test_endpoint GET "/api/{api_version}/server/config/settings"
-test_endpoint PUT "/api/{api_version}/server/config/settings"
-test_endpoint GET "/api/{api_version}/server/config/logs"
-
 # At end: verify ALL endpoints were tested
 verify_all_endpoints_tested
 ```
@@ -37670,13 +35861,12 @@ fi
 1. Set up Go cache directories (GODIR/GOCACHE) for faster builds
 2. Build all binaries using Docker (golang:alpine) in temp directory:
    - Server (`./src`)
-   - client (`./src/client`) if exists
-   - Agent (`./src/agent`) if exists
+   - Client (`./src/client`) if exists
 3. Install test tools in container (Docker: `apk add --no-cache curl bash file jq`)
 4. Copy binaries to test container
 5. Start server
 6. Run full beta test suite:
-   - Version and help checks (server, CLI, agent if built)
+   - Version and help checks (server, CLI)
    - Binary info verification
    - **Binary rename tests** (copy binary, verify --help shows new name)
    - **Admin setup** (login with credentials from server.yml → generate API token)
@@ -37685,7 +35875,6 @@ fi
    - Test project-specific endpoints (from IDEA.md)
    - Test admin authentication (see "Testing Admin Routes")
    - **CLI full functionality** (with API token against running server)
-   - **Agent full functionality** (with API token against running server)
 7. Clean up on exit
 
 #### tests/docker.sh
@@ -37729,11 +35918,6 @@ if [ -d "src/client" ]; then
     $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-cli" ./src/client
 fi
 
-# Build agent if exists
-if [ -d "src/agent" ]; then
-    echo "Building agent in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-agent" ./src/agent
-fi
 
 echo "Testing in Docker (Alpine)..."
 docker run --rm -it \
@@ -37747,7 +35931,6 @@ docker run --rm -it \
 
     chmod +x /app/${PROJECT_NAME}
     [ -f /app/${PROJECT_NAME}-cli ] && chmod +x /app/${PROJECT_NAME}-cli
-    [ -f /app/${PROJECT_NAME}-agent ] && chmod +x /app/${PROJECT_NAME}-agent
 
     echo '=== Version Check ==='
     /app/${PROJECT_NAME} --version
@@ -37849,26 +36032,6 @@ docker run --rm -it \
     fi
 
     echo '=== Agent Tests (if exists) ==='
-    if [ -f /app/${PROJECT_NAME}-agent ]; then
-        /app/${PROJECT_NAME}-agent --version || echo 'FAILED: Agent --version'
-        /app/${PROJECT_NAME}-agent --help || echo 'FAILED: Agent --help'
-
-        # Test binary rename
-        cp /app/${PROJECT_NAME}-agent /app/renamed-agent
-        chmod +x /app/renamed-agent
-        if /app/renamed-agent --help 2>&1 | grep -q 'renamed-agent'; then
-            echo '✓ Agent binary rename works'
-        else
-            echo '✗ FAILED: Agent --help does not show renamed binary name'
-        fi
-
-        # Full Agent functionality tests against server (no token required)
-        echo '--- Agent Full Functionality Tests ---'
-        /app/${PROJECT_NAME}-agent --server http://localhost:64580 status || echo 'Agent status failed'
-        # Project-specific agent commands go here (IDEA.md)
-    else
-        echo 'Agent not built - skipping'
-    fi
 
     echo '=== Stopping Server ==='
     kill \$SERVER_PID
@@ -37931,11 +36094,6 @@ if [ -d "src/client" ]; then
     $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-cli" ./src/client
 fi
 
-# Build agent if exists
-if [ -d "src/agent" ]; then
-    echo "Building agent in Docker..."
-    $GO_DOCKER go build -o "$BUILD_DIR/${PROJECT_NAME}-agent" ./src/agent
-fi
 
 echo "Launching Incus container (Debian + systemd)..."
 incus launch "$INCUS_IMAGE" "$CONTAINER_NAME"
@@ -37953,11 +36111,6 @@ if [ -f "$BUILD_DIR/${PROJECT_NAME}-cli" ]; then
     incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/${PROJECT_NAME}-cli"
 fi
 
-# Copy agent if built
-if [ -f "$BUILD_DIR/${PROJECT_NAME}-agent" ]; then
-    incus file push "$BUILD_DIR/${PROJECT_NAME}-agent" "$CONTAINER_NAME/usr/local/bin/"
-    incus exec "$CONTAINER_NAME" -- chmod +x "/usr/local/bin/${PROJECT_NAME}-agent"
-fi
 
 # Ensure curl is available for testing
 incus exec "$CONTAINER_NAME" -- bash -c "command -v curl || apt-get update && apt-get install -y curl" >/dev/null 2>&1
@@ -38071,27 +36224,6 @@ incus exec "$CONTAINER_NAME" -- bash -c "
     fi
 
     echo '=== Agent Tests (if exists) ==='
-    if [ -f /usr/local/bin/${PROJECT_NAME}-agent ]; then
-        ${PROJECT_NAME}-agent --version || echo 'FAILED: Agent --version'
-        ${PROJECT_NAME}-agent --help || echo 'FAILED: Agent --help'
-
-        # Test binary rename
-        cp /usr/local/bin/${PROJECT_NAME}-agent /tmp/renamed-agent
-        chmod +x /tmp/renamed-agent
-        if /tmp/renamed-agent --help 2>&1 | grep -q 'renamed-agent'; then
-            echo '✓ Agent binary rename works'
-        else
-            echo '✗ FAILED: Agent --help does not show renamed binary name'
-        fi
-
-        # Full Agent functionality tests against server
-        echo '--- Agent Full Functionality Tests ---'
-        # Full Agent functionality tests against server (no token required)
-        ${PROJECT_NAME}-agent --server http://localhost:80 status || echo 'Agent status failed'
-        # Project-specific agent commands go here (IDEA.md)
-    else
-        echo 'Agent not installed - skipping'
-    fi
 
     echo '=== Service Stop Test ==='
     systemctl stop ${PROJECT_NAME}  # inside VM — not a host-service mutation
@@ -38135,13 +36267,12 @@ fi
 | **Build method** | ALWAYS use Docker (golang:alpine) with GODIR/GOCACHE |
 | **Go cache** | Use `GODIR="${HOME}/.local/share/go"` and `GOCACHE="${HOME}/.local/share/go/build"` |
 | **Build location** | ALWAYS use temp directory |
-| **Build all components** | Build server, client (if `src/client/` exists), agent (if `src/agent/` exists) |
+| **Build all components** | Build server, client (if `src/client/` exists) |
 | **Test container tools** | Docker alpine MUST install: `apk add --no-cache curl bash file jq` |
-| **Test all binaries** | Test `--version` and `--help` for server, client, and agent if built |
+| **Test all binaries** | Test `--version` and `--help` for server and client if built |
 | **Binary rename test** | Copy binary with new name, verify `--help` shows renamed name (not hardcoded) |
 | **Admin setup** | Login with credentials from server.yml, generate API token |
 | **CLI full functionality** | Test CLI with API token against running server (not just --help) |
-| **Agent full functionality** | Test agent with API token against running server (not just --help) |
 | **API endpoint testing** | MUST test .txt extension and Accept headers on API routes |
 | **Frontend testing** | MUST test smart detection (CLI → formatted text, browser → HTML) |
 | **Content negotiation** | Test JSON, text/plain, and text/html responses |
@@ -38154,7 +36285,7 @@ fi
 
 ### Shell Completions (Built-in)
 
-**ALL binaries (server, agent, client) support shell completions - built into binary, no separate files.**
+**ALL binaries (server, client) support shell completions - built into binary, no separate files.**
 
 See PART 32: "Shell Completions (Built-in)" for full implementation details.
 
@@ -38162,12 +36293,10 @@ See PART 32: "Shell Completions (Built-in)" for full implementation details.
 # Generate and install completions (prints to stdout, user redirects)
 {project_name} --shell completions bash > /etc/bash_completion.d/{project_name}
 {project_name}-cli --shell completions bash > /etc/bash_completion.d/{project_name}-cli
-{project_name}-agent --shell completions bash > /etc/bash_completion.d/{project_name}-agent
 
 # Or use eval in shell rc file
 eval "$({project_name} --shell init)"
 eval "$({project_name}-cli --shell init)"
-eval "$({project_name}-agent --shell init)"
 ```
 
 | Advantage | Description |
@@ -38596,9 +36725,8 @@ Documentation uses MkDocs Material theme with dark/light/auto switching.
 | `configuration.md` | ✓ | Configuration reference (all settings) |
 | `api.md` | ✓ | API documentation (endpoints, formats) |
 | `cli.md` | If applicable | CLI reference (flags, commands) |
-| `admin.md` | ✓ | Admin panel guide |
 | `security.md` | ✓ | Security model, auth, health/public endpoints, security reporting, and well-known namespace |
-| `integrations.md` | ✓ | External identity, native app links, autodiscovery, webhooks, federation, and other protocol/platform integrations (or an explicit "none enabled" statement) |
+| `integrations.md` | ✓ | Machine/agent identity, native app links, autodiscovery, webhooks, federation, and other protocol/platform integrations (or an explicit "none enabled" statement) |
 | `development.md` | ✓ | Development/contributing guide |
 | `stylesheets/dark.css` | Optional | Dark theme customization |
 | `stylesheets/light.css` | Optional | Light theme customization |
@@ -38718,7 +36846,6 @@ nav:
   - Usage:
     - API Reference: api.md
     - CLI Reference: cli.md         # Remove if project has no CLI surface
-    - Admin API: admin.md
     - Security: security.md
     - Integrations: integrations.md
   - Development:
@@ -39068,9 +37195,8 @@ docker run -p 64580:80 {PLATFORM_CONTAINER_REGISTRY}/{project_org}/{internal_nam
 - [Installation](installation.md) - How to install and run
 - [Configuration](configuration.md) - All configuration options
 - [API Reference](api.md) - REST API, Swagger, GraphQL
-- [Admin API](admin.md) - Server administration API
 - [Security](security.md) - Auth, public endpoints, reporting, and hardening behavior
-- [Integrations](integrations.md) - External identity, discovery, and platform integrations
+- [Integrations](integrations.md) - Machine/agent identity, discovery, and platform integrations
 - [Development](development.md) - Contributing guide
 
 ## Links
@@ -39153,15 +37279,14 @@ All settings can be overridden via environment:
 
 ```bash
 {PROJECT_NAME}_SERVER_PORT=8080
-{PROJECT_NAME}_DATABASE_TYPE=postgres
+{PROJECT_NAME}_DATABASE_TYPE=sqlite
 ```
 
 ## Server Administration
 
-All settings are configurable via the server config file or CLI. Server API is available at `/api/{api_version}/server/config/`.
+All settings are configurable via `server.yml` or CLI.
 
 Document:
-- external auth provider settings (OIDC/LDAP) if enabled
 - well-known namespace settings and optional entries if enabled
 - health/public endpoint toggles that operators can change
 ```
@@ -39202,36 +37327,6 @@ GraphQL playground: [/server/docs/graphql](/server/docs/graphql)
 ```
 ```
 
-### docs/admin.md
-
-```markdown
-# Admin API
-
-## Access
-
-- Base URL: `/api/{api_version}/server/`
-- First-run setup creates admin account via CLI
-- Token-based authentication (Bearer)
-
-## Features
-
-- Server configuration (via config file)
-- User management
-- Database management
-- Backup/restore
-- SSL/TLS management
-- Monitoring & logs
-
-Document:
-- external auth provider settings (OIDC/LDAP) via config file
-- web/robots/security.txt settings via config file
-- any security-reporting or public-endpoint settings enabled by the project
-
-## Server API
-
-Programmatic access via `/api/{api_version}/server/` — all endpoints are publicly accessible (no auth required). Rate limiting applies.
-```
-
 ### docs/security.md
 
 ```markdown
@@ -39270,9 +37365,8 @@ Programmatic access via `/api/{api_version}/server/` — all endpoints are publi
 
 ## External Identity
 
-- OIDC providers, scopes, and claim mapping
-- LDAP providers, attribute mapping, and group mapping
-- Which flows apply to users, admins, or both
+- Machine/agent identity providers (if applicable)
+- Any federated auth flows for machine-to-machine trust
 
 ## Discovery & Protocol Endpoints
 
@@ -39284,7 +37378,7 @@ Programmatic access via `/api/{api_version}/server/` — all endpoints are publi
 
 - Android App Links (`/.well-known/assetlinks.json`) if enabled
 - Apple Universal Links / WebCredentials (`/.well-known/apple-app-site-association`) if enabled
-- Autodiscovery, federation, webhooks, or client/agent bootstrap endpoints if the project supports them
+- Autodiscovery, federation, webhooks, or client bootstrap endpoints if the project supports them
 
 ## Operator Notes
 
@@ -39396,7 +37490,7 @@ make test
 
 ### Supported Languages
 
-**All languages below are supported by ALL binaries (server, CLI, agent). No partial support.**
+**All languages below are supported by ALL binaries (server, CLI). No partial support.**
 
 | Code | Language | Direction | Plural Categories |
 |------|----------|-----------|-------------------|
@@ -39499,7 +37593,7 @@ func LanguageMiddleware(next http.Handler) http.Handler {
 
 **Location:** `src/common/i18n/locales/{lang}.json`
 
-**ALL binaries (server, CLI, agent) embed the SAME translation files.** Translations are a shared `src/common/i18n` package — not duplicated, not subsetted.
+**ALL binaries (server, CLI) embed the SAME translation files.** Translations are a shared `src/common/i18n` package — not duplicated, not subsetted.
 
 ```go
 // src/common/i18n/i18n.go
@@ -39515,9 +37609,9 @@ var localeFS embed.FS
 | Rule | Description |
 |------|-------------|
 | **Single source of truth** | `src/common/i18n/locales/` — one set of translation files |
-| **All binaries embed all locales** | Server, CLI, and agent all import `common/i18n` and get the same translations |
-| **Same supported languages** | If the server supports `es`, the CLI and agent also support `es` — no partial support |
-| **Same translation keys** | All binaries use the same key namespace — CLI help text, agent status, server errors, admin UI all in one file per language |
+| **All binaries embed all locales** | Server and CLI both import `common/i18n` and get the same translations |
+| **Same supported languages** | If the server supports `es`, the CLI also supports `es` — no partial support |
+| **Same translation keys** | All binaries use the same key namespace — CLI help text and server errors all in one file per language |
 | **No external locale files at runtime** | Translations are compiled into the binary via `go:embed` — no filesystem dependency |
 | **WebUI JavaScript** | Frontend fetches `/locales/{lang}.json` served by the server from the same embedded files |
 
@@ -39624,10 +37718,6 @@ var localeFS embed.FS
     "uptime": "Tiempo de actividad",
     "mode": "Modo",
     "status": "Estado",
-    "primary": "Primario",
-    "role": "Rol",
-    "nodes": "Nodos",
-    "cluster": "Clúster",
     "features": "Características",
     "component_status": "Estado de componentes",
     "server_statistics": "Estadísticas del servidor",
@@ -39850,16 +37940,14 @@ var localeFS embed.FS
       "user_list": "Lista de usuarios",
       "invites": "Invitaciones",
       "roles": "Roles",
-      "cluster": "Clúster",
-      "add_node": "Agregar nodo",
       "help": "Ayuda",
       "documentation": "Documentación"
     },
 
     "header": {
       "search_placeholder": "Buscar...",
-      "logout": "Cerrar sesión",
-      "admins_online": "Administradores en línea"
+      "revoke_token": "Revocar token",
+      "operators_online": "Operadores en línea"
     },
 
     "dashboard": {
@@ -40143,22 +38231,7 @@ var localeFS embed.FS
       "title": "Administradores del servidor",
       "your_account": "Su cuenta:",
       "total_admins": "Total de administradores:",
-      "currently_online": "Actualmente en línea:",
-      "invite_new": "Invitar nuevo administrador",
-      "invite_title": "Invitar nuevo administrador del servidor",
-      "invite_expires": "La invitación expira en:",
-      "generate_invite": "Generar invitación",
-      "invite_created": "Invitación de administrador creada",
-      "invite_url": "URL de invitación (compartir con el nuevo administrador):",
-      "copy_url": "Copiar URL",
-      "invite_once": "Este enlace solo funcionará UNA VEZ y expira en {duration}.",
-      "invite_password_note": "El nuevo administrador establecerá su propia contraseña en el primer uso.",
-      "privacy_note": "Por seguridad, no puede ver otras cuentas de administrador. Cada administrador gestiona sus propias credenciales de forma independiente.",
-      "1_hour": "1 hora",
-      "6_hours": "6 horas",
-      "24_hours": "24 horas",
-      "48_hours": "48 horas",
-      "7_days": "7 días"
+      "currently_online": "Actualmente en línea:"
     },
 
     "profile": {
@@ -40178,55 +38251,6 @@ var localeFS embed.FS
       "date_format": "Formato de fecha:",
       "time_format": "Formato de hora:",
       "save_changes": "Guardar cambios"
-    },
-
-    "agents": {
-      "title": "Agentes conectados",
-      "add_agent": "Agregar agente",
-      "name": "Nombre",
-      "connected": "Conectado",
-      "last_seen": "Última vez visto",
-      "summary": "Resumen: {online} en línea, {offline} fuera de línea",
-      "system_info": "Información del sistema",
-      "hostname": "Nombre de host:",
-      "os": "SO:",
-      "arch": "Arquitectura:",
-      "agent_version": "Versión del agente:",
-      "tags": "Etiquetas:",
-      "connection": "Conexión",
-      "last_report": "Último informe:",
-      "ip_address": "Dirección IP:",
-      "system_metrics": "Métricas del sistema",
-      "network": "Red:",
-      "load": "Carga:",
-      "refresh_now": "Actualizar ahora",
-      "edit_tags": "Editar etiquetas",
-      "regenerate_token": "Regenerar token",
-      "remove_agent": "Eliminar agente",
-      "requires_confirmation": "Requiere confirmación",
-      "back_to_list": "Volver a la lista",
-      "add_new": "Agregar nuevo agente",
-      "agent_name": "Nombre del agente (opcional):",
-      "name_hint": "Dejar en blanco para usar el nombre de host.",
-      "tags_optional": "Etiquetas (opcional):",
-      "tags_hint": "Separadas por comas. Usadas para filtrar y agrupar.",
-      "token_expiry": "Expiración del token:",
-      "1_hour": "1 hora",
-      "24_hours": "24 horas (recomendado)",
-      "7_days": "7 días",
-      "never_expires": "Nunca expira",
-      "generate_token": "Generar token de agente",
-      "token_generated": "Token de agente generado",
-      "run_command": "Ejecute este comando en la máquina de destino:",
-      "or_manually": "O manualmente:",
-      "token_expires_in": "El token expira en {duration} y solo se puede usar una vez.",
-      "agent_connected": "{name} se ha conectado. El agente ahora envía datos al servidor.",
-      "view_agent": "Ver agente",
-      "dismiss": "Descartar",
-      "remove_confirm": "¿Está seguro de que desea eliminar el agente '{name}'?",
-      "remove_warning": "Esto hará lo siguiente:",
-      "no_cancel": "No, cancelar",
-      "yes_remove": "Sí, eliminar agente"
     },
 
     "footer": {
@@ -40438,48 +38462,6 @@ var localeFS embed.FS
     "requires_privileges": "{action} requiere privilegios elevados.",
     "escalate_prompt": "¿Escalar? [S/n]: ",
     "running_in_mode_label": "Modo"
-  },
-
-  "agent": {
-    "description": "{project_name}-agent {projectversion} - Agente para {project_name}",
-    "usage": "Uso:",
-    "commands": "Comandos:",
-    "flags": "Opciones:",
-    "status": "Estado del agente",
-    "test_connection": "Probar conexión al servidor",
-    "register": "Registro interactivo",
-    "show_help": "Mostrar ayuda",
-    "show_version": "Mostrar versión",
-    "config_dir": "Directorio de configuración",
-    "data_dir": "Directorio de datos",
-    "log_dir": "Directorio de registros",
-    "server_url": "URL del servidor al que conectarse",
-    "auth_token": "Token de autenticación",
-    "app_mode": "Modo de aplicación",
-    "debug_mode": "Habilitar modo de depuración",
-    "color_output": "Salida de color (predeterminado: auto)",
-    "lang_output": "Idioma de salida (predeterminado: auto)",
-    "show_health": "Mostrar salud del agente",
-    "service_mgmt": "Gestión del servicio (install|uninstall|start|stop|restart)",
-    "self_update": "Verificar/realizar actualización",
-    "banner_mode": "Modo: {mode}",
-    "banner_server": "Servidor: {url}",
-    "banner_hostname": "Nombre de host: {hostname}",
-    "banner_tags": "Etiquetas: {tags}",
-    "banner_connected": "Conectado al servidor",
-    "banner_disconnected": "Desconectado del servidor",
-    "banner_reconnecting": "Reconectando...",
-    "register_prompt": "Ejecute este comando en la máquina de destino:",
-    "register_success": "Agente registrado exitosamente",
-    "register_failed": "Error al registrar agente: {error}",
-    "test_success": "Conexión al servidor exitosa",
-    "test_failed": "Error al conectar al servidor: {error}",
-    "token_expired": "Token de agente expirado, se requiere nuevo registro",
-    "collection_started": "Recolección de datos iniciada (intervalo: {interval})",
-    "collection_stopped": "Recolección de datos detenida",
-    "report_sent": "Informe enviado al servidor ({items} elementos)",
-    "report_failed": "Error al enviar informe: {error}, reintentando en {delay}",
-    "offline_buffering": "Servidor no disponible, almacenando en búfer ({count}/{max})"
   },
 
   "version": {
@@ -40700,17 +38682,18 @@ func buildSchema(lang string) *graphql.Schema {
 **All email templates use translation keys, not hardcoded strings:**
 
 ```go
-func sendWelcomeEmail(user User, lang string) {
-    subject := i18n.TranslateFormat(lang, "email.subjects.welcome", map[string]string{
-        "app_name": config.AppName,
+func sendOperatorAlert(recipient, alertType, lang string) {
+    subject := i18n.TranslateFormat(lang, "email.subjects.operator_alert", map[string]string{
+        "app_name":   config.AppName,
+        "alert_type": alertType,
     })
     // Body uses translated section headings and content
-    body := renderEmailTemplate("welcome", lang, map[string]interface{}{
-        "heading":       i18n.Translate(lang, "email.body.welcome_heading"),
-        "getting_started": i18n.Translate(lang, "email.body.getting_started"),
+    body := renderEmailTemplate("operator_alert", lang, map[string]interface{}{
+        "heading":     i18n.Translate(lang, "email.body.alert_heading"),
+        "description": i18n.Translate(lang, "email.body.alert_description"),
         // ...
     })
-    send(user.Email, subject, body)
+    send(recipient, subject, body)
 }
 ```
 
@@ -40721,7 +38704,7 @@ func sendWelcomeEmail(user User, lang string) {
 | Priority | Source | Example |
 |----------|--------|---------|
 | 1 | `--lang` flag | `--lang es` |
-| 2 | Config file | `lang: es` (in `server.yml`, `cli.yml`, or `agent.yml`) |
+| 2 | Config file | `lang: es` (in `server.yml` or `cli.yml`) |
 | 3 | `LANG` / `LC_ALL` env var | `LANG=es_ES.UTF-8` |
 | 4 | Auto-detect | System locale |
 | 5 | Default | `en` (English) |
@@ -40798,7 +38781,7 @@ func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request,
 |----------|--------|---------|
 | 1 | `?lang=` query param | `/api/v1/endpoint?lang=es` |
 | 2 | `lang` cookie | Set by previous `?lang=` visit |
-| 3 | `Accept-Language` header | Sent by CLI/agent/browser |
+| 3 | `Accept-Language` header | Sent by CLI/browser |
 | 4 | Server default | `en` |
 
 ```bash
@@ -40809,7 +38792,6 @@ func (c *Client) newRequest(method, path string, body io.Reader) (*http.Request,
 # ...
 
 # Agent output in Spanish
-{project_name}-agent --lang es --server https://example.com
 
 # Server banner in Spanish
 LANG=es_ES.UTF-8 {project_name}
@@ -40834,9 +38816,9 @@ LANG=es_ES.UTF-8 {project_name}-cli --help
 1. Copy `src/common/i18n/locales/en.json` to `src/common/i18n/locales/{lang}.json`
 2. Translate ALL keys (no key may be omitted)
 3. Add language code to `config.server.i18n.available_languages`
-4. Language automatically appears in the language selector (WebUI) and `--lang` flag (CLI/agent)
+4. Language automatically appears in the language selector (WebUI) and `--lang` flag (CLI)
 5. Run `make i18n-validate` to verify all keys are present
-6. Rebuild ALL binaries — server, CLI, and agent all get the new language via `go:embed`
+6. Rebuild ALL binaries — server and CLI both get the new language via `go:embed`
 
 ### Build-Time Validation
 
@@ -41245,11 +39227,8 @@ server:
     binary: ""
 
     # --- Outbound Network Settings ---
-    # Use Tor network for outbound connections (server-wide default)
+    # Use Tor network for outbound connections (server-wide setting)
     use_network: false
-
-    # Allow users to set their own Tor network preference
-    allow_user_preference: true
 
     # --- Performance Settings ---
     # Maximum circuits to keep open (higher = faster but more memory)
@@ -41335,43 +39314,15 @@ This is separate from hosting a hidden service - it uses Tor's SOCKS5 proxy for 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Server Admin Setting: server.tor.use_network                       │
+│ Operator Setting: server.tor.use_network                           │
 │ Default: false (direct connections)                                 │
-└─────────────┬───────────────────────────────────────────────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Server Admin Setting: server.tor.allow_user_preference              │
-│ Default: true (users can override)                                  │
-└─────────────┬───────────────────────────────────────────────────────┘
-              │ if true
-              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ User Account Setting: user.preferences.use_tor_network              │
-│ Default: inherit from server (null = use server setting)            │
-│ Options: true (always), false (never), null (inherit)               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-| Server Setting | User Preference | Result |
-|----------------|-----------------|--------|
-| `use_network: false`, `allow_user_preference: false` | (ignored) | Direct |
-| `use_network: true`, `allow_user_preference: false` | (ignored) | Tor |
-| `use_network: false`, `allow_user_preference: true` | `null` | Direct |
-| `use_network: false`, `allow_user_preference: true` | `true` | Tor |
-| `use_network: true`, `allow_user_preference: true` | `false` | Direct |
-| `use_network: true`, `allow_user_preference: true` | `null` | Tor |
-
-### User Preference Schema
-
-```yaml
-# In user account/preferences table
-user:
-  preferences:
-    # Use Tor network for outbound requests made on behalf of this user
-    # null = inherit server setting, true = always use Tor, false = never use Tor
-    use_tor_network: null
-```
+| Server Setting | Result |
+|----------------|--------|
+| `use_network: false` | Direct |
+| `use_network: true` | Tor |
 
 ### Outbound Implementation
 
@@ -41379,27 +39330,14 @@ user:
 
 ```go
 // ShouldUseTor determines if Tor network should be used for a request
-// based on server config and user preference
-func ShouldUseTor(serverConfig *Config, userPref *bool) bool {
-    // If user preferences not allowed, use server setting
-    if !serverConfig.Tor.AllowUserPreference {
-        return serverConfig.Tor.UseNetwork
-    }
-
-    // If user has no preference (nil), inherit server setting
-    if userPref == nil {
-        return serverConfig.Tor.UseNetwork
-    }
-
-    // User preference overrides
-    return *userPref
+// based on server config
+func ShouldUseTor(serverConfig *Config) bool {
+    return serverConfig.Tor.UseNetwork
 }
 
-// Example: Making a request with user's Tor preference
-func (s *Service) FetchExternalData(ctx context.Context, userID int, url string) ([]byte, error) {
-    // Get user's Tor preference
-    user, _ := s.db.GetUser(userID)
-    useTor := ShouldUseTor(s.config, user.Preferences.UseTorNetwork)
+// Example: Making a request using server Tor configuration
+func (s *Service) FetchExternalData(ctx context.Context, url string) ([]byte, error) {
+    useTor := ShouldUseTor(s.config)
 
     // Get appropriate HTTP client (TorManager.GetHTTPClient handles routing)
     client := s.torManager.GetHTTPClient(useTor)
@@ -41417,13 +39355,13 @@ func (s *Service) FetchExternalData(ctx context.Context, userID int, url string)
 
 ### torrc Configuration for Outbound
 
-When `use_network` or `allow_user_preference` is enabled, the torrc includes `SocksPort auto` for outbound connections. Otherwise `SocksPort 0` disables outbound.
+When `use_network` is enabled, the torrc includes `SocksPort auto` for outbound connections. Otherwise `SocksPort 0` disables outbound.
 
 **See full `getTorConfig()` implementation in the Implementation section below.**
 
 ### Admin API (Tor Settings)
 
-**`GET /api/{api_version}/server/config/settings` → `tor` section:**
+**`server.yml` → `tor` section:**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -41583,7 +39521,7 @@ This prevents conflicts with any existing Tor installation on the system.
 |-------------------|----------------|-------------|
 | `root` | `{project_name}` (after drop) | `{project_name}` |
 | `{project_name}` | `{project_name}` | `{project_name}` |
-| Regular user | Regular user | Regular user |
+| Unprivileged OS user | Unprivileged OS user | Unprivileged OS user |
 
 **Process:**
 1. Server starts (possibly as root for port binding)
@@ -41642,8 +39580,7 @@ type TorConfig struct {
     Binary string `yaml:"binary" json:"binary"`
 
     // Outbound network settings
-    UseNetwork          bool `yaml:"use_network" json:"use_network"`
-    AllowUserPreference bool `yaml:"allow_user_preference" json:"allow_user_preference"`
+    UseNetwork bool `yaml:"use_network" json:"use_network"`
 
     // Performance settings
     MaxCircuits      int `yaml:"max_circuits" json:"max_circuits"`           // 1-128, default 32
@@ -41975,8 +39912,8 @@ AccountingMax %s`, cfg.MaxMonthlyBandwidth)
     return fmt.Sprintf(`
 # ============================================================
 # Tor Configuration - Generated by server binary
-# This file is PERSISTENT - edits via admin panel are preserved
-# Manual edits may be overwritten when config is saved via admin
+# This file is PERSISTENT - manual edits are preserved
+# Manual edits may be overwritten when config is saved via operator
 # ============================================================
 
 # SOCKS port for outbound connections (0 = disabled, auto = runtime port)
@@ -42527,371 +40464,18 @@ func ensureTorFile(path string, content []byte) error {
 | PID file | `{data_dir}/tor/tor.pid` | `0600` | app user | |
 | Log file | `{log_dir}/tor.log` | `0600` | app user | |
 
-## Server API (Tor Configuration)
 
-### /api/{api_version}/server/config/tor
+**Tor is configured via `server.yml` and CLI only. No REST API for Tor configuration.**
 
-**Hidden service is ALWAYS enabled if Tor binary is found.** No enable/disable toggle.
-
-#### Status Section (Read-Only)
-
-| Element | Type | Description |
-|---------|------|-------------|
-| Tor Status | Indicator | ● Connected / ○ Not Installed / ⚠ Error |
-| Binary Path | Read-only text | Detected Tor binary location |
-| Binary Version | Read-only text | Tor version (e.g., "0.4.8.9") |
-| .onion Address | Read-only text | Full address with copy button |
-| Uptime | Read-only text | Time since Tor started |
-| Circuits Active | Read-only text | Number of active circuits |
-
-#### Configuration Settings (All Settings with Validation)
-
-**All settings validated before saving. Invalid settings show inline errors.**
-
-| Setting | Type | Default | Validation | Description |
-|---------|------|---------|------------|-------------|
-| **Outbound Network** | | | | |
-| `use_network` | Boolean | `false` | - | Use Tor for outbound connections |
-| `allow_user_preference` | Boolean | `true` | - | Allow users to override outbound setting |
-| **Performance** | | | | |
-| `max_circuits` | Integer | `32` | 1-128 | Maximum circuits to keep open |
-| `circuit_timeout` | Integer | `60` | 10-300 | Circuit timeout (seconds) |
-| `bootstrap_timeout` | Integer | `180` | 30-600 | Bootstrap timeout (seconds) |
-| **Security** | | | | |
-| `safe_logging` | Boolean | `true` | - | Scrub sensitive info from logs |
-| `max_streams_per_circuit` | Integer | `100` | 10-500 | Max streams per circuit |
-| `close_circuit_on_stream_limit` | Boolean | `true` | - | Close circuit on stream limit |
-| **Bandwidth** | | | | |
-| `bandwidth_rate` | String | `"1 MB"` | Pattern: `^\d+\s*(KB\|MB)$` | Max bandwidth rate/second |
-| `bandwidth_burst` | String | `"2 MB"` | Pattern: `^\d+\s*(KB\|MB)$`, >= rate | Max bandwidth burst/second |
-| `max_monthly_bandwidth` | String | `"100 GB"` | Pattern: `^\d+\s*(GB\|TB)\|unlimited$` | Monthly limit (or "unlimited") |
-| **Hidden Service** | | | | |
-| `num_intro_points` | Integer | `3` | 3-10 | Number of introduction points |
-| `virtual_port` | Integer | `80` | 1-65535 | Virtual port (.onion port) |
-
-#### Validation Rules
-
-```go
-type TorConfigValidation struct {
-    Field   string
-    Rule    string
-    Message string
-}
-
-var torValidationRules = []TorConfigValidation{
-    // Performance
-    {"max_circuits", "min:1,max:128", "Must be between 1 and 128"},
-    {"circuit_timeout", "min:10,max:300", "Must be between 10 and 300 seconds"},
-    {"bootstrap_timeout", "min:30,max:600", "Must be between 30 and 600 seconds"},
-
-    // Security
-    {"max_streams_per_circuit", "min:10,max:500", "Must be between 10 and 500"},
-
-    // Bandwidth
-    {"bandwidth_rate", "pattern:^\\d+\\s*(KB|MB)$", "Format: number + KB or MB (e.g., '1 MB')"},
-    {"bandwidth_burst", "pattern:^\\d+\\s*(KB|MB)$,gte:bandwidth_rate", "Must be >= bandwidth_rate"},
-    {"max_monthly_bandwidth", "pattern:^(\\d+\\s*(GB|TB)|unlimited)$", "Format: number + GB/TB or 'unlimited'"},
-
-    // Hidden Service
-    {"num_intro_points", "min:3,max:10", "Must be between 3 and 10"},
-    {"virtual_port", "min:1,max:65535", "Must be valid port (1-65535)"},
-}
-
-// ValidateTorConfig validates all Tor settings before saving
-func ValidateTorConfig(config *TorConfig) []ValidationError {
-    var errors []ValidationError
-
-    // Performance validation
-    if config.MaxCircuits < 1 || config.MaxCircuits > 128 {
-        errors = append(errors, ValidationError{
-            Field:   "max_circuits",
-            Message: "Must be between 1 and 128",
-        })
-    }
-
-    if config.CircuitTimeout < 10 || config.CircuitTimeout > 300 {
-        errors = append(errors, ValidationError{
-            Field:   "circuit_timeout",
-            Message: "Must be between 10 and 300 seconds",
-        })
-    }
-
-    // Bandwidth validation
-    rate, rateErr := parseBandwidth(config.BandwidthRate)
-    burst, burstErr := parseBandwidth(config.BandwidthBurst)
-
-    if rateErr != nil {
-        errors = append(errors, ValidationError{
-            Field:   "bandwidth_rate",
-            Message: "Invalid format. Use: '1 MB' or '500 KB'",
-        })
-    }
-
-    if burstErr != nil {
-        errors = append(errors, ValidationError{
-            Field:   "bandwidth_burst",
-            Message: "Invalid format. Use: '2 MB' or '1 MB'",
-        })
-    }
-
-    if rateErr == nil && burstErr == nil && burst < rate {
-        errors = append(errors, ValidationError{
-            Field:   "bandwidth_burst",
-            Message: "Must be greater than or equal to bandwidth_rate",
-        })
-    }
-
-    // Hidden service validation
-    if config.NumIntroPoints < 3 || config.NumIntroPoints > 10 {
-        errors = append(errors, ValidationError{
-            Field:   "num_intro_points",
-            Message: "Must be between 3 and 10",
-        })
-    }
-
-    return errors
-}
-```
-
-#### WebUI Layout
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Tor Hidden Service                                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│ Status: ● Connected              Uptime: 2d 5h 32m                  │
-│ Binary: /usr/bin/tor             Version: 0.4.8.9                   │
-│                                                                     │
-│ .onion Address:                                                     │
-│ ┌─────────────────────────────────────────────────────────────────┐ │
-│ │ abcdef1234567890abcdef1234567890abcdef1234567890abcdef12.onion  │ │
-│ └─────────────────────────────────────────────────────────[Copy]──┘ │
-│                                                                     │
-│ [Regenerate Address]                                                │
-├─────────────────────────────────────────────────────────────────────┤
-│ Vanity Address                                                      │
-│                                                                     │
-│ Prefix: [______] (max 6 chars)  [Generate]                          │
-│ ⏳ Generating: "myapp" - 2h 15m elapsed... [Cancel]                 │
-├─────────────────────────────────────────────────────────────────────┤
-│ Import External Keys                                   [Import Keys]│
-│ ⓘ Help: How to generate longer vanity addresses                    │
-├─────────────────────────────────────────────────────────────────────┤
-│ Configuration                                            [Expand ▼] │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│ ┌─ Outbound Network ────────────────────────────────────────────┐   │
-│ │ Use Tor for outbound connections:  [ ] Enabled                │   │
-│ │ Allow users to set preference:     [✓] Enabled                │   │
-│ └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│ ┌─ Performance ─────────────────────────────────────────────────┐   │
-│ │ Max circuits:         [32___]  (1-128)                        │   │
-│ │ Circuit timeout:      [60___]  seconds (10-300)               │   │
-│ │ Bootstrap timeout:    [180__]  seconds (30-600)               │   │
-│ └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│ ┌─ Security ────────────────────────────────────────────────────┐   │
-│ │ Safe logging:                    [✓] Enabled                  │   │
-│ │ Max streams per circuit:         [100__]  (10-500)            │   │
-│ │ Close circuit on stream limit:   [✓] Enabled                  │   │
-│ └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│ ┌─ Bandwidth ───────────────────────────────────────────────────┐   │
-│ │ Bandwidth rate:     [1___] [MB ▼]  (per second)               │   │
-│ │ Bandwidth burst:    [2___] [MB ▼]  (per second)               │   │
-│ │ Monthly limit:      [100_] [GB ▼]  ☐ Unlimited                │   │
-│ │   Current usage: 23.4 GB / 100 GB (23%)  ▓▓░░░░░░░░           │   │
-│ └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│ ┌─ Hidden Service ──────────────────────────────────────────────┐   │
-│ │ Introduction points:  [3___]  (3-10, more = resilient)        │   │
-│ │ Virtual port:         [80__]  (.onion port)                   │   │
-│ └───────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│                              [Cancel] [Save Configuration]          │
-│                                                                     │
-│ ⚠ Changes require Tor restart. Hidden service will be briefly      │
-│   unavailable during restart.                                       │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-#### Validation Error Display
-
-```
-┌─ Bandwidth ───────────────────────────────────────────────────┐
-│ Bandwidth rate:   [abc__] [MB ▼]                              │
-│                   ⚠ Invalid format. Use: '1 MB' or '500 KB'   │
-│ Bandwidth burst:  [1___] [MB ▼]                               │
-│                   ⚠ Must be greater than or equal to rate     │
-└───────────────────────────────────────────────────────────────┘
-```
-
-#### Save Flow
-
-1. User clicks "Save Configuration"
-2. Client-side validation runs (immediate feedback)
-3. If client validation passes, send PATCH request
-4. Server validates again (never trust client)
-5. If server validation fails, return errors with field names
-6. If validation passes:
-   - Save new config to file
-   - Regenerate torrc with new settings
-   - Restart Tor process
-   - Return success with new status
-7. WebUI shows "Configuration saved. Tor restarting..." toast
-8. Poll status endpoint until Tor reconnects
-
-### Vanity Address Generation
-
-**Built-in generation (max 6 characters):**
-
-| Prefix Length | Approximate Time |
-|---------------|------------------|
-| 1-4 chars | Seconds to minutes |
-| 5 chars | Minutes to hours |
-| 6 chars | Hours to days |
-
-**Behavior:**
-- Generation runs in background
-- Current .onion address remains active while generating
-- Notification sent when vanity address is ready
-- User clicks notification or "Apply" button to activate
-- Old keys deleted, new vanity keys activated
-- Tor restarts with new address
-
-### External Vanity Generation (7+ characters)
-
-For prefixes longer than 6 characters, use external tools with GPU acceleration. The API documentation includes guidance:
-
-**Using mkp224o (Linux/macOS/BSD):**
-```bash
-# Install
-git clone https://github.com/cathugger/mkp224o
-cd mkp224o && ./autogen.sh && ./configure && make
-
-# Generate (example: 7-char prefix "myapp12")
-./mkp224o -d ./keys myapp12
-
-# Output: ./keys/myapp12xxxxx.onion/
-#   ├── hostname        # Your .onion address
-#   ├── hs_ed25519_public_key
-#   └── hs_ed25519_secret_key
-```
-
-**Using mkp224o with GPU (Linux/macOS - much faster):**
-```bash
-# With CUDA support
-./configure --enable-cuda
-make
-
-# Generate
-./mkp224o -d ./keys myapp12
-```
-
-**Windows users:**
-- Use WSL (Windows Subsystem for Linux) to run mkp224o
-- Or use pre-built Windows binaries if available from trusted sources
-- Generated keys are portable - generate on any platform, import via CLI or API
-
-**Importing keys:**
-1. Generate keys using mkp224o or similar tool
-2. Use `POST /api/{api_version}/server/config/tor/import-keys`
-3. Upload `hs_ed25519_secret_key` file (or zip containing both key files)
-4. Confirm to replace current address
-5. Tor restarts with imported keys
-
-**Time estimates for longer prefixes:**
-
-| Prefix Length | CPU Time | GPU Time |
-|---------------|----------|----------|
-| 7 chars | Days to weeks | Hours to days |
-| 8 chars | Weeks to months | Days to weeks |
-| 9+ chars | Months to years | Weeks to months |
-
-**Security Notes:**
-- .onion address shown only after admin authentication
-- "Regenerate Address" requires confirmation modal (destructive - old address stops working)
-- Address regeneration logged to audit log
-- Imported keys should be generated on a trusted machine
-- Delete source key files after successful import
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/{api_version}/server/config/tor` | GET | Get Tor status, config, and .onion address |
-| `/api/{api_version}/server/config/tor` | PATCH | Update Tor settings (validates before saving) |
-| `/api/{api_version}/server/config/tor/validate` | POST | Validate config without saving |
-| `/api/{api_version}/server/config/tor/regenerate` | POST | Regenerate .onion address |
-| `/api/{api_version}/server/config/tor/restart` | POST | Restart Tor process |
-| `/api/{api_version}/server/config/tor/vanity` | GET | Get vanity generation status |
-| `/api/{api_version}/server/config/tor/vanity` | POST | Start vanity generation |
-| `/api/{api_version}/server/config/tor/vanity` | DELETE | Cancel vanity generation |
-| `/api/{api_version}/server/config/tor/vanity/apply` | POST | Apply vanity address |
-| `/api/{api_version}/server/config/tor/import` | POST | Import external keys |
-
-### Response Format
-
-**GET `/api/{api_version}/server/config/tor`**
-
-```json
-{
-  "status": {
-    "state": "connected",
-    "binary_path": "/usr/bin/tor",
-    "binary_version": "0.4.8.9",
-    "onion_address": "exampleonionaddressv3fordemoabcdefghijklmnopqrstuvwxyz23.onion",
-    "uptime_seconds": 192600,
-    "circuits_active": 12
-  },
-  "config": {
-    "use_network": false,
-    "allow_user_preference": true,
-    "max_circuits": 32,
-    "circuit_timeout": 60,
-    "bootstrap_timeout": 180,
-    "safe_logging": true,
-    "max_streams_per_circuit": 100,
-    "close_circuit_on_stream_limit": true,
-    "bandwidth_rate": "1 MB",
-    "bandwidth_burst": "2 MB",
-    "num_intro_points": 3,
-    "virtual_port": 80
-  }
-}
-```
-
-**POST `/api/{api_version}/server/config/tor/validate`** (or PATCH with invalid config)
-
-```json
-{
-  "valid": false,
-  "errors": [
-    {
-      "field": "max_circuits",
-      "message": "Must be between 1 and 128"
-    },
-    {
-      "field": "bandwidth_burst",
-      "message": "Must be greater than or equal to bandwidth_rate"
-    }
-  ]
-}
-```
-
-**PATCH `/api/{api_version}/server/config/tor`** (success)
-
-```json
-{
-  "success": true,
-  "message": "Configuration saved. Tor restarting...",
-  "status": {
-    "state": "restarting"
-  }
-}
-```
+| Operation | CLI Command |
+|-----------|-------------|
+| View status | `{project_name} tor status` |
+| Validate config | `{project_name} tor validate` |
+| Restart Tor | `{project_name} tor restart` |
+| Regenerate .onion address | `{project_name} tor regenerate` |
+| Start vanity address search | `{project_name} tor vanity start` |
+| Apply vanity address | `{project_name} tor vanity apply` |
+| Import existing keys | `{project_name} tor import-keys <path>` |
 
 ## Behavior
 
@@ -42906,9 +40490,7 @@ make
 
 ## CLI
 
-The `--status` command includes Tor and cluster status:
-
-### Single Instance
+The `--status` command includes Tor status:
 
 ```
 $ myapp --status
@@ -42917,31 +40499,6 @@ Server Status: Running
   Port: 8080
   Mode: production
   Uptime: 2d 5h 30m
-
-Node: standalone
-Cluster: disabled
-
-Tor Hidden Service: Connected
-  Address: abcd1234...wxyz.onion
-```
-
-### Cluster Mode
-
-```
-$ myapp --status
-
-Server Status: Running
-  Port: 8080
-  Mode: production
-  Uptime: 2d 5h 30m
-
-Node: node-abc123
-  Hostname: server-1.example.com
-
-Cluster: connected
-  Status: healthy
-  Nodes: 3
-  Database: postgres://db.example.com/myapp
 
 Tor Hidden Service: Connected
   Address: abcd1234...wxyz.onion
@@ -42951,29 +40508,27 @@ Tor Hidden Service: Connected
 
 | Field | Description |
 |-------|-------------|
-| Node | Node ID (standalone or unique ID) |
-| Hostname | Server hostname |
-| Cluster | disabled, connected, degraded, disconnected |
-| Nodes | Number of nodes in cluster |
-| Database | Database connection info (driver://host/db) |
+| Server Status | Running, stopped, or starting |
+| Port | Bind port |
+| Mode | production or development |
+| Uptime | Human-readable uptime |
+| Tor | Connected/disabled and onion address |
 
 ---
 
 
 
-# PART 32: CLIENT & AGENT
+# PART 32: CLIENT
 
 ## Overview
 
-**client is REQUIRED for all projects. Agent is PER-PROJECT determination.**
+**client is REQUIRED for all projects.**
 
 Every server MUST have a companion client. The client provides terminal-based access to all server functionality and is essential for:
 - Scripting and automation
 - Headless/SSH environments
 - CI/CD pipelines
 - Power users who prefer terminal
-
-**Agent remains optional** - only needed for monitoring, remote management, or similar projects (see "When Agent is Needed" section).
 
 When a project includes a client, it provides a terminal-based interface for interacting with the server. The client supports both standard command-line usage and an interactive TUI (Terminal User Interface) mode.
 
@@ -42987,7 +40542,7 @@ When a project includes a client, it provides a terminal-based interface for int
 
 ## Binary Naming Rules
 
-**Same rules apply to ALL binaries (server, agent, client). See PART 8 for full details.**
+**Same rules apply to ALL binaries (server, client). See PART 8 for full details.**
 
 | Rule | Display | Internal |
 |------|---------|----------|
@@ -43035,23 +40590,9 @@ userAgent := fmt.Sprintf("%s-cli/%s", projectName, version)
 | `~/.config/{project_org}/{internal_name}/cli.yml` (Unix) | `0644` |
 | `%APPDATA%\{project_org}\{internal_name}\cli.yml` (Windows) | Default ACL |
 
-## CLI Cluster Failover
+## CLI Auto-Update (Same Pattern as Server Self-Update)
 
-**The autodiscover response (PART 14) returns the full cluster URL list (`primary` + `cluster: [...]`). The CLI MUST honor this for fault tolerance — if the primary becomes unreachable mid-session, the CLI tries the next cluster URL automatically.**
-
-| Step | Action |
-|------|--------|
-| 1. Initial config | After `login` (or initial bootstrap), CLI calls `/api/autodiscover` and caches the full cluster URL list in `cli.yml` under `server.cluster: [...]`. |
-| 2. Periodic refresh | Every 30 minutes (or on every CLI start, whichever comes first), CLI re-runs autodiscover against `server.primary` and refreshes the cluster list. |
-| 3. Failover | On any request to `server.primary` that fails with a connection-level error (DNS failure, TCP timeout, TLS handshake failure, 5xx after retry) — NOT auth or 4xx errors — the CLI tries each `server.cluster` URL in order with a fresh request. First success becomes the new "preferred" URL for the rest of the session. |
-| 4. Promotion | If the primary stays down for >5 minutes (CLI session-local timer) AND a cluster URL is consistently working, CLI updates `cli.yml` to make the working URL the new `server.primary`. The old primary stays in `cluster:` so it's tried again later. |
-| 5. Total failure | If ALL cluster URLs fail, print: `error: cannot reach {project_name} server at any of {N} configured URLs (last error: ...)`. Exit non-zero. Do not auto-retry beyond the cluster list — operator handles via DNS / connectivity tools. |
-
-The CLI never adds URLs that weren't in the autodiscover response — operators control which cluster nodes are exposed.
-
-## CLI Auto-Update (Same Pattern as Server Self-Update + Agent)
-
-**The CLI follows the same flow as the server's self-update (PART 22) and the agent's auto-update (PART 32 above): check version via autodiscover, download from the server, verify SHA-256, atomic replace, restart.**
+**The CLI follows the same flow as the server's self-update (PART 22): check version via autodiscover, download from the server, verify SHA-256, atomic replace, restart.**
 
 | Step | Action |
 |------|--------|
@@ -43060,13 +40601,13 @@ The CLI never adds URLs that weren't in the autodiscover response — operators 
 | 3. Download | Fetch `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` over HTTPS. Save to a tmp path (`/tmp/{project_org}/{project_name}-XXXXXX/cli.update.tmp` per the spec's tmp-dir rules). |
 | 4. Verify SHA-256 | Same `verifyChecksum()` from PART 22 — match against the `sha256` from autodiscover. Mismatch → delete temp, abort with stderr error. |
 | 5. Atomic swap | Same platform-specific `replaceBinary()` from PART 22. The CLI is user-installed (typically `/usr/local/bin/` or `~/bin/`) — if the user lacks write permission to the install path, CLI prints "you do not have permission to update {binary_path}; ask your admin or move the binary to a writable path" and exits cleanly. |
-| 6. Re-exec | After successful replace, CLI `exec`s the new binary with the original argv to continue the in-progress command. (Server / agent restart via service manager; CLI just re-execs since it's foreground.) |
+| 6. Re-exec | After successful replace, CLI `exec`s the new binary with the original argv to continue the in-progress command. (Server restarts via service manager; CLI just re-execs since it's foreground.) |
 
 **Configuration (`cli.yml`):**
 
 ```yaml
 update:
-  auto: false                # default false for CLI (interactive prompt unless explicitly opted in). Server / agent default true.
+  auto: false                # default false for CLI (interactive prompt unless explicitly opted in). Server default true.
   check_interval: per_invocation   # CLI is short-lived; checks once per command. No background poll.
   channel: stable
 ```
@@ -43075,7 +40616,7 @@ update:
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` alongside agent and server info |
+| `/api/autodiscover` | GET | None or bearer | Returns `cli_versions` (each entry has `version` + `sha256`) and `cli_min_version` alongside server info |
 | `{base}/cli/binaries/{project_name}-cli-{os}-{arch}` | GET | None (public — CLIs are user-distributed) OR bearer if `cli.binary_download.require_auth: true` is set | Streams the binary |
 
 **Why CLI download default is unauthenticated:** the CLI is the entry point for new users. Forcing auth on the download means they need a token before they can install the tool that obtains the token. Operators who run a private deployment can flip `cli.binary_download.require_auth` to `true`.
@@ -43089,235 +40630,7 @@ update:
 | `cli.update_checksum_invalid` | SHA-256 didn't match the published checksum |
 | `cli.update_forced` | CLI below `cli_min_version`; refused to make further requests until updated |
 | `cli.token_revoked_detected` | CLI received `401 TOKEN_REVOKED`, exited / cleared cached token |
-| `cli.cluster_failover` | CLI failed over from primary to cluster URL |
 
-## User/Org Context (Smart Detection, NON-NEGOTIABLE)
-
-**If project implements multi-user/orgs, client MUST support `--user` flag for user/org context. Server auto-detects type.**
-
-### --user Flag
-
-| Flag | Description |
-|------|-------------|
-| `--user NAME` | Target user OR org (server auto-detects) |
-| `--user @NAME` | Force user context (explicit) |
-| `--user +NAME` | Force org context (explicit) |
-
-**Smart detection priority:**
-1. If prefixed with `@` → user
-2. If prefixed with `+` → org
-3. Otherwise → server auto-detects from name
-
-### Global Token (Works Across User + Orgs)
-
-**A user's token grants access to:**
-- Their own user account
-- All orgs where they have permissions
-- Resources based on their role in each org
-
-```
-Token: usr_abc123... (user: alice)
-├── User context: alice's personal resources
-├── Org context: acme-corp (alice is admin)
-├── Org context: dev-team (alice is member)
-└── Org context: open-source-proj (alice is owner)
-```
-
-**One token, multiple contexts - no need for separate org tokens.**
-
-### Server-Side Smart Detection
-
-**Server MUST auto-detect if target is user or org:**
-
-```go
-// DetectTargetType determines if name is user or org
-func DetectTargetType(ctx context.Context, name string) (TargetType, error) {
-    // 1. Check explicit prefix
-    if strings.HasPrefix(name, "@") {
-        return TargetUser, nil
-    }
-    if strings.HasPrefix(name, "+") {
-        return TargetOrg, nil
-    }
-
-    // 2. Strip prefix for lookup
-    cleanName := strings.TrimLeft(name, "@+")
-
-    // 3. Check user table first (users are more common)
-    if userExists(ctx, cleanName) {
-        return TargetUser, nil
-    }
-
-    // 4. Check org table
-    if orgExists(ctx, cleanName) {
-        return TargetOrg, nil
-    }
-
-    // 5. Not found
-    return TargetUnknown, ErrNotFound
-}
-
-// ValidateAccess checks if token has access to target
-func ValidateAccess(ctx context.Context, token *Token, target string, action string) error {
-    targetType, err := DetectTargetType(ctx, target)
-    if err != nil {
-        return err
-    }
-
-    cleanName := strings.TrimLeft(target, "@+")
-
-    switch targetType {
-    case TargetUser:
-        // Token owner must BE this user
-        if token.UserID != getUserID(ctx, cleanName) {
-            return ErrForbidden
-        }
-        return nil
-
-    case TargetOrg:
-        // Token owner must have permission in this org
-        org := getOrg(ctx, cleanName)
-        role := getOrgRole(ctx, token.UserID, org.ID)
-        if !role.Can(action) {
-            return ErrForbidden
-        }
-        return nil
-    }
-
-    return ErrNotFound
-}
-```
-
-### CLI Usage Examples
-
-```bash
-# Default: use token owner's personal context (no --user flag)
-{project_name}-cli list                    # GET /api/{api_version}/users/{resource} (current user)
-
-# Explicit user context (view another user's public resources)
-{project_name}-cli --user @alice list      # GET /api/{api_version}/users/alice/{resource}
-
-# Org context (user must have org access)
-{project_name}-cli --user +acme-corp list  # GET /api/{api_version}/orgs/acme-corp/{resource}
-
-# Auto-detect: CLI determines if name is user or org
-{project_name}-cli --user alice list       # GET /api/{api_version}/users/alice/{resource} (if user)
-{project_name}-cli --user acme-corp list   # GET /api/{api_version}/orgs/acme-corp/{resource} (if org)
-```
-
-**Note:** `{resource}` is the project-specific resource type (e.g., `repos`, `pastes`, `links`). See IDEA.md for your project's resources.
-
-### CLI Route Translation (URL-Scoped)
-
-**CLI translates `--user` flag to URL-scoped routes:**
-
-| CLI Command | API Route |
-|-------------|-----------|
-| `list` (no flag) | `GET /api/{api_version}/users/{resource}` (current user) |
-| `--user @alice list` | `GET /api/{api_version}/users/alice/{resource}` |
-| `--user +acme-corp list` | `GET /api/{api_version}/orgs/acme-corp/{resource}` |
-| `--user alice list` | Auto-detect → `/api/{api_version}/users/alice/{resource}` or `/api/{api_version}/orgs/alice/{resource}` |
-
-```bash
-# CLI translates --user to URL-scoped route
-{project_name}-cli --user acme-corp list
-
-# Becomes:
-GET /api/{api_version}/orgs/acme-corp/{resource}
-Authorization: Bearer usr_abc123...
-```
-
-### Detection Flow
-
-```
-CLI receives --user flag
-│
-├─► No --user flag
-│   └─► Use /api/{api_version}/users/{resource} (current user from token)
-│
-├─► --user NAME provided
-│   ├─► Prefix @? → Use /api/{api_version}/users/{name}/{resource}
-│   ├─► Prefix +? → Use /api/{api_version}/orgs/{name}/{resource}
-│   └─► No prefix → CLI auto-detects:
-│       ├─► Query server for name type
-│       ├─► User? → /api/{api_version}/users/{name}/{resource}
-│       ├─► Org? → /api/{api_version}/orgs/{name}/{resource}
-│       └─► Neither → Error: not found
-│
-└─► Server validates token has access to resource
-    ├─► User resource: token owner or public profile
-    ├─► Org resource: token owner has org role
-    └─► No access → 403 Forbidden
-```
-
-### Smart Context Detection (Based on Token Scope)
-
-**`--user` flag only needed when token has multiple contexts. Server auto-detects when possible.**
-
-| Token Scope | `--user` Needed? | Default Context |
-|-------------|------------------|-----------------|
-| User only (no orgs) | No | User |
-| Single org only | No | That org |
-| User + 1 org | Optional | User (use `--user {org}` for org) |
-| User + multiple orgs | Yes (for orgs) | User (must specify which org) |
-
-**Examples by token scope:**
-
-```bash
-# Token: alice (no org access)
-{project_name}-cli list                    # Uses alice's context (only option)
-{project_name}-cli --user alice list       # Same (redundant but valid)
-{project_name}-cli --user acme-corp list   # ERROR: no access to acme-corp
-
-# Token: scoped to acme-corp only (org-specific token)
-{project_name}-cli list                    # Uses acme-corp context (only option)
-{project_name}-cli --user acme-corp list   # Same (redundant but valid)
-{project_name}-cli --user @me list         # ERROR: token not scoped to user
-
-# Token: alice + acme-corp (user has one org)
-{project_name}-cli list                    # Uses alice's context (default = user)
-{project_name}-cli --user acme-corp list   # Uses acme-corp context
-
-# Token: alice + acme-corp + dev-team (user has multiple orgs)
-{project_name}-cli list                    # Uses alice's context (default = user)
-{project_name}-cli --user acme-corp list   # Uses acme-corp context
-{project_name}-cli --user dev-team list    # Uses dev-team context
-```
-
-**Server-side scope detection:**
-
-```go
-// GetDefaultContext returns the default context for a token
-func GetDefaultContext(token *Token) (string, TargetType) {
-    scopes := token.GetScopes()
-
-    // Single scope - use it directly, no --user needed
-    if len(scopes) == 1 {
-        return scopes[0].Name, scopes[0].Type
-    }
-
-    // Multiple scopes - default to user if available
-    for _, scope := range scopes {
-        if scope.Type == TargetUser {
-            return scope.Name, TargetUser
-        }
-    }
-
-    // No user scope, multiple orgs - require --user flag
-    return "", TargetUnknown
-}
-
-// Token scope types
-type TokenScope struct {
-    Name string      // "alice" or "acme-corp"
-    Type TargetType  // TargetUser or TargetOrg
-}
-```
-
-**Why this design?**
-- Zero friction for simple cases (single scope = no flag needed)
-- Explicit only when ambiguous (multiple orgs)
-- Token scope determines what's possible, `--user` selects which
 
 ### Flag-to-Config Save Rules
 
@@ -43373,25 +40686,6 @@ func SaveIfEmptyOrInvalid(current, flagValue string, validate func(string) bool)
 # → Uses staging for THIS command, but cli.yml still has api.example.com
 
 # To permanently change: edit cli.yml directly
-```
-
-### Reserved Names
-
-**These names are reserved and cannot be users OR orgs:**
-
-| Name | Reason |
-|------|--------|
-| `me` | Alias for current token owner |
-| `self` | Alias for current token owner |
-| `@me` | Explicit user self-reference |
-| `admin` | Reserved for system |
-| `system` | Reserved for system |
-| `api` | Reserved for routes |
-| `www` | Reserved for routes |
-
-```bash
-# @me always means token owner
-{project_name}-cli --user @me list    # Always personal context
 ```
 
 ## Modes
@@ -43539,9 +40833,8 @@ if env.IsAutoDetectDisplayModeGUI() {
 |--------|-----|-----|-----|----------|
 | **Server** | Status window | Status banner | Commands | Default (daemon) |
 | **CLI** | ✅ Full app | ✅ Full app (default) | ✅ Commands | ❌ Error |
-| **Agent** | Status window | Status banner | Commands | Default (service) |
 
-**Server/Agent just show status banners. CLI is the only full-featured TUI/GUI app.**
+**Server just shows status banners. CLI is the only full-featured TUI/GUI app.**
 
 ### First-Run / Double-Click Behavior
 
@@ -43551,11 +40844,10 @@ if env.IsAutoDetectDisplayModeGUI() {
 |--------|-----------|---------------------|
 | **Server** | Generate default `server.yml` if absent, show status banner | Edit `server.yml` directly |
 | **CLI** | Setup wizard (GUI/TUI) | Setup wizard (no WebUI for CLI) |
-| **Agent** | Start with connection string, show status banner | Server provides connection string |
 
-### Server & Agent: Status Banner Only
+### Server: Status Banner Only
 
-**Server and Agent detect environment and show appropriate status banner:**
+**Server detects environment and shows appropriate status banner:**
 
 | Environment | Banner Type |
 |-------------|-------------|
@@ -43565,14 +40857,9 @@ if env.IsAutoDetectDisplayModeGUI() {
 | **Container** | Log output only |
 | **Headless/daemon** | Log to file |
 
-**No built-in TUI/GUI wizard for Server or Agent binaries.** They just run:
+**No built-in TUI/GUI wizard for the Server binary.** It just runs:
 - **Server**: Configured by editing `server.yml` directly; generates a default `server.yml` on first run
-- **Agent**: Configured via connection string provided by the server admin API
 
-**Agent connection string example (obtained from server admin API):**
-```
-{project_name}-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
-```
 
 ### CLI: Full TUI/GUI App with Setup Wizard
 
@@ -43601,7 +40888,6 @@ Why CLI needs a setup wizard:
 |--------|-------------------|---------------------|
 | **Server** | Start immediately, log output | Env vars, mounted config, or defaults |
 | **CLI** | Requires `--server` flag | Flag, env var, or mounted config |
-| **Agent** | Requires connection string | `--connect` flag or env var |
 
 ### GUI/TUI Requirements for CLI (NON-NEGOTIABLE)
 
@@ -43624,8 +40910,8 @@ Why CLI needs a setup wizard:
 
 ### Display Detection
 
-| Environment | Server/Agent | CLI |
-|-------------|--------------|-----|
+| Environment | Server | CLI |
+|-------------|--------|-----|
 | **Local display** | GUI status window | Full GUI app |
 | **Terminal** | Console banner | Full TUI app |
 | **Remote (SSH/Mosh)** | Console banner | Full TUI app |
@@ -43775,27 +41061,16 @@ User double-clicks {project_name}-cli:
 3. Launch full TUI/GUI application
 ```
 
-**Agent First-Run (NO setup wizard):**
-
-```
-Agent is configured via server-provided connection string:
-
-{project_name}-agent --connect "https://api.example.com?token=agt_xxx&name=office-pc"
-
-First run without connection string:
-- Show error: "No connection configured. Use --connect flag with server-provided URL."
-- Agent does NOT have interactive setup wizard
-```
 
 **Platform-Specific Double-Click Behavior:**
 
-| Platform | Server | CLI | Agent |
-|----------|--------|-----|-------|
-| **Windows** | Console opens, banner shown, runs in foreground | Console opens, setup wizard or TUI | Console opens, error (needs --connect) |
-| **macOS (Terminal)** | Banner shown, runs in foreground | Setup wizard or TUI | Error (needs --connect) |
-| **macOS (Finder)** | ⚠️ Opens Terminal briefly, closes | ⚠️ Opens Terminal briefly, closes | ⚠️ Opens Terminal briefly, closes |
-| **Linux (Terminal)** | Banner shown, runs in foreground | Setup wizard or TUI | Error (needs --connect) |
-| **Linux (File Manager)** | Depends on DE settings | Depends on DE settings | Depends on DE settings |
+| Platform | Server | CLI |
+|----------|--------|-----|
+| **Windows** | Console opens, banner shown, runs in foreground | Console opens, setup wizard or TUI |
+| **macOS (Terminal)** | Banner shown, runs in foreground | Setup wizard or TUI |
+| **macOS (Finder)** | ⚠️ Opens Terminal briefly, closes | ⚠️ Opens Terminal briefly, closes |
+| **Linux (Terminal)** | Banner shown, runs in foreground | Setup wizard or TUI |
+| **Linux (File Manager)** | Depends on DE settings | Depends on DE settings |
 
 **macOS Finder Note:** Raw binaries don't persist when double-clicked from Finder. Users should either:
 1. Run from Terminal: `./projectname-cli`
@@ -43840,7 +41115,7 @@ func RunSetupWizard() error {
     })
 }
 
-// Called at CLI startup only (Agent uses --connect flag, not wizard)
+// Called at CLI startup only
 func EnsureConfigured() error {
     cfg, _ := config.LoadCLIConfig()
     if cfg == nil || cfg.Server == "" {
@@ -44442,7 +41717,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     return m, nil
 }
 
-// Server/Agent: Handle window resize for console output
+// Server: Handle window resize for console output
 // Platform-specific implementations below
 
 // --- watch_unix.go ---
@@ -44943,18 +42218,15 @@ func resolveYamlExtension(path string) string {
 # Server connection
 server:
   primary: ""                      # Server URL (empty = use {official_site} or prompt)
-  cluster: []                      # Auto-discovered cluster nodes
   api_version: v1                  # API version prefix (default: v1, must match server)
   timeout: 30s                     # Request timeout (match server default)
   retry: 3                         # Retry attempts on failure
   retry_delay: 1s                  # Delay between retries
 
-# Authentication (required for multi-user projects)
+# Authentication
 auth:
-  token: ""                        # API token (usr_xxx, see PART 11)
+  token: ""                        # API token (see PART 11)
   token_file: ""                   # Read token from file instead
-  # No default_context - default is ALWAYS token owner (user)
-  # Use --user {org} to switch to org context
 
 # Output preferences
 output:
@@ -45010,39 +42282,10 @@ defaults:
 # Pattern: {PROJECT_NAME}_{SECTION}_{KEY} or {PROJECT_NAME}_{KEY}
 {PROJECT_NAME}_SERVER_PRIMARY="https://example.com"
 {PROJECT_NAME}_SERVER_TIMEOUT=60
-{PROJECT_NAME}_TOKEN="usr_abc123..."
+{PROJECT_NAME}_TOKEN="tok_abc123..."
 {PROJECT_NAME}_OUTPUT_FORMAT="json"
 {PROJECT_NAME}_DEBUG=true
 ```
-
-### CLI Cluster Failover
-
-**client MUST support automatic cluster failover. Background node discovery keeps config current.**
-
-| Feature | Behavior |
-|---------|----------|
-| **Background discovery** | CLI calls `/api/autodiscover` in background |
-| **Auto-update** | `server.cluster` updated from `cluster.nodes` in response |
-| **Failover** | If primary fails, try cluster nodes transparently |
-| **No user action** | Completely automatic, user sees no difference |
-
-**CLI Cluster Behavior:**
-```
-On every CLI command:
-1. Load cli.yml
-2. Try server.primary
-3. If fails → try server.cluster nodes (silent failover)
-4. Execute command on first available node
-5. Background: GET /api/{api_version}/server/healthz
-6. Read cluster.primary and cluster.nodes from response
-7. Update server.primary and server.cluster in cli.yml (async, non-blocking)
-```
-
-**User Experience:**
-- User runs `mycli list` - just works
-- If primary is down, CLI silently uses cluster node
-- No error unless ALL nodes are unreachable
-- Config stays current automatically
 
 ### Server Address Resolution
 
@@ -45050,9 +42293,8 @@ On every CLI command:
 
 1. `--server` flag (if provided)
 2. `server.primary` in `cli.yml` (if set)
-3. `server.cluster` nodes (if primary fails)
-4. `{official_site}` compiled default (if project has official site)
-5. Error with setup instructions
+3. `{official_site}` compiled default (if project has official site)
+4. Error with setup instructions
 
 **Behavior:**
 
@@ -45060,7 +42302,6 @@ On every CLI command:
 |----------|--------|
 | `--server` flag used | Use that server, **save to `server.primary` in cli.yml** |
 | `server.primary` in cli.yml | Use configured primary server |
-| Primary fails, cluster exists | Silently try cluster nodes |
 | Project has `{official_site}` | Use official site as default |
 | No server available | Error with setup instructions |
 
@@ -45277,7 +42518,7 @@ defaults:
 
 ### Shell Completions (Built-in, NON-NEGOTIABLE)
 
-**ALL binaries (server, agent, client) MUST support shell completions. Built into binary - no separate files.**
+**ALL binaries (server, client) MUST support shell completions. Built into binary - no separate files.**
 
 | Flag | Description |
 |------|-------------|
@@ -45320,7 +42561,6 @@ eval "$({project_name} --shell init bash)"      # if $SHELL=/bin/bash
 # Explicit shell specification
 {project_name} --shell completions bash > ~/.local/share/bash-completion/completions/{project_name}
 {project_name}-cli --shell completions zsh > ~/.zsh/completions/_{project_name}-cli
-{project_name}-agent --shell completions fish > ~/.config/fish/completions/{project_name}-agent.fish
 {project_name} --shell completions powershell > ~/Documents/PowerShell/completions/{project_name}.ps1
 
 # Auto-detect shell (omit SHELL argument)
@@ -45330,7 +42570,6 @@ eval "$({project_name} --shell init)"              # auto-detect in eval
 
 # Specific shell init
 eval "$({project_name}-cli --shell init bash)"
-eval "$({project_name}-agent --shell init zsh)"
 {project_name} --shell init fish | source
 ```
 
@@ -45339,7 +42578,6 @@ eval "$({project_name}-agent --shell init zsh)"
 # ~/.bashrc, ~/.zshrc, ~/.config/fish/config.fish, etc.
 eval "$({project_name} --shell init)"        # server (auto-detect)
 eval "$({project_name}-cli --shell init)"    # client (auto-detect)
-eval "$({project_name}-agent --shell init)"  # agent (auto-detect)
 ```
 
 **Why built-in (not separate files):**
@@ -45442,15 +42680,10 @@ Flags:
       --server URL                  Server URL (default: from config)
       --token TOKEN                 API token for authentication
       --token-file FILE             Read token from file
-      --user NAME                   Target user or org (auto-detect, @user, +org)
       --config NAME                 Config profile name (default: cli.yml)
       --debug                       Debug output
       --color {always|never|auto}   Color output (default: auto)
       --lang CODE                   Language for output (default: auto)
-
-Administration (requires admin token):
-      --admin CMD                   Admin operations (--admin --help for details)
-      --admin server CMD            Server admin operations (--admin server --help)
 
   {project-specific flags listed here}
 
@@ -45675,11 +42908,11 @@ func BuildQueryString(params map[string]string) string {
 
 ```go
 // NEVER do this - injection vulnerability!
-badURL := fmt.Sprintf("%s/api/{api_version}/users/%s/pastes", serverURL, username)
+badURL := fmt.Sprintf("%s/api/{api_version}/items/%s/details", serverURL, itemID)
 
 // ALWAYS do this - properly encoded
-goodURL := urlutil.BuildAPIURL(serverURL, "/api/{api_version}/users/{username}/pastes",
-    map[string]string{"username": username},
+goodURL := urlutil.BuildAPIURL(serverURL, "/api/{api_version}/items/{id}/details",
+    map[string]string{"id": itemID},
     nil,
 )
 
@@ -45694,15 +42927,14 @@ searchURL := urlutil.BuildAPIURL(serverURL, "/api/{api_version}/search",
 )
 
 // For single segments
-path := "/api/{api_version}/users/" + urlutil.EncodePathSegment(username) + "/pastes"
+path := "/api/{api_version}/items/" + urlutil.EncodePathSegment(itemID) + "/details"
 ```
 
 ### What MUST Be Encoded
 
 | Input Type | Encoding Function | Example |
 |------------|-------------------|---------|
-| **Usernames in path** | `EncodePathSegment()` | `/users/{username}` |
-| **Org names in path** | `EncodePathSegment()` | `/orgs/{org_name}` |
+| **Resource IDs in path** | `EncodePathSegment()` | `/items/{id}` |
 | **Resource IDs** | `EncodePathSegment()` | `/pastes/{id}` |
 | **Filenames in path** | `EncodePathSegment()` | `/files/{filename}` |
 | **Search terms** | `EncodeQueryValue()` | `?q={term}` |
@@ -45750,11 +42982,11 @@ func NewAPIClient(baseURL, token string) *APIClient {
     }
 }
 
-// GetUserResource fetches a user's resource with proper URL encoding
-func (c *APIClient) GetUserResource(username, resourceType string) (*APIResponse, error) {
-    apiURL := urlutil.BuildAPIURL(c.baseURL, "/api/{api_version}/users/{username}/{resource}",
+// GetItemResource fetches a resource item with proper URL encoding
+func (c *APIClient) GetItemResource(itemID, resourceType string) (*APIResponse, error) {
+    apiURL := urlutil.BuildAPIURL(c.baseURL, "/api/{api_version}/items/{id}/{resource}",
         map[string]string{
-            "username": username,
+            "id":       itemID,
             "resource": resourceType,
         },
         nil,
@@ -45911,9 +43143,9 @@ func detectInput(args []string) (content string, source string) {
 ### Local Development (Makefile + Docker)
 
 ```bash
-# Quick dev build (server + CLI + agent if exist)
+# Quick dev build (server + CLI if exist)
 make dev
-# Output: ${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/{project_name}, {project_name}-cli, {project_name}-agent
+# Output: ${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/{project_name}, {project_name}-cli
 
 # Production test build
 make local
@@ -46419,937 +43651,6 @@ Is your target user comfortable in a terminal?
 
 ---
 
-## Agent Binary (OPTIONAL - NON-NEGOTIABLE WHEN IMPLEMENTED)
-
-**Agent is OPTIONAL and only needed for very specific project types.** Most projects do NOT need an agent.
-
-### When Agent is Needed vs Not Needed
-
-**Key Question: Does the server need to reach INTO remote machines to collect data or execute commands?**
-
-| Scenario | Agent Needed? | Why |
-|----------|---------------|-----|
-| Server collects CPU/RAM/disk from 50 machines | ✅ YES | Agent runs on each machine, pushes metrics |
-| Users upload files via web form | ❌ NO | User initiates, server receives |
-| API serves random quotes | ❌ NO | Server has all data locally |
-| Execute shell commands on remote servers | ✅ YES | Agent receives commands, executes locally |
-| CI/CD pipeline runner on build machines | ✅ YES | Agent pulls jobs, runs builds |
-| Pastebin with user submissions | ❌ NO | Pull-based, users push data |
-| Centralized log aggregation | ✅ YES | Agent tails local logs, ships to server |
-| Weather API (fetches from external sources) | ❌ NO | Server fetches, no machine access needed |
-| Backup orchestration across servers | ✅ YES | Agent runs backup commands locally |
-| Git hosting (Gitea, Forgejo) | ❌ NO | Users push/pull via git protocol |
-
-### Project Examples: Agent vs No Agent
-
-**Projects that DO need an agent:**
-
-| Project Type | Example Names | What Agent Does |
-|--------------|---------------|-----------------|
-| **System Monitoring** | Zabbix, Nagios, Beszel, Netdata | Collects CPU, RAM, disk, network stats from each machine |
-| **Remote Desktop/Shell** | MeshCentral, RustDesk, Teleport | Provides remote access tunnel from the machine |
-| **Log Management** | Fluentd, Filebeat, Vector, Loki | Tails log files, ships to central server |
-| **CI/CD Runners** | GitLab Runner, GitHub Actions Runner, Drone | Pulls jobs from server, executes builds |
-| **Backup Agents** | Restic, Borg, Velero, Bacula | Runs backup commands, ships data to server |
-| **Config Management** | Puppet Agent, Salt Minion, CFEngine | Pulls and applies configuration from server |
-| **Security Scanning** | OSSEC, Wazuh, Falco, Lynis | Monitors files, processes, runs audits |
-| **Container Orchestration** | Kubernetes Kubelet, Nomad Client | Runs containers as directed by control plane |
-| **Network Monitoring** | Prometheus Node Exporter, Telegraf | Exposes machine metrics for scraping |
-| **Update Management** | Landscape Client, WSUS Client | Checks for and applies updates |
-
-**Projects that do NOT need an agent:**
-
-| Project Type | Example Names | Why No Agent |
-|--------------|---------------|--------------|
-| **Content APIs** | Jokes API, Quotes API, Facts API | Data is on server, clients just fetch |
-| **Pastebin/URL Shortener** | Hastebin, YOURLS, Shlink | Users push content, server stores it |
-| **Git Hosting** | Gitea, Forgejo, GitLab | Git protocol handles push/pull |
-| **Image Hosting** | Immich, Photoprism, Piwigo | Users upload, server stores/serves |
-| **Chat/Forum** | Mattermost, Discourse, Flarum | Users connect via web/API |
-| **Wiki/Docs** | Wiki.js, BookStack, Outline | Users edit via web interface |
-| **File Sharing** | Nextcloud, Seafile, FileBrowser | Web/WebDAV uploads, no machine access |
-| **Media Server** | Jellyfin, Plex, Navidrome | Serves content from local storage |
-| **Auth/SSO** | Authentik, Authelia, Keycloak | Applications connect to auth server |
-| **Status Pages** | Uptime Kuma, Gatus, Cachet | Server checks endpoints (pull-based) |
-
-### Agent Architecture Decision Tree
-
-```
-Does your server need to:
-│
-├─► Collect data FROM remote machines (metrics, logs, files)?
-│   └─► YES → Agent needed (runs on each machine, pushes to server)
-│
-├─► Execute commands ON remote machines (shell, backup, updates)?
-│   └─► YES → Agent needed (receives commands from server)
-│
-├─► Run jobs/tasks ON remote machines (builds, scans)?
-│   └─► YES → Agent needed (pulls jobs, executes locally)
-│
-├─► Provide remote access TO machines (shell, desktop, file transfer)?
-│   └─► YES → Agent needed (establishes reverse tunnel)
-│
-└─► Just serve an API/web interface that clients call?
-    └─► NO agent - users/clients connect TO your server
-```
-
-### Agent vs Webhook/API Callback
-
-**Don't confuse agents with webhooks:**
-
-| Mechanism | Direction | Use Case |
-|-----------|-----------|----------|
-| **Agent** | Machine ↔ Server (persistent) | Continuous metrics, remote commands, bidirectional |
-| **Webhook** | External → Server (triggered) | Event notifications, CI triggers |
-| **API Poll** | Server → External (scheduled) | Weather data, external service status |
-
-**Agent = persistent daemon on remote machine communicating with central server**
-
-### Agent Communication Patterns (CRITICAL)
-
-**Agents can SEND, RECEIVE, or BOTH depending on the project type.**
-
-| Pattern | Direction | Description |
-|---------|-----------|-------------|
-| **Send Only** | Agent → Server | Agent pushes data to server (metrics, logs, status) |
-| **Receive Only** | Server → Agent | Agent receives commands/config from server |
-| **Bidirectional** | Agent ↔ Server | Agent both sends data AND receives commands |
-
-#### Send Only (Agent → Server)
-
-Agent collects local data and pushes to server. Server does NOT send commands back.
-
-| Project Type | Examples | What Agent Sends |
-|--------------|----------|------------------|
-| **Metrics Collection** | Beszel Agent, Telegraf, collectd | CPU, RAM, disk, network stats |
-| **Log Shipping** | Filebeat, Fluentd, Vector, Promtail | Log entries, parsed logs |
-| **Health Reporting** | Consul Agent (client mode), Serf | Node health, service status |
-| **Event Streaming** | Kafka producers, NATS publishers | Application events |
-| **Uptime Monitoring** | Uptime Kuma push mode, Healthchecks.io | Heartbeats, alive signals |
-
-**Characteristics:**
-- Simple, stateless agents
-- Server is passive receiver
-- Agent initiates all communication
-- No command execution on agent
-- Lower security risk (no remote code execution)
-
-#### Receive Only (Server → Agent)
-
-Agent receives configuration or commands from server. Agent does NOT push data back (or minimal status only).
-
-| Project Type | Examples | What Agent Receives |
-|--------------|----------|---------------------|
-| **Config Management (pull)** | Puppet Agent, CFEngine | Configuration manifests, policies |
-| **Update Distribution** | WSUS Client, Landscape Client | Package updates, patches |
-| **DNS Updates** | Dynamic DNS clients | Zone changes, record updates |
-| **Certificate Distribution** | Vault Agent, cert-manager | TLS certificates, secrets |
-| **Feature Flags** | LaunchDarkly SDK, Unleash | Flag states, targeting rules |
-
-**Characteristics:**
-- Agent polls server for changes
-- Server pushes config/commands
-- Minimal feedback (success/failure only)
-- Agent applies changes locally
-
-#### Bidirectional (Agent ↔ Server) - MOST COMMON
-
-Agent both sends data AND receives commands. Full two-way communication.
-
-| Project Type | Examples | Agent Sends | Agent Receives |
-|--------------|----------|-------------|----------------|
-| **CI/CD Runners** | Jenkins Agent, GitLab Runner, GitHub Actions Runner, Drone Runner, Buildkite Agent | Build logs, artifacts, test results, status | Job definitions, build commands, environment vars |
-| **Remote Management** | MeshCentral Agent, RustDesk, Teleport, Apache Guacamole | Screen capture, file data, command output | Mouse/keyboard input, file transfers, shell commands |
-| **Container Orchestration** | Kubernetes Kubelet, Nomad Client, Docker Swarm Agent | Pod status, resource usage, container logs | Pod specs, deployments, scaling commands |
-| **Backup Orchestration** | Veeam Agent, Commvault, Bacula File Daemon | Backup status, file metadata, transfer progress | Backup schedules, retention policies, restore commands |
-| **Security/SIEM** | Wazuh Agent, OSSEC, Velociraptor | Security events, file integrity, process info | Detection rules, response actions, hunt queries |
-| **Config Management (push)** | SaltStack Minion, Ansible (with callback) | Execution results, state reports | State definitions, ad-hoc commands |
-| **Edge Computing** | Azure IoT Edge, AWS Greengrass | Telemetry, processed data | Deployment manifests, ML models |
-| **Database Replication** | MySQL Replica, PostgreSQL Standby | Replication lag, health status | WAL segments, replication commands |
-
-**Characteristics:**
-- Persistent connection (WebSocket, gRPC, or long-poll)
-- Full command-and-control capability
-- Rich status reporting
-- Higher complexity and security considerations
-- Requires authentication and authorization
-
-### Communication Pattern Decision Matrix
-
-| If your agent needs to... | Pattern | Example |
-|---------------------------|---------|---------|
-| Only report metrics/logs | **Send Only** | Beszel, Filebeat |
-| Only receive config updates | **Receive Only** | Puppet, WSUS |
-| Report status AND execute commands | **Bidirectional** | Jenkins, MeshCentral |
-| Provide remote shell/desktop | **Bidirectional** | RustDesk, Teleport |
-| Run builds/jobs on demand | **Bidirectional** | GitLab Runner, Drone |
-| Execute backups on schedule from server | **Bidirectional** | Veeam, Bacula |
-| Only push heartbeats | **Send Only** | Healthchecks.io |
-| Apply configurations pulled from server | **Receive Only** | Puppet, CFEngine |
-| Both apply config AND report detailed state | **Bidirectional** | Salt, Ansible+callback |
-
-### Security Implications by Pattern
-
-| Pattern | Risk Level | Key Concerns |
-|---------|------------|--------------|
-| **Send Only** | Low | Data exfiltration, DoS via flood |
-| **Receive Only** | Medium | Malicious config, unauthorized updates |
-| **Bidirectional** | High | Remote code execution, lateral movement |
-
-**Bidirectional agents require:**
-- Strong authentication (mTLS, tokens)
-- Authorization (what commands can execute)
-- Audit logging (who did what)
-- Input validation (prevent injection)
-- Sandboxing where possible
-
-### Determining If YOUR Project Needs Agent
-
-Answer these questions for your specific project:
-
-1. **Where does the data originate?**
-   - On user devices → No agent (users submit data)
-   - On remote servers you manage → Agent likely needed
-
-2. **Who initiates the connection?**
-   - User/client initiates → No agent (standard API)
-   - Server needs to reach machines → Agent needed
-
-3. **What runs on remote machines?**
-   - Nothing (just users with browsers) → No agent
-   - Background daemon collecting/executing → Agent needed
-
-4. **Is it push or pull?**
-   - Server pulls from external APIs → No agent
-   - Machines push data to server → Agent needed
-
-### Project Types That Need Agent
-
-| Category | Examples | Agent Purpose |
-|----------|----------|---------------|
-| **Monitoring** | Zabbix, Nagios, Prometheus Node Exporter | Machine metrics, health checks |
-| **Remote Management** | MeshCentral, RustDesk, TeamViewer | Remote shell, desktop, file transfer |
-| **System Monitor** | Beszel, Netdata, Glances | Real-time system stats |
-| **Log Shipping** | Fluentd, Filebeat, Vector | Tail and forward logs |
-| **Backup** | Restic, Borg, Duplicati | Execute local backups |
-| **Config Management** | Puppet, Ansible (pull mode), Salt | Apply configurations |
-| **Security/Compliance** | OSSEC, Wazuh, Lynis | Security scanning, audit |
-
-### Agent Runs Directly on the System, NOT Container
-
-**Agents MUST run directly on the target system, not in containers.**
-
-| Deployment | Supported | Reason |
-|------------|-----------|--------|
-| Direct on system | ✅ Yes | Full system access, accurate metrics |
-| systemd service | ✅ Yes | Preferred for Linux |
-| Windows service | ✅ Yes | Preferred for Windows |
-| launchd daemon | ✅ Yes | Preferred for macOS |
-| Docker container | ❌ No | Limited system visibility |
-| Kubernetes pod | ❌ No | Cannot monitor system properly |
-
-### Overview
-
-| Attribute | Value |
-|-----------|-------|
-| Binary naming | `{project_name}-agent-{os}-{arch}` |
-| Examples | `monitor-agent-linux-amd64`, `monitor-agent-windows-arm64` |
-| Versioning | Same as server and client |
-| Build | Part of same Makefile (`make build` builds all if `src/agent/` exists) |
-| Config file | `{config_dir}/agent.yml` (same dir as server) |
-| Data directory | `{data_dir}/` (same as server) |
-| Database | `{data_dir}/db/agent.db` (if needed, same dir as server) |
-| Privileges | **Root/Admin required** (for full system access) |
-| Update mechanism | Same as client (self-update) |
-
-### Agent Binary Structure (Same as Server)
-
-**Agent shares the same CLI structure, banner, and modes as the server binary.**
-
-| Component | Server | Agent | Notes |
-|-----------|--------|-------|-------|
-| Startup banner | ✅ | ✅ | Responsive, terminal-aware |
-| Mode line | ✅ | ✅ | Shows production/development |
-| Debug flag | ✅ | ✅ | Enables verbose logging |
-| Service management | ✅ | ✅ | install/uninstall/start/stop |
-| Self-update | ✅ | ✅ | --update flag |
-| WebUI | ✅ | ❌ | Agent is headless |
-
-### Agent Startup Banner
-
-```
-┌────────────────────────────────────────┐
-│  ███╗   ███╗ ██████╗ ███╗   ██╗        │
-│  ████╗ ████║██╔═══██╗████╗  ██║        │
-│  ██╔████╔██║██║   ██║██╔██╗ ██║        │
-│  ██║╚██╔╝██║██║   ██║██║╚██╗██║        │
-│  ██║ ╚═╝ ██║╚██████╔╝██║ ╚████║        │
-│  ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝        │
-│                                  AGENT │
-└────────────────────────────────────────┘
-
-🤖 monitor-agent v1.0.0
-🔒 Running in mode: production
-
-📡 Server: https://monitor.example.com
-🏷️  Hostname: web-server-01
-🏷️  Tags: production, web-tier
-
-✅ Connected to server
-```
-
-**Compact banner (60-79 cols):**
-```
-🤖 monitor-agent v1.0.0
-🔒 Mode: production
-📡 https://monitor.example.com
-🏷️  web-server-01
-✅ Connected
-```
-
-**Minimal banner (<60 cols):**
-```
-monitor-agent 1.0.0
-web-server-01 → monitor.example.com
-Connected
-```
-
-**Plain banner (NO_COLOR / TERM=dumb):**
-```
-monitor-agent v1.0.0
-Mode: production
-Server: https://monitor.example.com
-Hostname: web-server-01
-Tags: production, web-tier
-[OK] Connected to server
-```
-
-### Agent Flags
-
-**Same flag style as server binary, EXCEPT no `--port` or `--address` (agents don't serve web).**
-
-| Server Flag | Agent | Reason |
-|-------------|-------|--------|
-| `--port` | ❌ No | Agent doesn't serve HTTP |
-| `--address` | ❌ No | Agent doesn't listen for connections |
-| `--config` | ✅ Yes | Same config directory |
-| `--data` | ✅ Yes | Same data directory |
-| `--status` | ✅ Yes | Health check (exit 0=healthy, 1=unhealthy) |
-| `--service` | ✅ Yes | Service management |
-| `--update` | ✅ Yes | Self-update |
-
-```bash
-# Information
---help, -h                    # Show help
---version, -v                 # Show version (same format as server)
---shell completions [SHELL]   # Print shell completions (auto-detect if SHELL omitted)
---shell init [SHELL]          # Print shell init command (auto-detect if SHELL omitted)
---status                      # Show status and health (exit 0=healthy, 1=unhealthy)
-
-# Configuration
---config {path}               # Config directory (default: {config_dir})
---data {path}                 # Data directory override
---log {path}                  # Log directory override
-
-# Connection (can also be set in agent.yml)
---server {url}                # Server URL to connect to
---token {token}               # Authentication token (from server)
-
-# Runtime
---mode {production|development}  # Force mode (auto-detected by default)
---debug                       # Enable debug logging (implies development features)
---color {always|never|auto}   # Color output (default: auto, respects NO_COLOR)
---lang {code}                 # Language for output (default: auto, from LANG env)
-
-# Commands (subcommands like server)
-status                        # Show agent status
-test                          # Test server connection
-register                      # Interactive registration with server
-
-# Service management (same as server)
---service {install|uninstall|start|stop|restart|status}
-
-# Updates (same as server/CLI)
---update [check|yes]          # Check for or perform self-update
-```
-
-### Agent --help Output
-
-```bash
-$ {project_name}-agent --help
-{project_name}-agent {projectversion} - Agent for {project_name}
-
-Usage:
-  {project_name}-agent [flags]
-  {project_name}-agent [command]
-
-Commands:
-  status                        Show agent status
-  test                          Test server connection
-  register                      Interactive registration
-
-Flags:
-  -h, --help                        Show help
-  -v, --version                     Show version
-      --shell completions [SHELL]   Print shell completions (auto-detect if SHELL omitted)
-      --shell init [SHELL]          Print shell init command (auto-detect if SHELL omitted)
-      --shell --help                Show shell integration help
-
-      --config DIR                  Config directory
-      --data DIR                    Data directory
-      --log DIR                     Log directory
-      --server URL                  Server URL to connect to
-      --token TOKEN                 Authentication token
-
-      --mode {production|development}  Application mode
-      --debug                       Enable debug mode
-      --color {always|never|auto}   Color output (default: auto)
-      --lang CODE                   Language for output (default: auto)
-      --status                      Show agent health
-
-      --service CMD                 Service management (install|uninstall|start|stop|restart)
-      --update [CMD]                Check/perform self-update
-
-Shells: bash, zsh, fish, sh, dash, ksh, powershell, pwsh
-```
-
-### Agent Commands
-
-**Agent has subcommands similar to server:**
-
-```bash
-# Default: run agent (foreground)
-{project_name}-agent
-
-# Status: show current agent status
-{project_name}-agent status
-  Agent: monitor-agent v1.0.0
-  Hostname: web-server-01
-  Server: https://monitor.example.com
-  Status: Connected (5m 32s)
-  Last Report: 2025-01-15 10:30:00
-  Next Report: 2025-01-15 10:31:00
-
-# Test: verify server connection
-{project_name}-agent test
-  Testing connection to https://monitor.example.com...
-  ✅ Connection successful
-  ✅ Agent registered
-
-# Connect: one-liner (no token required — open API)
-{project_name}-agent --server https://monitor.example.com
-  Connecting to https://monitor.example.com...
-  ✅ Connection successful
-  ✅ Agent registered as "web-server-01"
-
-  Config saved to: /etc/projectorg/projectname/agent.yml
-  Installing service...
-  ✅ Service installed and started
-
-  Agent is now sending data to server for admin scope.
-
-# Service management
-{project_name}-agent --service install   # Install as system service
-{project_name}-agent --service start     # Start service
-{project_name}-agent --service stop      # Stop service
-{project_name}-agent --service status    # Show service status
-{project_name}-agent --service uninstall # Remove service
-```
-
-### Agent Setup Process
-
-**Agent setup requires no tokens — the server is an open API:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    AGENT SETUP FLOW                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1. On Target Machine (one command)                         │
-│     └─→ Run: {project_name}-agent --server {url}            │
-│     └─→ Agent connects, registers, saves config             │
-│     └─→ Server logs: "{name} has connected"                 │
-│                                                             │
-│  2. Agent auto-starts and sends data                        │
-│     └─→ Agent installs itself as service (if root)          │
-│     └─→ Begins sending data to server                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Server generates the connect command:**
-```go
-func GenerateAgentCommand(serverURL string) string {
-    return fmt.Sprintf("%s-agent --server %s", projectName, serverURL)
-}
-```
-
-### Agent Registration API
-
-**Single endpoint — no token required:**
-
-**Endpoint:** `POST /api/{api_version}/agents/register`
-
-**Request:**
-```json
-{
-  "hostname": "web-server-01",
-  "os": "linux",
-  "arch": "amd64",
-  "version": "1.0.0",
-  "tags": ["production", "web-tier"]
-}
-```
-
-**Response (success):**
-```json
-{
-  "ok": true,
-  "data": {
-    "agent_id": "uuid-here",
-    "name": "web-server-01",
-    "server_time": "2025-01-15T10:00:00Z"
-  }
-}
-```
-
-### agent.yml Configuration
-
-**EVERYTHING must be configurable via agent.yml. Sane defaults match server where applicable.**
-
-**File: `{config_dir}/agent.yml`** (same directory as server.yml)
-
-```yaml
-# /etc/{project_org}/{internal_name}/agent.yml (root)
-# ~/.config/{project_org}/{internal_name}/agent.yml (user)
-# Agent configuration - ALL options with defaults
-
-# Language for agent output and API requests
-lang: auto                           # auto = detect from env, or "en", "es", etc.
-
-# Server connection
-server:
-  primary: ""                      # Server URL (required, set during registration)
-  cluster: []                      # Auto-discovered cluster nodes
-  api_version: v1                  # API version prefix (default: v1, must match server)
-  timeout: 30s                     # Request timeout (match server default)
-  retry: 3                         # Retry attempts on failure
-  retry_delay: 5s                  # Delay between retries
-  reconnect_delay: 10s             # Delay before reconnect attempt
-
-# Authentication
-auth:
-  token: ""                        # Agent token ({scope}_agt_xxx, see PART 11)
-  token_file: ""                   # Read token from file instead
-
-# Agent identity
-identity:
-  hostname: ""                     # Hostname (auto-detect if empty)
-  display_name: ""                 # Friendly name (defaults to hostname)
-  tags: []                         # Tags for grouping ["production", "web-tier"]
-  labels: {}                       # Key-value labels {environment: prod, tier: web}
-
-# Data collection (project-specific)
-collection:
-  enabled: true                    # Enable data collection
-  interval: 60s                    # Collection interval
-  batch_size: 100                  # Max items per batch
-  buffer_size: 1000                # Max buffered items if offline
-
-# Logging
-logging:
-  level: info                      # debug, info, warn, error (match server default)
-  file: ""                         # Log file path (empty = {log_dir}/agent.log)
-  max_size: 10MB                   # Max log file size (match server default)
-  max_files: 5                     # Max log files to keep (match server default)
-
-# Health reporting
-health:
-  enabled: true                    # Report agent health to server
-  interval: 30s                    # Health check interval
-
-# Debug
-debug: false                       # Enable debug mode (same as --debug)
-
-# Mode (auto-detected, can override)
-mode: ""                           # production, development (empty = auto-detect)
-```
-
-**Config precedence (highest to lowest):**
-
-| Priority | Source | Example |
-|----------|--------|---------|
-| 1 | CLI flag | `--server https://...` |
-| 2 | Environment variable | `{PROJECT_NAME}_AGENT_SERVER=https://...` |
-| 3 | Config file | `server.primary: https://...` |
-| 4 | Compiled default | (none for server, must be configured) |
-
-**Environment variable mapping:**
-```bash
-# Pattern: {PROJECT_NAME}_AGENT_{KEY} or {PROJECT_NAME}_{KEY}
-{PROJECT_NAME}_AGENT_SERVER_PRIMARY="https://example.com"
-{PROJECT_NAME}_AGENT_HOSTNAME="web-server-01"
-{PROJECT_NAME}_AGENT_COLLECTION_INTERVAL=30
-{PROJECT_NAME}_DEBUG=true
-```
-
-### Agent Cluster Failover
-
-**Agents MUST support automatic cluster failover. Everything is automatic.**
-
-| Feature | Behavior |
-|---------|----------|
-| **Node discovery** | Agent calls `/api/autodiscover` on connect |
-| **Auto-update** | `server.cluster` updated from `cluster.nodes` in response |
-| **Failover** | If primary fails, try cluster nodes in order |
-| **Reconnect** | When primary recovers, switch back automatically |
-| **No manual config** | Cluster list maintained automatically |
-
-**Failover Flow:**
-```
-1. Agent connects to server.primary
-2. Agent calls GET /api/{api_version}/server/healthz
-3. Agent reads cluster.primary and cluster.nodes from response
-4. Agent saves to server.primary and server.cluster in agent.yml
-5. If primary fails:
-   a. Try each node in server.cluster
-   b. First successful = new active connection
-   c. Continue trying primary in background
-6. When primary recovers:
-   a. Switch back to primary
-   b. Update cluster list (may have changed)
-```
-
-**Agent Startup Sequence:**
-```
-1. Load agent.yml
-2. Try server.primary
-3. If fails → try server.cluster nodes
-4. Once connected → GET /api/{api_version}/server/healthz
-5. Update server.primary and server.cluster from response
-6. Begin normal operation
-```
-
-### Shared Directories with Server
-
-**Agent uses the SAME directory structure as server:**
-
-| Directory | Path | Shared With |
-|-----------|------|-------------|
-| Config | `{config_dir}/` | Server (agent.yml alongside server.yml) |
-| Data | `{data_dir}/` | Server |
-| Database | `{data_dir}/db/agent.db` | Server uses `server.db` in same dir |
-| Logs | `{log_dir}/agent.log` | Server uses `server.log` in same dir |
-| Cache | `{cache_dir}/` | Server |
-
-**Same privilege escalation as server (see PART 23)** - agent requires root/admin for full system access.
-
-### Agent vs Client vs Server
-
-| Aspect | Server | Client | Agent |
-|--------|--------|------------|-------|
-| **Runs as** | Service/daemon | Interactive/one-shot | Service/daemon |
-| **Purpose** | Serve API, WebUI | User interaction | Data collection |
-| **Initiated by** | System startup | User | System startup |
-| **Connection** | Listens for connections | Connects to server | Connects to server |
-| **Lifetime** | Long-running | Short-lived | Long-running |
-| **User interaction** | WebUI, API | Terminal, TUI | None (headless) |
-| **Updates** | Manual or scheduled | Manual | Auto or server-pushed |
-
-### Execution Context
-
-**Client and Agent run in fundamentally different execution contexts:**
-
-| Aspect | Client | Agent |
-|--------|------------|-------|
-| **Execution context** | User-scope context | System context |
-| **Runs as** | Invoking user account (may be root/admin, but still user-scope) | root/Administrator |
-| **Config base path** | `~/` (user home) | `/` (system root) |
-| **Config directory** | `~/.config/{project_org}/{internal_name}/` | `/etc/{project_org}/{internal_name}/` |
-| **Data directory** | `~/.local/share/{project_org}/{internal_name}/` | `/var/lib/{project_org}/{internal_name}/` |
-| **Log directory** | `~/.local/log/{project_org}/{internal_name}/` | `/var/log/{project_org}/{internal_name}/` |
-| **Cache directory** | `~/.cache/{project_org}/{internal_name}/` | `/var/cache/{project_org}/{internal_name}/` |
-| **Privilege requirement** | No escalation required | Elevated (root/admin) |
-| **System access** | User-scope files/dirs only | Full system access |
-
-**Why Different Contexts?**
-
-| Component | Context | Reason |
-|-----------|---------|--------|
-| **Client** | User (`~/`) | User tool - accesses user's files, runs with user permissions, stores user-specific settings |
-| **Agent** | System (`/`) | System daemon - needs root for system metrics, hardware access, service management |
-
-**Path Examples:**
-
-```bash
-# Client (user context - runs as "alice")
-~/.config/{project_org}/{internal_name}/cli.yml        # Alice's config
-~/.local/share/{project_org}/{internal_name}/          # Alice's data
-~/.local/log/{project_org}/{internal_name}/cli.log     # Alice's logs
-
-# Agent (system context - runs as root)
-/etc/{project_org}/{internal_name}/agent.yml           # System config
-/var/lib/{project_org}/{internal_name}/                # System data
-/var/log/{project_org}/{internal_name}/agent.log       # System logs
-```
-
-**Platform-Specific Paths:**
-
-| Platform | Client Config | Agent Config |
-|----------|-------------------|--------------|
-| **Linux** | `~/.config/{project_org}/{internal_name}/` | `/etc/{project_org}/{internal_name}/` |
-| **macOS** | `~/Library/Application Support/{project_org}/{internal_name}/` | `/Library/Application Support/{project_org}/{internal_name}/` |
-| **Windows** | `%APPDATA%\{project_org}\{internal_name}\` | `%PROGRAMDATA%\{project_org}\{internal_name}\` |
-| **FreeBSD** | `~/.config/{project_org}/{internal_name}/` | `/usr/local/etc/{project_org}/{internal_name}/` |
-
-### Purpose Matching
-
-**Client and Agent are companion binaries designed FOR the Server. They match the server's intent, purpose, and functionality.**
-
-All three binaries are built for the SAME project and work together as a system:
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                          PROJECT BINARY ECOSYSTEM                          │
-├───────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  ┌─────────────────────┐                                                   │
-│  │       SERVER        │  Central server - serves API, WebUI, manages data│
-│  │    {project_name}    │  Runs as service/daemon                           │
-│  └──────────┬──────────┘                                                   │
-│             │                                                              │
-│             │ API                                                          │
-│             │                                                              │
-│       ┌─────┴─────┐                                                        │
-│       │           │                                                        │
-│       ▼           ▼                                                        │
-│  ┌─────────────────────┐     ┌─────────────────────────┐                   │
-│  │ {project_name} CLIENT │     │         AGENT           │                   │
-│  │  {project_name}-cli  │     │  {project_name}-agent    │                   │
-│  └─────────────────────┘     └─────────────────────────┘                   │
-│                                                                            │
-│  {project_name} CLIENT:                AGENT:                                   │
-│  • Full remote admin              • Purpose-specific daemon                │
-│  • TUI/CLI/GUI modes              • Headless, no admin                     │
-│  • User context (~/)              • System context (/)                     │
-│  • --admin* flags                 • No --admin* flags                      │
-│                                                                            │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
-**Real-World Examples:**
-
-| Product | Server | Client | Agent |
-|---------|--------|------------|-------|
-| **Jenkins** | Jenkins Server (WebUI, job management) | Jenkins CLI (remote admin) | Jenkins Agent (executes builds on nodes) |
-| **Portainer** | Portainer Server (container management UI) | - | Portainer Agent (runs on Docker hosts) |
-| **Beszel** | Beszel Hub (monitoring dashboard) | - | Beszel Agent (collects machine metrics) |
-| **Zabbix** | Zabbix Server (monitoring, alerting) | zabbix_get (query agents) | Zabbix Agent (host monitoring) |
-| **Netdata** | Netdata Parent (aggregates metrics) | netdatacli (local control) | Netdata Child (streams to parent) |
-| **Prometheus** | Prometheus Server (scrapes, stores, alerts) | promtool (config validation) | Node Exporter (exposes machine metrics) |
-| **ManageEngine** | ManageEngine Server (IT management) | CLI tools | Desktop Central Agent (endpoint management) |
-| **Proxmox** | Proxmox VE (virtualization management) | pvesh (API access) | qemu-guest-agent (VM guest agent) |
-| **Kubernetes** | kube-apiserver (control plane) | kubectl (cluster admin) | kubelet (runs pods on nodes) |
-| **Salt** | Salt Master (configuration management) | salt (command execution) | Salt Minion (applies configs on nodes) |
-| **Ansible AWX** | AWX Server (automation platform) | awx-cli (tower-cli) | - (agentless, but receptor for mesh) |
-
-**The Pattern:**
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  SERVER: Central control, WebUI, data storage, orchestration           │
-│  └─► Portainer, Zabbix Server, Jenkins, Proxmox VE, K8s API Server      │
-├─────────────────────────────────────────────────────────────────────────┤
-│  CLIENT: Full remote administration, scripting, automation │
-│  └─► kubectl, pvesh, salt, zabbix_get, jenkins-cli                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│  AGENT: Runs on managed hosts, reports to server, executes tasks         │
-│  └─► Portainer Agent, Zabbix Agent, Jenkins Agent, kubelet, Salt Minion │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-**Component Responsibilities:**
-
-| Component | Purpose | Admin Capabilities | Modes |
-|-----------|---------|-------------------|-------|
-| **Server** | Central server | N/A (IS the admin) | Daemon/service |
-| **Client** | Full remote administration | ✅ `--admin*` flags, full server control | TUI, CLI, GUI |
-| **Agent** | Purpose-specific work | ❌ No admin flags | Daemon/service (headless) |
-
-### Agent Shares Server Structure
-
-**Agent has many of the same flags and startup procedures as Server, but in agent context.**
-
-The Agent is essentially the Server's "little sibling" - same professional structure, similar startup sequence, but connecting TO a server instead of BEING the server.
-
-**For detailed flag documentation, see:**
-- **"Agent Flags"** - Complete flag list and comparison
-- **"Agent Startup Banner"** - Banner examples for all screen sizes
-- **"Agent Commands"** - Subcommands and usage
-
-**Key Differences (Server vs Agent):**
-
-| Aspect | Server | Agent |
-|--------|--------|-------|
-| **Listens for connections** | ✅ Yes (`--port`, `--address`) | ❌ No |
-| **Connects to parent server** | ❌ No (IS the server) | ✅ Yes (`--server`, `--token`) |
-| **Setup** | ✅ CLI-based (`{project_name} --maintenance setup`) | ❌ No (registers with server via connection string) |
-| **Admin operations** | N/A (IS the server) | ❌ No (Client's job) |
-| **WebUI** | ✅ Yes | ❌ No (headless) |
-| **Database** | ✅ `server.db` | ✅ `agent.db` (if needed) |
-
-**Startup Sequence Comparison:**
-
-```
-SERVER STARTUP                          AGENT STARTUP
-─────────────────                       ─────────────────
-1. Parse flags                          1. Parse flags
-2. Load config                          2. Load config
-3. Detect mode (prod/dev)               3. Detect mode (prod/dev)
-4. Show banner                          4. Show banner
-5. Initialize logging                   5. Initialize logging
-6. Connect to database                  6. Connect to SERVER ← different
-7. Start HTTP server                    7. Start reporter/collector ← different
-8. Listen for connections               8. Begin agent tasks ← different
-```
-
-### Client = Full Server Access
-
-**The Client is a COMPLETE interface to the server. It can do EVERYTHING the server offers.**
-
-| Client Capability | Description |
-|-----------------------|-------------|
-| **All user operations** | Everything a logged-in user can do |
-| **All org operations** | Everything org members can do |
-| **All admin operations** | `--admin*` flags for server administration |
-| **TUI mode** | Interactive terminal UI |
-| **CLI mode** | Scriptable command-line |
-| **GUI mode** | Native graphical interface (if available) |
-
-**Admin flags (Client only):**
-```bash
-{project_name}-cli --admin users list          # List all users
-{project_name}-cli --admin users create ...    # Create user
-{project_name}-cli --admin server status       # Server status
-{project_name}-cli --admin server config       # View/edit config
-{project_name}-cli --admin backup create       # Create backup
-```
-
-### Agent = Purpose-Specific Worker
-
-**The Agent does ONE thing: its designated job. No admin, no user operations, no TUI.**
-
-| Agent Does | Agent Does NOT |
-|------------|----------------|
-| Connect to server | Admin operations |
-| Authenticate with agent token | User operations |
-| Perform its designated function | Interactive modes (TUI/GUI) |
-| Report status/data to server | Server configuration |
-| Execute server-assigned tasks | Anything outside its scope |
-
-**Example by project type:**
-
-| Project Type | Agent Purpose |
-|--------------|---------------|
-| **Monitoring** | Collect machine metrics (CPU, RAM, disk), send to server |
-| **CI/CD** | Pull jobs from server, execute builds, report results |
-| **Log aggregation** | Tail local logs, ship to server |
-| **Backup** | Execute backup commands, upload to server |
-| **Remote management** | Provide reverse tunnel for remote access |
-
-### Same Codebase, Same Project
-
-**All three binaries are built from the same source tree:**
-
-```
-src/
-├── common/           # Shared code used by server, client, and agent
-│   ├── banner/       # Startup banner (responsive, terminal-aware)
-│   ├── config/       # Configuration loading/parsing
-│   ├── display/      # Display environment detection
-│   ├── terminal/     # Terminal size/capabilities
-│   ├── theme/        # Color palette (dark/light/auto)
-│   ├── version/      # Version info (shared across all binaries)
-│   └── ...           # Other shared packages as needed
-├── server/           # Server-specific code
-├── client/           # Client-specific code (TUI, GUI, admin commands)
-└── agent/            # Agent-specific code (collectors, reporters)
-```
-
-| Aspect | Description |
-|--------|-------------|
-| **Same codebase** | All three built from `src/` |
-| **Same release** | `make build` produces all binaries together |
-| **Shared packages** | `src/common/` used by server, client, and agent |
-| **Same API** | Client and Agent use server's API |
-| **Same models** | Shared data structures across all components |
-| **Cluster support** | Both Client and Agent support automatic cluster failover |
-
-### Cluster Support (Client and Agent)
-
-**Both Client and Agent support automatic cluster failover. See dedicated sections for details:**
-
-| Component | Cluster Section | Config Key |
-|-----------|-----------------|------------|
-| **Client** | "CLI Cluster Failover" | `server.primary`, `server.cluster` in `cli.yml` |
-| **Agent** | "Agent Cluster Failover" | `server.primary`, `server.cluster` in `agent.yml` |
-
-**Shared Cluster Behavior:**
-
-| Feature | Client | Agent |
-|---------|------------|-------|
-| **Discovery** | Background `/api/autodiscover` | On connect `/api/autodiscover` |
-| **Auto-update** | Updates `cli.yml` with discovered nodes | Updates `agent.yml` with discovered nodes |
-| **Failover** | Silent failover to cluster nodes | Automatic failover to cluster nodes |
-| **Recovery** | Uses primary when available | Switches back to primary when recovered |
-
-### Agent Directory Structure
-
-**Source Code:**
-```
-src/
-├── server/               # Server-specific code
-├── client/               # CLI-specific code (if present)
-└── agent/                # Agent-specific code
-    ├── collector/        # Data collectors
-    │   ├── collector.go
-    │   ├── cpu.go
-    │   ├── memory.go
-    │   ├── disk.go
-    │   └── network.go
-    ├── reporter/         # Server reporting
-    │   └── reporter.go
-    ├── service/          # OS service management
-    │   ├── service.go
-    │   ├── linux.go
-    │   ├── windows.go
-    │   └── darwin.go
-    └── updater/          # Self-update logic
-        └── updater.go
-```
-
-### Build Output
-
-**`make build` automatically builds all components if their source directories exist:**
-
-```
-binaries/
-├── {project_name}                         # Local server binary - for testing
-├── {project_name}-cli                     # Local CLI binary (if src/client/ exists)
-├── {project_name}-agent                   # Local agent binary (if src/agent/ exists)
-├── {project_name}-linux-amd64             # Server
-├── {project_name}-linux-arm64
-├── {project_name}-cli-linux-amd64         # CLI (if src/client/ exists)
-├── {project_name}-cli-linux-arm64
-├── {project_name}-agent-linux-amd64       # Agent (if src/agent/ exists)
-├── {project_name}-agent-linux-arm64
-├── {project_name}-agent-windows-amd64.exe
-├── {project_name}-agent-darwin-amd64
-└── {project_name}-agent-darwin-arm64
-```
-
-**See PART 25 (Makefile) for full build details.**
-
 ---
 
 # PART 33: IDEA.md REFERENCE
@@ -47778,7 +44079,6 @@ make docker # Build Docker image
 - [ ] `src/ssl/ssl.go` - SSL/TLS handling
 - [ ] `src/scheduler/scheduler.go` - Background tasks
 - [ ] `src/service/service.go` - Service management
-- [ ] `src/admin/` - Admin panel package
 - [ ] `src/server/` - HTTP server with subdirs
 - [ ] `docker/` - Docker configuration
 - [ ] `docs/` - ReadTheDocs documentation only
@@ -47854,13 +44154,12 @@ make docker # Build Docker image
 
 ### Phase 3: Data Layer (PARTS 10-11)
 
-**PART 10: Database & Cluster**
-- [ ] SQLite default for single-node
-- [ ] PostgreSQL/MySQL for cluster mode
+**PART 10: Database**
+- [ ] SQLite default for local
+- [ ] libsql/Turso for remote
 - [ ] CREATE TABLE IF NOT EXISTS pattern
 - [ ] Automatic migrations on startup
 - [ ] No manual schema creation required
-- [ ] Cluster-aware task locking (when applicable)
 - [ ] Connection pooling configured
 - [ ] Prepared statements used (no SQL injection)
 
@@ -47886,7 +44185,6 @@ make docker # Build Docker image
 - [ ] Runtime reload of safe settings
 - [ ] Restart required clearly documented
 - [ ] Valkey/Redis configuration (if applicable)
-- [ ] Cluster configuration (if applicable)
 
 **PART 13: Health & Versioning**
 - [ ] `/server/healthz` endpoint exists (frontend - smart detection)
@@ -47896,9 +44194,8 @@ make docker # Build Docker image
 - [ ] Smart detection: browser → HTML, CLI → formatted text
 - [ ] Extended healthz response includes:
   - [ ] version, go_version, build info
-  - [ ] cluster (enabled, status, primary, nodes, role)
-  - [ ] features (multi_user, organizations, tor, geoip, metrics)
-  - [ ] checks (database, cache, disk, scheduler, cluster)
+  - [ ] features (tor, geoip, metrics)
+  - [ ] checks (database, cache, disk, scheduler)
   - [ ] stats (requests_total, requests_24h, active_connections)
 - [ ] NEVER expose sensitive data (tokens, credentials, paths, internal IPs)
 - [ ] `release.txt` contains version
@@ -47966,7 +44263,6 @@ make docker # Build Docker image
 - [ ] SSL renewal: 03:00 daily
 - [ ] GeoIP update: 03:00 Sunday
 - [ ] Session cleanup: hourly
-- [ ] Cluster-aware task locking
 - [ ] Scheduler status in admin API
 - [ ] Manual task trigger option
 
@@ -47997,7 +44293,6 @@ make docker # Build Docker image
 - [ ] **Backup verification after creation** (checksum, decrypt, extract, DB integrity)
 - [ ] **Daily incremental** `{project_name}-daily.tar.gz[.enc]` always valid
 - [ ] **Hourly incremental** `{project_name}-hourly.tar.gz[.enc]` (if enabled)
-- [ ] **Cluster mode**: each node maintains own valid backups (max_backups per node)
 
 ### Phase 8: Maintenance (PARTS 23-26)
 
@@ -48083,7 +44378,6 @@ make docker # Build Docker image
   - [ ] docs/installation.md
   - [ ] docs/configuration.md
   - [ ] docs/api.md
-  - [ ] docs/admin.md
   - [ ] docs/security.md
   - [ ] docs/integrations.md
   - [ ] docs/development.md
@@ -48114,7 +44408,7 @@ make docker # Build Docker image
   - [ ] `features.tor.status` (healthy/error:{message})
   - [ ] `features.tor.hostname` ({onion_address})
 
-**PART 32: Client & Agent**
+**PART 32: Client**
 
 *Client (REQUIRED for all projects):*
 - [ ] Binary: `{project_name}-cli`
@@ -48126,32 +44420,6 @@ make docker # Build Docker image
 - [ ] Theme matching server (dark default)
 - [ ] Shell completions (bash, zsh, fish, powershell)
 - [ ] All server API operations accessible via CLI
-- [ ] Cluster failover support:
-  - [ ] `server.primary` and `server.cluster` in cli.yml
-  - [ ] Auto-discover nodes from `/api/autodiscover`
-  - [ ] Auto-update cli.yml with discovered nodes
-  - [ ] Automatic failover to next node if primary fails
-
-*Agent (only for monitoring/remote management projects):*
-- [ ] Binary: `{project_name}-agent`
-- [ ] `src/agent/` directory exists
-- [ ] Runs directly on system, NOT in container
-- [ ] Same version as server
-- [ ] Systemd/launchd/Windows service support
-
-*Agent (only for monitoring/remote management projects, agent-specific config):*
-- [ ] Config: `/etc/{project_org}/{internal_name}/agent.yml`
-- [ ] Connects to central server
-- [ ] Same flags as server EXCEPT no `--port`/`--address` (agents don't serve HTTP)
-- [ ] Communication pattern documented:
-  - [ ] **Send Only**: Agent pushes data to server (metrics, logs)
-  - [ ] **Receive Only**: Agent receives config/commands from server
-  - [ ] **Bidirectional**: Agent both sends data AND receives commands
-- [ ] Cluster failover support:
-  - [ ] `server.primary` and `server.cluster` in agent.yml
-  - [ ] Auto-discover nodes from `/api/autodiscover`
-  - [ ] Auto-update agent.yml with discovered nodes
-  - [ ] Automatic failover to next node if primary fails
 
 ### Phase 12: Project-Specific (IDEA.md)
 
@@ -48169,13 +44437,12 @@ make docker # Build Docker image
 ### Authentication & Authorization
 
 - [ ] No hardcoded credentials in code
-- [ ] Passwords hashed with Argon2id (NEVER bcrypt)
-- [ ] Session tokens are cryptographically random
-- [ ] Session expiration enforced
+- [ ] Config/backup passwords hashed with Argon2id (NEVER bcrypt); API tokens hashed with SHA-256
+- [ ] API tokens are cryptographically random (CSPRNG)
 - [ ] CSRF protection on all forms
 - [ ] API authentication on all protected endpoints
 - [ ] Rate limiting prevents brute force
-- [ ] Account lockout after failed attempts
+- [ ] Token auto-revocation after repeated failures from the same source
 - [ ] Privilege escalation properly controlled
 
 ### Input Validation
@@ -48228,9 +44495,7 @@ make docker # Build Docker image
 - [ ] Global burst ceiling enforced: 240 req/min per IP
 - [ ] `429 Too Many Requests` with `Retry-After` header on limit hit
 - [ ] Rate limit counters stored in `server.db`
-- [ ] Separate session tables (`admin_sessions`, `user_sessions`)
 - [ ] Server API routes protected (`/api/{api_version}/server/*`)
-- [ ] No privilege escalation path from user to admin
 
 ---
 
@@ -48259,13 +44524,6 @@ make docker # Build Docker image
 - [ ] **"local binary"** used (not "host binary")
 - [ ] **"local platform"** used (not "host platform")
 - [ ] **"locally"** used for dev machine context (not "on host")
-
-### Agent Terminology
-
-- [ ] **"remote machine"** used (not "remote host")
-- [ ] **"target machine"** used for deployment target
-- [ ] **"target system"** used for OS where agent runs
-- [ ] **"machine metrics"** used (not "host metrics")
 
 ### Git Terminology
 
@@ -48403,7 +44661,7 @@ make docker # Build Docker image
 - [ ] Empty verification codes NOT rendered
 - [ ] Invalid verification codes NOT rendered (XSS prevention)
 - [ ] Custom verification tags validated (name/property + content)
-- [ ] Admin panel validates codes on save
+- [ ] Config loader validates codes on load (rejects invalid `server.yml`)
 - [ ] Custom tags limited to alphanumeric + hyphens/underscores
 
 ### SEO Meta Tags
@@ -48544,7 +44802,6 @@ make docker # Build Docker image
 ### Theme Coverage
 
 - [ ] Web frontend uses theme
-- [ ] Admin panel uses theme
 - [ ] Error pages use theme (404, 500, 502, 503, etc.)
 - [ ] Swagger UI uses theme
 - [ ] GraphQL Playground uses theme
@@ -48615,7 +44872,7 @@ make docker # Build Docker image
 - [ ] `--color {always|never|auto}` available on all binaries
 - [ ] `--lang CODE` available on all binaries
 - [ ] `--debug` available on all binaries
-- [ ] Flag parsing consistent across server, client, agent
+- [ ] Flag parsing consistent across server, client
 
 ### Error Pages (Web Frontend)
 
@@ -48681,12 +44938,12 @@ make docker # Build Docker image
 
 ### Binary Parity
 
-- [ ] `src/common/i18n/` package is imported by server, CLI, and agent
+- [ ] `src/common/i18n/` package is imported by server and CLI
 - [ ] `//go:embed locales/*.json` embeds all locale files into every binary
-- [ ] Server, CLI, and agent all support the SAME set of languages
-- [ ] `--lang` flag works on all binaries (server, CLI, agent)
+- [ ] Server and CLI support the SAME set of languages
+- [ ] `--lang` flag works on all binaries (server, CLI)
 - [ ] `LANG` / `LC_ALL` env var detection works on all binaries
-- [ ] Config file `lang:` setting works (server.yml, cli.yml, agent.yml)
+- [ ] Config file `lang:` setting works (server.yml, cli.yml)
 - [ ] Unsupported language silently falls back to `en` on all binaries — never errors
 
 ### Server HTTP Translation
@@ -48707,15 +44964,6 @@ make docker # Build Docker image
 - [ ] Error messages use `i18n.T(lang, "cli.*")` — no hardcoded English
 - [ ] Status output (`--status`) translated
 - [ ] Admin command output translated
-- [ ] `Accept-Language` header sent on all API requests to server
-
-### Agent Translation
-
-- [ ] `--help` output fully translated
-- [ ] Startup banner text translated (Mode, Server, Hostname, Tags, Connected/Disconnected)
-- [ ] Error messages use `i18n.T(lang, "agent.*")` — no hardcoded English
-- [ ] Status/health output translated
-- [ ] Registration prompts translated
 - [ ] `Accept-Language` header sent on all API requests to server
 
 ### No Hardcoded English
@@ -48739,7 +44987,6 @@ make docker # Build Docker image
 
 ### Content Coverage
 
-- [ ] Admin panel: all pages have translation keys (dashboard, settings, security, allowlist, blocklists, GeoIP, backup, logs, etc.)
 - [ ] Public frontend: all pages translated
 - [ ] Email templates: subject lines and body text translated
 - [ ] Error pages (400, 401, 403, 404, 500, 502, 503): error messages translated
@@ -48971,9 +45218,9 @@ Before starting integration:
 
 ## Critical (P0) - Do First
 
-- [ ] Fix SQL injection vulnerability in user search (line 234)
-- [ ] Add missing input validation on admin endpoints
-- [ ] Fix session management security issue
+- [ ] Fix SQL injection vulnerability in resource search
+- [ ] Add missing input validation on admin API endpoints
+- [ ] Fix token validation edge case
 
 ## High (P1) - NON-NEGOTIABLE Requirements
 
@@ -49009,7 +45256,7 @@ Before starting integration:
 - [ ] Create docs/ directory for ReadTheDocs
 - [ ] Write docs/index.md
 - [ ] Write docs/installation.md
-- [ ] Write docs/configuration.md, docs/api.md, docs/admin.md, docs/security.md
+- [ ] Write docs/configuration.md, docs/api.md, docs/security.md
 - [ ] Write docs/integrations.md
 - [ ] Configure mkdocs.yml
 ```
@@ -49096,7 +45343,6 @@ When bootstrapping a new project from this specification:
    touch docs/installation.md
    touch docs/configuration.md
    touch docs/api.md
-   touch docs/admin.md
    touch docs/security.md
    touch docs/integrations.md
    touch docs/development.md
@@ -49167,7 +45413,7 @@ When bootstrapping a new project from this specification:
 4. **Implement SMTP configuration**
 5. **Add all notification configuration pages**
 
-**Test:** Email sending works via server API at `/api/{api_version}/server/config/email`
+**Test:** Email sending works via CLI: `{project_name} email test`
 
 #### Step 6: API Layer (PART 14)
 
@@ -49183,7 +45429,7 @@ When bootstrapping a new project from this specification:
 
 Implement remaining required parts:
 1. **PART 9:** Error Handling & Caching
-2. **PART 10:** Database & Cluster
+2. **PART 10:** Database
 3. **PART 11:** Security & Logging
 4. **PART 12:** Server Configuration
 5. **PART 13:** Health & Versioning
@@ -49206,8 +45452,7 @@ Implement remaining required parts:
 
 Implement the required client, then any project-specific optional features:
 1. **PART 32:** Client (required for all projects)
-2. **PART 32:** Agent (only if project manages or monitors external nodes)
-3. **Project-specific:** Multi-User, Organizations, Custom Domains (if defined in IDEA.md)
+2. **Project-specific:** Additional features defined in IDEA.md
 
 #### Step 9: Documentation (PART 29)
 
@@ -49268,8 +45513,7 @@ Implement the required client, then any project-specific optional features:
 - [ ] CLI flags work per spec
 - [ ] Configuration loading works (file, env, flags)
 - [ ] Logging configured properly
-- [ ] Admin panel accessible
-- [ ] First-run default `server.yml` generation works
+- [ ] First-run default `server.yml` generation works (including auto-generated `server.token`)
 - [ ] REST API endpoints defined
 - [ ] Swagger UI accessible at `/server/docs/swagger`; OpenAPI JSON at `/api/{api_version}/server/swagger` (with `/api/swagger` alias)
 - [ ] GraphiQL UI accessible at `/server/docs/graphql`; GraphQL POST at `/api/{api_version}/server/graphql` (with `/api/graphql` alias)
