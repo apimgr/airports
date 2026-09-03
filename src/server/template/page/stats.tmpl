@@ -1,0 +1,41 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>📊 {{t "stats.title"}}</h1>
+    <p>{{t "stats.subtitle"}}</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.TotalAirports}}</div>
+        <div class="stat-label">{{t "stats.total_airports"}}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.Countries}}</div>
+        <div class="stat-label">{{t "stats.countries"}}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.Cities}}</div>
+        <div class="stat-label">{{t "stats.cities"}}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-number">{{.Stats.WithIATA}}</div>
+        <div class="stat-label">{{t "stats.with_iata"}}</div>
+    </div>
+</div>
+
+<div class="countries-section">
+    <h2>{{t "stats.by_country_heading"}}</h2>
+    <div class="countries-grid">
+        {{range $country, $count := .Countries}}
+        <div class="country-item" data-action="search-country" data-country="{{$country}}">
+            <span class="country-code">{{$country}}</span>
+            <span class="country-count">{{tf "stats.airports_count" "count" $count}}</span>
+        </div>
+        {{end}}
+    </div>
+</div>
+
+{{end}}

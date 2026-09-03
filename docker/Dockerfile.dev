@@ -1,0 +1,104 @@
+# =============================================================================
+# Build Stage - Compile Go binary (cross-compile via BuildKit args)
+# =============================================================================
+FROM --platform=$BUILDPLATFORM casjaysdev/go:latest AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=devel
+ARG BUILD_DATE
+ARG COMMIT_ID
+# Optional: set via --build-arg OFFICIAL_SITE=... (site.txt wins in CI); empty by default
+ARG OFFICIAL_SITE
+
+WORKDIR /build
+
+# Copy go.mod first for layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build server + client
+COPY . .
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+        -trimpath \
+        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+        -o /out/airports ./src && \
+    if [ -d src/client ]; then \
+        CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+        go build \
+            -trimpath \
+            -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+            -o /out/airports-cli ./src/client; \
+    fi
+
+# =============================================================================
+# Runtime Stage - Minimal Alpine image (development/debug variant)
+# =============================================================================
+FROM alpine:latest
+
+ARG VERSION=devel
+ARG BUILD_DATE
+ARG COMMIT_ID
+ARG LICENSE=MIT
+
+# No LABEL blocks — all image metadata is applied as OCI annotations at build
+# time by CI (--label/--annotation flags / docker/metadata-action). LABEL only
+# attaches to per-platform layers and is invisible on multiarch pulls.
+# See AI.md PART 26 → OCI Meta Labels / Multi-Arch Image Annotations.
+
+# Upgrade base-image packages first (picks up patched libssl3/libcrypto3
+# etc. that alpine:latest may have baked in at an older patch level), then
+# install required runtime packages per spec
+RUN apk upgrade --no-cache && \
+    apk add --no-cache \
+        git \
+        curl \
+        bash \
+        tini \
+        tor
+
+# NO directory creation - binary handles ALL setup based on env vars.
+# Docker volume mounts auto-create mount points.
+
+# Copy server (always present) and client (optional)
+COPY --from=builder /out/airports     /usr/local/bin/airports
+COPY --from=builder /out/             /tmp/builder-out/
+RUN if [ -f /tmp/builder-out/airports-cli ]; then \
+        cp /tmp/builder-out/airports-cli /usr/local/bin/airports-cli; \
+    fi && rm -rf /tmp/builder-out
+
+# Container filesystem overlay (entrypoint.sh, service configs, etc.)
+COPY docker/rootfs/ /
+
+RUN chmod 755 /usr/local/bin/*
+
+# Non-root runtime user. The app binds internal port 80 (privileged, <1024),
+# so grant CAP_NET_BIND_SERVICE on the binary via setcap instead of running
+# as root or doing a root-then-drop dance inside the container.
+# UID/GID are pinned (not auto-assigned) so operators can pre-chown bind-mounted
+# ./volumes/config and ./volumes/data to a known owner before first start.
+RUN addgroup -g 1000 -S airports && adduser -u 1000 -S -G airports airports \
+    && apk add --no-cache libcap \
+    && setcap cap_net_bind_service=+ep /usr/local/bin/airports \
+    && apk del libcap
+
+# Development image only: MODE is baked in so :devel always runs in debug
+# mode without requiring the operator to set it via compose/env.
+ENV TZ=America/New_York \
+    PORT=80 \
+    ADDRESS=0.0.0.0 \
+    MODE=development \
+    DEBUG=true
+
+EXPOSE 80
+
+STOPSIGNAL SIGRTMIN+3
+
+HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
+    CMD /usr/local/bin/airports --status || exit 1
+
+USER airports
+
+# tini propagates SIGTERM and reaps zombies; entrypoint handles startup
+ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

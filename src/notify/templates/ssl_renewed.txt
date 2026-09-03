@@ -1,0 +1,15 @@
+Subject: SSL Certificate Renewed - {app_name}
+---
+SSL CERTIFICATE RENEWED
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+The SSL certificate for {fqdn} was renewed successfully.
+
+Domain: {fqdn}
+New expiry date: {valid_until}
+
+--
+{app_name}
+{app_url}

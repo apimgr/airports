@@ -1,0 +1,18 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>{{t "contact.title"}}</h1>
+    <p>{{t "contact.intro_pre"}} <a href="/server/help">{{t "nav.help"}}</a>{{t "contact.intro_post"}}</p>
+
+    <h2>{{t "contact.general_heading"}}</h2>
+    <p><a href="mailto:{{.GeneralEmail}}">{{.GeneralEmail}}</a></p>
+
+    <h2>{{t "contact.abuse_heading"}}</h2>
+    <p><a href="mailto:{{.AbuseEmail}}">{{.AbuseEmail}}</a></p>
+
+    <h2>{{t "contact.security_heading"}}</h2>
+    <p>{{t "contact.security_pre"}} <a href="/security.txt">security.txt</a> {{t "contact.security_post"}}</p>
+
+    <h2>{{t "contact.project_heading"}}</h2>
+    <p><a href="https://github.com/apimgr/airports">github.com/apimgr/airports</a></p>
+</section>
+{{end}}

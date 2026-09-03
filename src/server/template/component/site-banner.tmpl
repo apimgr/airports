@@ -1,0 +1,15 @@
+{{define "site-banner"}}
+{{range .Announcements}}
+<div class="site-banner site-banner-{{.Type}}" role="{{.Role}}" data-announcement-id="{{.ID}}">
+    <span class="site-banner-icon" aria-hidden="true">{{.Icon}}</span>
+    <span class="site-banner-text"><strong>{{.Title}}</strong>{{if .Title}} - {{end}}{{.Message}}</span>
+    {{if .Dismissible}}
+    <form method="post" action="/announcements/dismiss" class="site-banner-dismiss" data-action="dismiss-announcement">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <button type="submit" class="site-banner-close" aria-label="{{t "nav.dismiss_announcement"}}">&times;</button>
+    </form>
+    {{end}}
+</div>
+{{end}}
+{{end}}

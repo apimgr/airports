@@ -1,0 +1,28 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>{{t "about.title"}}</h1>
+    <p class="lead">{{.Tagline}}</p>
+
+    <h2>{{t "about.what_heading"}}</h2>
+    <p>{{.Description}}</p>
+
+    <h2>{{t "about.features_heading"}}</h2>
+    <ul>
+        {{range .Features}}<li>{{.}}</li>{{end}}
+    </ul>
+
+    <h2>{{t "about.links_heading"}}</h2>
+    <ul>
+        <li><a href="{{.Repo}}">{{t "about.link_source"}}</a></li>
+        <li><a href="/server/help">{{t "about.link_help"}}</a></li>
+        <li><a href="/server/docs/swagger">{{t "about.link_swagger"}}</a></li>
+        <li><a href="/server/docs/graphql">{{t "about.link_graphql"}}</a></li>
+    </ul>
+
+    <h2>{{t "about.attribution_heading"}}</h2>
+    <p><a href="https://db-ip.com/">IP Geolocation by DB-IP</a></p>
+    <p>Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).</p>
+
+    <p class="muted">{{tf "about.license_version" "license" .License "version" .Version}}</p>
+</section>
+{{end}}

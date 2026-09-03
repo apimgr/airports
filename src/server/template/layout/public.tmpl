@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="{{.ThemeClass}}">
+{{template "head" .}}
+<body>
+    {{template "site-banner" .}}
+    <a class="skip-link" href="#main-content">{{t "nav.skip_to_content"}}</a>
+    <header id="main-header">
+        {{template "header" .}}
+    </header>
+
+    <main id="main-content">
+        {{template "content" .}}
+    </main>
+
+    <footer id="main-footer">
+        {{template "footer" .}}
+    </footer>
+
+    {{template "modal" .}}
+    {{template "toast" .}}
+
+    {{template "cookie-consent" .}}
+
+    {{template "scripts" .}}
+</body>
+</html>

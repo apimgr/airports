@@ -1,0 +1,32 @@
+{{define "footer"}}
+<div class="footer-container">
+    <div class="footer-section">
+        <h3>Airports API</h3>
+        <p>{{t "footer.tagline"}}</p>
+    </div>
+    <div class="footer-section">
+        <h3>{{t "footer.resources"}}</h3>
+        <a href="{{.APIBase}}/airports.json">{{t "footer.download_database"}}</a>
+        <a href="/server/healthz">{{t "footer.health_check"}}</a>
+        <a href="/server/docs/swagger">Swagger UI</a>
+        <a href="/server/docs/graphql">GraphiQL</a>
+        <a href="https://github.com/apimgr/airports">GitHub</a>
+    </div>
+    <div class="footer-section">
+        <h3>{{t "nav.about"}}</h3>
+        <a href="/server/about">{{t "nav.about"}}</a>
+        <a href="/server/help">{{t "nav.help"}}</a>
+        <a href="/server/privacy">{{t "nav.privacy"}}</a>
+        <a href="/server/terms">{{t "nav.terms"}}</a>
+        <a href="/server/contact">{{t "nav.contact"}}</a>
+    </div>
+    <div class="footer-section">
+        <h3>{{t "footer.data_sources"}}</h3>
+        <p>{{t "footer.source_airports"}}</p>
+        <p>{{t "footer.source_geoip"}}</p>
+    </div>
+</div>
+<div class="footer-bottom">
+    <p>{{tf "footer.copyright" "year" .CurrentYear}}</p>
+</div>
+{{end}}

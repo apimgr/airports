@@ -1,0 +1,33 @@
+{{define "header"}}
+<div class="header-container">
+    <div class="header-left">
+        <button class="mobile-menu-toggle" data-action="toggle-mobile-menu">☰</button>
+        <a class="logo" href="/">✈️ Airports API</a>
+    </div>
+    {{template "nav" .}}
+    <div class="header-right">
+        <form class="lang-selector" method="get" action="">
+            <select name="lang" aria-label="{{t "common.select_language"}}" data-action="submit-lang-form">
+                {{range .AvailableLanguages}}
+                <option value="{{.Code}}" {{if eq .Code $.Lang}}selected{{end}}>{{.NativeName}}</option>
+                {{end}}
+            </select>
+            <button type="submit" class="lang-submit">{{t "common.submit"}}</button>
+        </form>
+        <button class="theme-toggle" data-action="toggle-theme" title="{{t "theme.toggle"}}">
+            <span class="theme-icon">🌙</span>
+        </button>
+        <noscript>
+            <form method="post" action="/theme" class="theme-form-noscript">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <select name="theme" aria-label="{{t "theme.toggle"}}">
+                    <option value="light" {{if eq .ThemeClass "theme-light"}}selected{{end}}>{{t "theme.light"}}</option>
+                    <option value="dark" {{if eq .ThemeClass "theme-dark"}}selected{{end}}>{{t "theme.dark"}}</option>
+                    <option value="auto" {{if eq .ThemeClass "theme-auto"}}selected{{end}}>{{t "theme.auto"}}</option>
+                </select>
+                <button type="submit">{{t "common.submit"}}</button>
+            </form>
+        </noscript>
+    </div>
+</div>
+{{end}}

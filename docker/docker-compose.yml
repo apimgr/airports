@@ -1,0 +1,76 @@
+name: airports
+
+# Production Docker Compose Configuration
+# Hardcoded sane defaults - works with zero .env file
+# Override by editing this file directly
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  airports:
+    image: ghcr.io/apimgr/airports:latest
+    container_name: airports-app
+    hostname: airports
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+
+    environment:
+      # Hardcoded sane defaults - NO .env files
+      MODE: production
+      TZ: America/New_York
+      PORT: 80
+      LISTEN: 0.0.0.0
+      CACHE_URL: valkey://airports-cache:6379
+
+    volumes:
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
+
+    ports:
+      # Bound to Docker bridge - reverse proxy handles external
+      - "172.17.0.1:64580:80"
+
+    depends_on:
+      airports-cache:
+        condition: service_healthy
+
+    networks:
+      - airports
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 10m
+
+  airports-cache:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: airports-cache
+    restart: always
+    logging: *default-logging
+
+    volumes:
+      - ./volumes/data/db/valkey:/data:z
+
+    healthcheck:
+      test: valkey-cli ping || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    networks:
+      - airports
+
+networks:
+  airports:
+    name: airports
+    external: false
+    driver: bridge

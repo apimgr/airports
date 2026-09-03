@@ -1,0 +1,134 @@
+/* Dracula Theme for MkDocs Material */
+/* Based on Dracula color palette: https://draculatheme.com */
+
+:root {
+  /* Dracula color palette */
+  --dracula-bg: #282a36;
+  --dracula-current: #44475a;
+  --dracula-selection: #44475a;
+  --dracula-foreground: #f8f8f2;
+  --dracula-comment: #6272a4;
+  --dracula-cyan: #8be9fd;
+  --dracula-green: #50fa7b;
+  --dracula-orange: #ffb86c;
+  --dracula-pink: #ff79c6;
+  --dracula-purple: #bd93f9;
+  --dracula-red: #ff5555;
+  --dracula-yellow: #f1fa8c;
+}
+
+/* Override Material theme colors with Dracula */
+[data-md-color-scheme="dracula"] {
+  /* Background colors */
+  --md-default-bg-color: var(--dracula-bg);
+  --md-default-fg-color: var(--dracula-foreground);
+
+  /* Primary colors */
+  --md-primary-fg-color: var(--dracula-purple);
+  --md-primary-bg-color: var(--dracula-foreground);
+
+  /* Accent colors */
+  --md-accent-fg-color: var(--dracula-pink);
+  --md-accent-bg-color: var(--dracula-foreground);
+
+  /* Code blocks */
+  --md-code-bg-color: var(--dracula-current);
+  --md-code-fg-color: var(--dracula-foreground);
+
+  /* Links */
+  --md-typeset-a-color: var(--dracula-cyan);
+
+  /* Sidebar */
+  --md-nav-bg-color: var(--dracula-bg);
+  --md-nav-fg-color: var(--dracula-foreground);
+
+  /* Admonitions */
+  --md-admonition-bg-color: var(--dracula-current);
+
+  /* Search */
+  --md-search-result-bg-color: var(--dracula-current);
+
+  /* Footer */
+  --md-footer-bg-color: var(--dracula-current);
+  --md-footer-fg-color: var(--dracula-foreground);
+}
+
+/* Custom styling */
+.md-header {
+  background-color: var(--dracula-current) !important;
+}
+
+.md-tabs {
+  background-color: var(--dracula-bg) !important;
+}
+
+/* Code highlighting with Dracula colors */
+.highlight .hll { background-color: var(--dracula-selection); }
+.highlight .c { color: var(--dracula-comment); } /* Comment */
+.highlight .k { color: var(--dracula-pink); } /* Keyword */
+.highlight .o { color: var(--dracula-pink); } /* Operator */
+.highlight .n { color: var(--dracula-foreground); } /* Name */
+.highlight .s { color: var(--dracula-yellow); } /* String */
+.highlight .mi { color: var(--dracula-purple); } /* Number */
+.highlight .nb { color: var(--dracula-cyan); } /* Builtin */
+.highlight .nf { color: var(--dracula-green); } /* Function */
+.highlight .nc { color: var(--dracula-cyan); } /* Class */
+.highlight .kd { color: var(--dracula-cyan); } /* Declaration */
+.highlight .kt { color: var(--dracula-cyan); } /* Type */
+.highlight .kn { color: var(--dracula-pink); } /* Import */
+
+/* Inline code */
+code {
+  background-color: var(--dracula-current) !important;
+  color: var(--dracula-pink) !important;
+}
+
+/* Links hover */
+a:hover {
+  color: var(--dracula-purple) !important;
+}
+
+/* Search box */
+.md-search__input {
+  background-color: var(--dracula-current) !important;
+  color: var(--dracula-foreground) !important;
+}
+
+/* Tables */
+table {
+  border-color: var(--dracula-current) !important;
+}
+
+th {
+  background-color: var(--dracula-current) !important;
+  color: var(--dracula-cyan) !important;
+}
+
+/* Buttons */
+.md-button {
+  background-color: var(--dracula-purple) !important;
+  color: var(--dracula-foreground) !important;
+}
+
+.md-button:hover {
+  background-color: var(--dracula-pink) !important;
+}
+
+/* Scrollbar (Webkit) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--dracula-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--dracula-current);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--dracula-comment);
+}

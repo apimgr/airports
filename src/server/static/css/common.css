@@ -1,0 +1,184 @@
+/* common.css - variables, reset, and cross-cutting utilities
+   (AI.md PART 16: CSS load order common -> components -> public) */
+
+/* CSS Variables
+   Palette values are the literal AI.md PART 16 "CSS Variable Reference" /
+   "Unified Color Palette" hex source of truth (Dracula-based dark,
+   GitHub-Light-based light) — mirrored in src/common/theme/colors.go.
+   Never redefine --color-* here with different names or values. */
+:root {
+  /* Backgrounds */
+  --color-bg: #282a36;
+  --color-bg-secondary: #21222c;
+  --color-bg-card: #2b2d3a;
+  --color-bg-hover: #343746;
+  --color-bg-active: #44475a;
+  --color-code-bg: rgba(255, 255, 255, 0.1);
+  /* Text */
+  --color-text: #f8f8f2;
+  --color-muted: #6272a4;
+  --color-text-on-primary: #282a36;
+  /* Borders */
+  --color-border: #44475a;
+  --color-border-hover: #6272a4;
+  /* Status colors */
+  --color-success: #50fa7b;
+  --color-success-bg: rgba(80, 250, 123, 0.15);
+  --color-error: #ff5555;
+  --color-error-bg: rgba(255, 85, 85, 0.15);
+  --color-warning: #ffb86c;
+  --color-warning-bg: rgba(255, 184, 108, 0.15);
+  --color-warning-text: #ffb86c;
+  --color-primary: #bd93f9;
+  --color-primary-bg: rgba(189, 147, 249, 0.15);
+  --color-info: #8be9fd;
+  --color-info-bg: rgba(139, 233, 253, 0.15);
+  --color-info-text: #8be9fd;
+
+  --overlay-bg: rgba(0,0,0,0.7);
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --font-primary: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --transition-fast: 150ms ease;
+  --transition-normal: 300ms ease;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.16);
+  --shadow-lg: 0 10px 20px rgba(0,0,0,0.2);
+  --consent-bg: #7c5295;
+  --consent-text: #ffffff;
+}
+
+/* Light theme overrides */
+html.theme-light {
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #eff2f5;
+  --color-bg-active: #e6eaef;
+  --color-code-bg: rgba(0, 0, 0, 0.05);
+  --color-text: #1f2328;
+  --color-muted: #59636e;
+  --color-text-on-primary: #ffffff;
+  --color-border: #d1d9e0;
+  --color-border-hover: #818b98;
+  --color-success: #1a7f37;
+  --color-success-bg: rgba(26, 127, 55, 0.12);
+  --color-error: #d1242f;
+  --color-error-bg: rgba(209, 36, 47, 0.12);
+  --color-warning: #9a6700;
+  --color-warning-bg: rgba(154, 103, 0, 0.12);
+  --color-warning-text: #9a6700;
+  --color-primary: #0969da;
+  --color-primary-bg: rgba(9, 105, 218, 0.12);
+  --color-info: #0969da;
+  --color-info-bg: rgba(9, 105, 218, 0.12);
+  --color-info-text: #0969da;
+}
+
+/* theme-auto: pure CSS, no matchMedia detection JS needed. Root
+   variables above are the dark default; a light OS preference overrides
+   them here so a no-JS visitor still gets correct auto theming. */
+@media (prefers-color-scheme: light) {
+  html.theme-auto {
+    --color-bg: #ffffff;
+    --color-bg-secondary: #f6f8fa;
+    --color-bg-card: #ffffff;
+    --color-bg-hover: #eff2f5;
+    --color-bg-active: #e6eaef;
+    --color-code-bg: rgba(0, 0, 0, 0.05);
+    --color-text: #1f2328;
+    --color-muted: #59636e;
+    --color-text-on-primary: #ffffff;
+    --color-border: #d1d9e0;
+    --color-border-hover: #818b98;
+    --color-success: #1a7f37;
+    --color-success-bg: rgba(26, 127, 55, 0.12);
+    --color-error: #d1242f;
+    --color-error-bg: rgba(209, 36, 47, 0.12);
+    --color-warning: #9a6700;
+    --color-warning-bg: rgba(154, 103, 0, 0.12);
+    --color-warning-text: #9a6700;
+    --color-primary: #0969da;
+    --color-primary-bg: rgba(9, 105, 218, 0.12);
+    --color-info: #0969da;
+    --color-info-bg: rgba(9, 105, 218, 0.12);
+    --color-info-text: #0969da;
+  }
+}
+
+/* Skip link (a11y): visible only on keyboard focus */
+.skip-link {
+  position: absolute;
+  left: var(--space-sm);
+  top: -60px;
+  z-index: 1100;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border-radius: 4px;
+  text-decoration: none;
+  transition: top var(--transition-fast);
+}
+
+.skip-link:focus {
+  top: var(--space-sm);
+}
+
+/* Utility: hide an element without inline styles (CSP forbids inline
+   style attributes). Toggled from app.js via classList. */
+.hidden {
+  display: none;
+}
+
+/* Long unbreakable strings (IPv6, .onion, tokens, hashes, UUIDs) — prevent
+   mobile layout overflow. AI.md PART 16 "Long Strings". */
+.long-string,
+.ip-address,
+.api-token,
+.hash,
+.uuid,
+.monospace-data {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  font-family: monospace;
+  font-size: 0.875rem;
+}
+
+/* Values rendered next to a copy button — single-line scroll-box, never
+   wrap, so the copy target stays one line. AI.md PART 16 "Long Strings". */
+.onion-address,
+.i2p-address,
+.copy-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  font-family: monospace;
+  font-size: 0.875rem;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Reset & Base */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-primary);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

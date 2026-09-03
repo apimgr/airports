@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="page-section error-page">
+    <h1 class="error-code">{{.StatusCode}}</h1>
+    <h2 class="error-title">{{.StatusText}}</h2>
+    <p class="error-message">{{.Message}}</p>
+    <p class="error-actions">
+        <a href="/" class="btn-primary">{{t "nav.home"}}</a>
+    </p>
+</section>
+{{end}}

@@ -1,0 +1,831 @@
+/* public.css - page-specific and layout styles (header, hero, page
+   sections, footer, responsive layout)
+   (AI.md PART 16: CSS load order common -> components -> public) */
+
+/* Header */
+/* Header scrolls with the page. AI.md PART 16: nothing is pinned to the
+   viewport except the cookie banner, toast container, and site banner. */
+#main-header {
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-md);
+}
+
+.header-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-left, .header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--color-text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.mobile-menu-toggle {
+  display: block;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: var(--space-sm);
+}
+
+.header-center {
+  position: absolute;
+  top: 70px;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  background: var(--color-bg-secondary);
+  flex-direction: column;
+  padding: var(--space-md);
+  display: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.header-center.active {
+  display: flex;
+}
+
+.nav-link {
+  color: var(--color-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 4px;
+}
+
+.nav-link:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-hover);
+}
+
+.lang-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.lang-selector select {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 44px;
+}
+
+.lang-submit {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.lang-submit:hover {
+  background: var(--color-border);
+}
+
+.theme-toggle {
+  background: var(--color-bg-hover);
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  background: var(--color-border);
+  transform: rotate(20deg);
+}
+
+/* Main Content */
+#main-content {
+  flex: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-md);
+  width: 98%;
+}
+
+/* Hero Section */
+.hero {
+  text-align: center;
+  padding: var(--space-xl) 0;
+}
+
+.hero h1 {
+  font-size: 2rem;
+  margin-bottom: var(--space-md);
+}
+
+.hero-subtitle {
+  font-size: 1.3rem;
+  color: var(--color-muted);
+  margin-bottom: var(--space-xl);
+}
+
+.search-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 600px;
+  margin: 0 auto var(--space-md);
+}
+
+.search-hero input {
+  flex: 1;
+  padding: var(--space-md);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.search-hero input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.search-hero button {
+  padding: var(--space-md) var(--space-xl);
+  background: var(--color-primary);
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-on-primary);
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.search-hero button:hover {
+  filter: brightness(0.88);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.quick-results {
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.quick-result-item {
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  transition: background var(--transition-fast);
+}
+
+.quick-result-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.result-location {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* Features Grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-lg);
+  margin: var(--space-xl) 0;
+}
+
+/* .feature-card is index.tmpl-only (single page), so it lives here rather
+   than components.css (AI.md PART 16: components.css is for widgets shared
+   across 2+ pages). */
+.feature-card {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  border: 2px solid transparent;
+}
+
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-primary);
+}
+
+.feature-icon {
+  font-size: 3rem;
+  margin-bottom: var(--space-md);
+}
+
+.feature-card h3 {
+  margin-bottom: var(--space-sm);
+}
+
+.feature-card p {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+/* API Section */
+.api-section {
+  margin-top: var(--space-xl);
+  padding: var(--space-xl);
+  background: var(--color-bg-secondary);
+  border-radius: 12px;
+}
+
+.api-section h2 {
+  margin-bottom: var(--space-lg);
+}
+
+.endpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.endpoint-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-bg-hover);
+  border-radius: 8px;
+}
+
+.http-method {
+  padding: var(--space-xs) var(--space-md);
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.85rem;
+  min-width: 50px;
+  text-align: center;
+}
+
+.http-method.get {
+  background: var(--color-success);
+  color: var(--color-text-on-primary);
+}
+
+.endpoint-item code {
+  color: var(--color-primary);
+  font-family: monospace;
+  flex: 1;
+}
+
+.endpoint-desc {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* Page Headers */
+.page-header {
+  margin-bottom: var(--space-xl);
+  text-align: center;
+}
+
+.page-header h1 {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-sm);
+}
+
+.page-header p {
+  color: var(--color-muted);
+  font-size: 1.1rem;
+}
+
+/* Search Container */
+.search-container {
+  margin-bottom: var(--space-xl);
+}
+
+.search-box {
+  display: flex;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.search-box input {
+  flex: 1;
+  padding: var(--space-md);
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.search-box button {
+  padding: var(--space-md) var(--space-xl);
+  background: var(--color-primary);
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-on-primary);
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.search-filters {
+  display: flex;
+  gap: var(--space-lg);
+  color: var(--color-muted);
+}
+
+.search-filters select {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: 4px;
+}
+
+/* Results */
+.results-info {
+  padding: var(--space-md);
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  margin-bottom: var(--space-lg);
+  text-align: center;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-lg);
+}
+
+/* .airport-card is search.tmpl-only (single page), so it lives here rather
+   than components.css (AI.md PART 16: components.css is for widgets shared
+   across 2+ pages). */
+.airport-card {
+  background: var(--color-bg-secondary);
+  padding: var(--space-lg);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  border: 2px solid transparent;
+}
+
+.airport-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
+}
+
+.airport-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: var(--space-sm);
+}
+
+.airport-header h3 {
+  color: var(--color-primary);
+  font-size: 1.2rem;
+}
+
+.airport-name {
+  font-weight: bold;
+  margin-bottom: var(--space-sm);
+}
+
+.airport-location, .airport-details {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.airport-details {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Nearby Form */
+.nearby-form {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+  margin-bottom: var(--space-xl);
+}
+
+/* Results List */
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.airport-result-card {
+  background: var(--color-bg-secondary);
+  padding: var(--space-lg);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 2px solid transparent;
+}
+
+.airport-result-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.airport-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: var(--space-md);
+}
+
+.airport-result-details {
+  display: flex;
+  gap: var(--space-lg);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+/* Airport Detail */
+.airport-detail-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: start;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.airport-detail-header h1 {
+  color: var(--color-primary);
+  font-size: 2.5rem;
+  margin-bottom: var(--space-sm);
+}
+
+.airport-detail-header h2 {
+  font-size: 1.5rem;
+  font-weight: normal;
+}
+
+/* .detail-card is airport.tmpl-only (single page), so it lives here rather
+   than components.css (AI.md PART 16: components.css is for widgets shared
+   across 2+ pages). */
+.detail-card {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+}
+
+.detail-card h3 {
+  margin-bottom: var(--space-lg);
+  color: var(--color-primary);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.detail-item:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  color: var(--color-muted);
+}
+
+.detail-value {
+  font-weight: bold;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+  flex-wrap: wrap;
+}
+
+.json-section {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+}
+
+.json-section pre {
+  background: var(--color-code-bg);
+  padding: var(--space-lg);
+  border-radius: 8px;
+  overflow-x: auto;
+  color: var(--color-success);
+  font-family: monospace;
+}
+
+/* Stats */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.stat-number {
+  font-size: 3rem;
+  font-weight: bold;
+  color: var(--color-primary);
+  margin-bottom: var(--space-sm);
+}
+
+.stat-label {
+  color: var(--color-muted);
+  font-size: 1.1rem;
+}
+
+.countries-section {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+}
+
+.countries-section h2 {
+  margin-bottom: var(--space-lg);
+}
+
+.countries-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.country-item {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-md);
+  background: var(--color-bg-hover);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.country-item:hover {
+  background: var(--color-border);
+  transform: translateX(4px);
+}
+
+/* Health check page (AI.md PART 13) */
+/* .section-card is healthz.tmpl-only (single page), so it lives here rather
+   than components.css (AI.md PART 16: components.css is for widgets shared
+   across 2+ pages). */
+.section-card {
+  background: var(--color-bg-secondary);
+  padding: var(--space-xl);
+  border-radius: 12px;
+  margin-bottom: var(--space-lg);
+}
+
+.health-header {
+  text-align: center;
+}
+
+.health-header .tagline {
+  color: var(--color-muted);
+}
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.status-banner.status-ok {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.status-banner.status-warning {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+.status-banner.status-error {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.info-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.info-list dt {
+  color: var(--color-muted);
+}
+
+.info-list dd {
+  margin: 0;
+  font-weight: bold;
+  word-break: break-word;
+}
+
+.feature-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.feature-list li {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+}
+
+.feature-enabled {
+  border-left: 4px solid var(--color-success);
+}
+
+.feature-disabled {
+  border-left: 4px solid var(--color-muted);
+  color: var(--color-muted);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.health-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-lg);
+}
+
+.health-footer {
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.auto-refresh {
+  font-size: 0.9rem;
+}
+
+.country-code {
+  font-weight: bold;
+}
+
+.country-count {
+  color: var(--color-muted);
+}
+
+/* Footer */
+#main-footer {
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-xl);
+  padding: var(--space-xl) var(--space-md);
+}
+
+.footer-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-xl);
+  margin-bottom: var(--space-lg);
+}
+
+.footer-section h3 {
+  margin-bottom: var(--space-md);
+  color: var(--color-primary);
+}
+
+.footer-section p, .footer-section a {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: var(--space-sm);
+  text-decoration: none;
+}
+
+.footer-section a:hover {
+  color: var(--color-primary);
+}
+
+.footer-bottom {
+  text-align: center;
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* Responsive - mobile-first, base styles above are mobile defaults */
+@media (min-width: 768px) {
+  #main-content { width: 90%; padding: var(--space-xl) var(--space-md); }
+
+  .mobile-menu-toggle { display: none; }
+
+  .header-center {
+    position: static;
+    display: flex;
+    flex-direction: row;
+    gap: var(--space-lg);
+    padding: 0;
+    background: none;
+    border-top: none;
+  }
+
+  .hero h1 { font-size: 3rem; }
+  .search-hero { flex-direction: row; }
+  .action-buttons { flex-direction: row; }
+  .airport-detail-header { flex-direction: row; gap: 0; }
+}
+
+/* Offline fallback page (served by the service worker when a navigation
+   request fails). Uses shared theme variables — no inline styles. */
+.offline-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.offline-card {
+  max-width: 480px;
+  text-align: center;
+}
+
+.offline-icon {
+  font-size: 4rem;
+  margin-bottom: var(--space-md);
+}
+
+.offline-card h1 {
+  margin-bottom: var(--space-md);
+}
+
+.offline-card p {
+  color: var(--color-muted);
+  margin-bottom: var(--space-lg);
+}

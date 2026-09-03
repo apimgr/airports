@@ -1,0 +1,95 @@
+{{define "content"}}
+{{$h := .Health}}
+<section class="page-section health-header">
+    <h1>{{t "health.title"}}</h1>
+    <p class="tagline">{{$h.Project.Tagline}}</p>
+</section>
+
+<section class="page-section">
+    <div class="status-banner status-{{if eq $h.Status "healthy"}}ok{{else if eq $h.Status "degraded"}}warning{{else}}error{{end}}">
+        <strong>
+            {{if eq $h.Status "healthy"}}{{t "health.all_operational"}}
+            {{else if eq $h.Status "degraded"}}{{t "health.degraded"}}
+            {{else}}{{t "health.unhealthy"}}{{end}}
+        </strong>
+        <span class="badge badge-{{$h.Mode}}">{{$h.Mode}}</span>
+    </div>
+</section>
+
+<section class="page-section section-card">
+    <h2>{{t "health.version"}}</h2>
+    <dl class="info-list">
+        <dt>{{t "health.version"}}</dt><dd>{{$h.Version}}</dd>
+        <dt>{{t "health.go_version"}}</dt><dd>{{$h.GoVersion}}</dd>
+        <dt>{{t "health.build"}}</dt><dd class="code-block">{{$h.Build.Commit}} &middot; {{$h.Build.Date}}</dd>
+        <dt>{{t "health.uptime"}}</dt><dd>{{$h.Uptime}}</dd>
+        <dt>{{t "health.mode"}}</dt><dd>{{$h.Mode}}</dd>
+        <dt>{{t "health.status"}}</dt><dd>{{$h.Status}}</dd>
+    </dl>
+</section>
+
+<section class="page-section section-card">
+    <h2>{{t "health.features"}}</h2>
+    <ul class="feature-list">
+        <li class="{{if $h.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">
+            {{t "health.geoip"}}: {{if $h.Features.GeoIP}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
+        </li>
+        <li class="{{if $h.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
+            {{t "health.tor"}}: {{if $h.Features.Tor.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
+            {{if $h.Features.Tor.Enabled}}
+            <span class="badge">{{$h.Features.Tor.Status}}</span>
+            {{if $h.Features.Tor.Hostname}}
+            <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-text="{{t "common.copied"}}">{{$h.Features.Tor.Hostname}}</button>
+            {{end}}
+            {{end}}
+        </li>
+    </ul>
+</section>
+
+<section class="page-section section-card">
+    <h2>{{t "health.component_status"}}</h2>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr><th>{{t "health.component_status"}}</th><th>{{t "health.status"}}</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>{{t "health.database"}}</td><td><span class="status-{{if eq $h.Checks.Database "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Database}}</span></td></tr>
+                <tr><td>{{t "health.cache"}}</td><td><span class="status-{{if eq $h.Checks.Cache "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Cache}}</span></td></tr>
+                <tr><td>{{t "health.disk"}}</td><td><span class="status-{{if eq $h.Checks.Disk "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Disk}}</span></td></tr>
+                <tr><td>{{t "health.scheduler"}}</td><td><span class="status-{{if eq $h.Checks.Scheduler "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Scheduler}}</span></td></tr>
+                {{if $h.Checks.Tor}}
+                <tr><td>{{t "health.tor"}}</td><td><span class="status-{{if eq $h.Checks.Tor "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Tor}}</span></td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="page-section section-card">
+    <h2>{{t "health.server_statistics"}}</h2>
+    <div class="health-stats-grid">
+        <div class="stat-card">
+            <div class="stat-number">{{.Requests}}</div>
+            <div class="stat-label">{{t "health.total_requests"}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{.Req24h}}</div>
+            <div class="stat-label">{{t "health.requests_24h"}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{$h.Stats.ActiveConns}}</div>
+            <div class="stat-label">{{t "health.active_connections"}}</div>
+        </div>
+    </div>
+</section>
+
+<footer class="page-section health-footer">
+    <p>{{t "health.last_checked"}}: {{$h.Timestamp}}</p>
+    <p class="muted auto-refresh">{{t "health.auto_refresh"}}</p>
+    <p class="muted">
+        <a href="{{.APIBase}}/server/healthz">JSON</a> &middot;
+        <a href="/server/healthz" rel="alternate" type="text/plain">text</a>
+    </p>
+</footer>
+{{end}}

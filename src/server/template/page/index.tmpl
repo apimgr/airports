@@ -1,0 +1,76 @@
+{{define "content"}}
+<div class="hero">
+    <h1>✈️ {{t "home.title"}}</h1>
+    <p class="hero-subtitle">{{t "home.subtitle"}}</p>
+
+    <div class="search-hero">
+        <input type="text" id="quick-search" placeholder="{{t "home.search_placeholder"}}"
+               data-action="quick-search">
+        <button data-action="perform-search">{{t "common.search"}}</button>
+    </div>
+    <div id="quick-results" class="quick-results"></div>
+</div>
+
+<div class="features-grid">
+    <div class="feature-card" data-action="navigate" data-href="/search">
+        <div class="feature-icon">🔍</div>
+        <h3>{{t "home.feature_search_title"}}</h3>
+        <p>{{t "home.feature_search_desc"}}</p>
+    </div>
+
+    <div class="feature-card" data-action="navigate" data-href="/nearby">
+        <div class="feature-icon">📍</div>
+        <h3>{{t "home.feature_nearby_title"}}</h3>
+        <p>{{t "home.feature_nearby_desc"}}</p>
+    </div>
+
+    <div class="feature-card" data-action="detect-location">
+        <div class="feature-icon">🌍</div>
+        <h3>{{t "home.feature_geoip_title"}}</h3>
+        <p>{{t "home.feature_geoip_desc"}}</p>
+    </div>
+
+    <div class="feature-card" data-action="navigate" data-href="/stats">
+        <div class="feature-icon">📊</div>
+        <h3>{{t "home.feature_stats_title"}}</h3>
+        <p>{{t "home.feature_stats_desc"}}</p>
+    </div>
+</div>
+
+<div class="api-section">
+    <h2>{{t "home.api_endpoints_heading"}}</h2>
+    <div class="endpoint-list">
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports</code>
+            <span class="endpoint-desc">{{t "home.endpoint_list_desc"}}</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/{code}</code>
+            <span class="endpoint-desc">{{t "home.endpoint_get_desc"}}</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/search?q=query</code>
+            <span class="endpoint-desc">{{t "home.endpoint_search_desc"}}</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/airports/nearby?lat=&lon=&radius=</code>
+            <span class="endpoint-desc">{{t "home.endpoint_nearby_desc"}}</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/geoip/{ip}</code>
+            <span class="endpoint-desc">{{t "home.endpoint_geoip_desc"}}</span>
+        </div>
+        <div class="endpoint-item">
+            <span class="http-method get">GET</span>
+            <code>/api/v1/geoip/airports/nearby</code>
+            <span class="endpoint-desc">{{t "home.endpoint_geoip_nearby_desc"}}</span>
+        </div>
+    </div>
+</div>
+
+{{end}}

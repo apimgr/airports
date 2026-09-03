@@ -1,0 +1,74 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>🔍 {{t "search.title"}}</h1>
+    <p>{{t "search.subtitle"}}</p>
+</div>
+
+<form method="get" action="/search" class="search-container" data-action="submit-search">
+    <div class="search-box">
+        <input type="text" id="search-input" name="q" placeholder="{{t "search.placeholder"}}"
+               value="{{.Query}}">
+        <button type="submit">{{t "common.search"}}</button>
+    </div>
+
+    <div class="search-filters">
+        <label>
+            <input type="checkbox" id="filter-iata" checked> {{t "search.filter_iata"}}
+        </label>
+        <label>
+            {{t "search.results_per_page"}}
+            <select id="limit" name="limit" data-action="limit-change">
+                <option value="10" {{if eq .Limit 10}}selected{{end}}>10</option>
+                <option value="25" {{if or (eq .Limit 25) (not .Limit)}}selected{{end}}>25</option>
+                <option value="50" {{if eq .Limit 50}}selected{{end}}>50</option>
+                <option value="100" {{if eq .Limit 100}}selected{{end}}>100</option>
+            </select>
+        </label>
+    </div>
+</form>
+
+<div id="search-results">
+    {{if .Results}}
+        <div class="results-info">
+            {{if .Query}}{{tf "search.results_found_for" "count" (len .Results) "query" .Query}}{{else}}{{tf "search.results_found" "count" (len .Results)}}{{end}}
+        </div>
+
+        <div class="results-grid">
+            {{range .Results}}
+            <div class="airport-card" data-action="view-airport" data-code="{{.ICAO}}">
+                <div class="airport-header">
+                    <h3>{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</h3>
+                    <span class="country-badge">{{.Country}}</span>
+                </div>
+                <div class="airport-name">{{.Name}}</div>
+                <div class="airport-location">
+                    📍 {{.City}}{{if .State}}, {{.State}}{{end}}
+                </div>
+                <div class="airport-details">
+                    <span>{{.Elevation}} ft</span>
+                    <span>{{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    {{else if .Query}}
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">&#128269;</span>
+            <h3 class="empty-state-title">{{t "search.no_results_title"}}</h3>
+            <p class="empty-state-message">{{t "search.no_results_body"}}</p>
+        </div>
+    {{else}}
+        <div class="search-help">
+            <h3>{{t "search.examples_title"}}</h3>
+            <ul>
+                <li><strong>JFK</strong> - {{t "search.example_iata"}}</li>
+                <li><strong>KJFK</strong> - {{t "search.example_icao"}}</li>
+                <li><strong>New York</strong> - {{t "search.example_city"}}</li>
+                <li><strong>Kennedy</strong> - {{t "search.example_name"}}</li>
+                <li><strong>International</strong> - {{t "search.example_keyword"}}</li>
+            </ul>
+        </div>
+    {{end}}
+</div>
+
+{{end}}

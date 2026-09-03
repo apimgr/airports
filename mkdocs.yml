@@ -1,0 +1,120 @@
+site_name: Airports API
+site_url: https://apimgr-airports.readthedocs.io
+site_description: Global airport location information API with GeoIP integration — single static Go binary serving 35,000+ airports
+site_author: apimgr
+
+docs_dir: docs
+
+repo_name: apimgr/airports
+repo_url: https://github.com/apimgr/airports
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2024-2026 apimgr
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: pink
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to auto mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/airport
+
+extra_css:
+  - stylesheets/dark.css
+  - stylesheets/light.css
+
+extra_javascript:
+  - javascripts/extra.js
+
+plugins:
+  - search:
+      lang: en
+  - minify:
+      minify_html: true
+      minify_css: true
+      minify_js: true
+      htmlmin_opts:
+        remove_comments: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Configuration: configuration.md
+  - Usage:
+    - API Reference: api.md
+    - CLI Reference: cli.md
+  - Operations:
+    - Admin & Operations: admin.md
+    - Security: security.md
+    - Integrations: integrations.md
+  - Development:
+    - Contributing: development.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/apimgr/airports
+  generator: false

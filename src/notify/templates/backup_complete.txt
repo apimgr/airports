@@ -1,0 +1,15 @@
+Subject: Backup Complete - {app_name}
+---
+BACKUP COMPLETE
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+Your backup completed successfully.
+
+Filename: {filename}
+Size: {size}
+
+--
+{app_name}
+{app_url}

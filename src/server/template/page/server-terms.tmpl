@@ -1,0 +1,24 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>{{t "terms.title"}}</h1>
+
+    <h2>{{t "terms.service_heading"}}</h2>
+    <p>{{t "terms.service_desc"}}</p>
+
+    <h2>{{t "terms.acceptable_heading"}}</h2>
+    <ul>
+        <li>{{t "terms.rate_limit_pre"}}<code>.json</code>, <code>.csv</code>, <code>.geojson</code>{{t "terms.rate_limit_post"}}</li>
+        <li>{{t "terms.no_attack"}}</li>
+        <li>{{t "terms.attribution"}}</li>
+    </ul>
+
+    <h2>{{t "terms.warranty_heading"}}</h2>
+    <p>{{t "terms.warranty_pre"}} <strong>as-is</strong>{{t "terms.warranty_post"}}</p>
+
+    <h2>{{t "terms.liability_heading"}}</h2>
+    <p>{{t "terms.liability_desc"}}</p>
+
+    <h2>{{t "terms.license_heading"}}</h2>
+    <p>{{t "terms.license_pre"}} <a href="https://github.com/apimgr/airports/blob/main/LICENSE.md">LICENSE.md</a>{{t "terms.license_post"}}</p>
+</section>
+{{end}}

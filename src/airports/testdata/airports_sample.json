@@ -1,0 +1,26 @@
+{
+  "KJFK": {
+    "icao": "KJFK",
+    "iata": "JFK",
+    "name": "John F Kennedy International Airport",
+    "city": "New York",
+    "state": "NY",
+    "country": "US",
+    "elevation": 13,
+    "lat": 40.639801,
+    "lon": -73.7789,
+    "tz": "America/New_York"
+  },
+  "KLAX": {
+    "icao": "KLAX",
+    "iata": "LAX",
+    "name": "Los Angeles International Airport",
+    "city": "Los Angeles",
+    "state": "CA",
+    "country": "US",
+    "elevation": 125,
+    "lat": 33.94250107,
+    "lon": -118.4079971,
+    "tz": "America/Los_Angeles"
+  }
+}

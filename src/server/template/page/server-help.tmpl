@@ -1,0 +1,72 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>{{t "help.title"}}</h1>
+    <p>{{t "help.intro"}}</p>
+
+    <h2>{{t "help.quickstart_heading"}}</h2>
+    <pre><code># Get a single airport by ICAO or IATA code
+curl -q -LSsf https://YOUR_SERVER/api/v1/airport/KJFK
+
+# Search by name, city, country, or code
+curl -q -LSsf "https://YOUR_SERVER/api/v1/search?q=denver"
+
+# Find airports near a coordinate (radius in km, default metric)
+curl -q -LSsf "https://YOUR_SERVER/api/v1/nearby?lat=40.64&lon=-73.78&radius=50"
+
+# Bounding-box query
+curl -q -LSsf "https://YOUR_SERVER/api/v1/bbox?minLat=40&maxLat=42&minLon=-75&maxLon=-73"
+
+# Bulk dataset (JSON / CSV / GeoJSON)
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.json
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.csv
+curl -q -LSsf https://YOUR_SERVER/api/v1/airports.geojson</code></pre>
+
+    <h2>{{t "help.rest_endpoints_heading"}}</h2>
+    <table class="api-table">
+        <thead><tr><th>{{t "help.table_method"}}</th><th>{{t "help.table_path"}}</th><th>{{t "help.table_description"}}</th></tr></thead>
+        <tbody>
+            <tr><td>GET</td><td>/api/v1/airports</td><td>{{t "help.ep_list_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/airports.json|.csv|.geojson</td><td>{{t "help.ep_export_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/airport/{code}</td><td>{{t "help.ep_single_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/search?q=...</td><td>{{t "help.ep_search_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/nearby?lat=&amp;lon=&amp;radius=</td><td>{{t "help.ep_nearby_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/bbox?minLat=&amp;maxLat=&amp;minLon=&amp;maxLon=</td><td>{{t "help.ep_bbox_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/autocomplete?q=...</td><td>{{t "help.ep_autocomplete_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/countries</td><td>{{t "help.ep_countries_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/states/{country}</td><td>{{t "help.ep_states_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/stats</td><td>{{t "help.ep_stats_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/geoip</td><td>{{t "help.ep_geoip_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/geoip/{ip}</td><td>{{t "help.ep_geoip_ip_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/server/healthz</td><td>{{t "help.ep_healthz_desc"}}</td></tr>
+            <tr><td>GET</td><td>/api/v1/server/swagger</td><td>{{t "help.ep_swagger_desc"}}</td></tr>
+            <tr><td>POST</td><td>/api/v1/server/graphql</td><td>{{t "help.ep_graphql_desc"}}</td></tr>
+        </tbody>
+    </table>
+
+    <h2>{{t "help.aliases_heading"}}</h2>
+    <p>{{t "help.aliases_desc"}}</p>
+    <ul>
+        <li><code>/api/healthz</code> &rarr; <code>/api/v1/server/healthz</code></li>
+        <li><code>/api/swagger</code> &rarr; <code>/api/v1/server/swagger</code></li>
+        <li><code>/api/graphql</code> &rarr; <code>/api/v1/server/graphql</code></li>
+    </ul>
+
+    <h2>{{t "help.interactive_docs_heading"}}</h2>
+    <ul>
+        <li><a href="/server/docs/swagger">Swagger UI</a> — {{t "help.swagger_desc"}}</li>
+        <li><a href="/server/docs/graphql">GraphiQL</a> — {{t "help.graphiql_desc"}}</li>
+    </ul>
+
+    <h2>{{t "help.faq_heading"}}</h2>
+    <dl>
+        <dt>{{t "help.faq_q1"}}</dt>
+        <dd>{{t "help.faq_a1"}}</dd>
+        <dt>{{t "help.faq_q2"}}</dt>
+        <dd>{{t "help.faq_a2"}}</dd>
+        <dt>{{t "help.faq_q3"}}</dt>
+        <dd>{{t "help.faq_a3"}}</dd>
+        <dt>{{t "help.faq_q4_pre"}} <code>radius</code> {{t "help.faq_q4_post"}}</dt>
+        <dd>{{t "help.faq_a4_pre"}} <code>units=imperial</code> {{t "help.faq_a4_post"}}</dd>
+    </dl>
+</section>
+{{end}}

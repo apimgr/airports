@@ -1,0 +1,10 @@
+/* Light theme — applies when scheme: default is active */
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        #6f42c1;
+  --md-primary-fg-color--light: #8e5fd3;
+  --md-primary-fg-color--dark:  #553099;
+  --md-accent-fg-color:         #d63384;
+
+  --md-typeset-a-color: #0d6efd;
+}

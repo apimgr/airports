@@ -1,0 +1,78 @@
+{{define "content"}}
+{{if .Airport}}
+<div class="airport-detail" data-lat="{{.Airport.Lat}}" data-lon="{{.Airport.Lon}}">
+    <div class="airport-detail-header">
+        <div>
+            <h1>{{.Airport.ICAO}}{{if .Airport.IATA}} / {{.Airport.IATA}}{{end}}</h1>
+            <h2>{{.Airport.Name}}</h2>
+        </div>
+        <span class="country-badge-large">{{.Airport.Country}}</span>
+    </div>
+
+    <div class="detail-grid">
+        <div class="detail-card">
+            <h3>📍 {{t "airport.location_heading"}}</h3>
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.city_label"}}</span>
+                <span class="detail-value">{{.Airport.City}}</span>
+            </div>
+            {{if .Airport.State}}
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.state_label"}}</span>
+                <span class="detail-value">{{.Airport.State}}</span>
+            </div>
+            {{end}}
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.country_label"}}</span>
+                <span class="detail-value">{{.Airport.Country}}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.coordinates_label"}}</span>
+                <span class="detail-value">{{printf "%.6f" .Airport.Lat}}, {{printf "%.6f" .Airport.Lon}}</span>
+            </div>
+        </div>
+
+        <div class="detail-card">
+            <h3>✈️ {{t "airport.info_heading"}}</h3>
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.icao_label"}}</span>
+                <span class="detail-value">{{.Airport.ICAO}}</span>
+            </div>
+            {{if .Airport.IATA}}
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.iata_label"}}</span>
+                <span class="detail-value">{{.Airport.IATA}}</span>
+            </div>
+            {{end}}
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.elevation_label"}}</span>
+                <span class="detail-value">{{tf "airport.elevation_value" "feet" .Airport.Elevation "meters" .ElevationMeters}}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.timezone_label"}}</span>
+                <span class="detail-value">{{.Airport.Tz}}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="action-buttons">
+        <button data-action="find-nearby" class="btn-primary">{{t "airport.find_nearby"}}</button>
+        <a href="https://www.openstreetmap.org/?mlat={{.Airport.Lat}}&mlon={{.Airport.Lon}}#map=15/{{.Airport.Lat}}/{{.Airport.Lon}}"
+           target="_blank" rel="noopener" data-action="view-on-map" class="btn-secondary">{{t "airport.view_on_map"}}</a>
+        <button data-action="copy-json" class="btn-secondary">{{t "airport.copy_json"}}</button>
+    </div>
+
+    <div class="json-section">
+        <h3>{{t "airport.api_response_heading"}}</h3>
+        <pre id="json-data">{{.JSON}}</pre>
+    </div>
+</div>
+{{else}}
+<div class="error-page">
+    <h1>❌ {{t "airport.not_found_title"}}</h1>
+    <p>{{tf "airport.not_found_body" "code" .Code}}</p>
+    <button data-action="navigate" data-href="/search">{{t "airport.search_airports_button"}}</button>
+</div>
+{{end}}
+
+{{end}}

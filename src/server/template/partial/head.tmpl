@@ -1,0 +1,39 @@
+{{define "head"}}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{.Description}}">
+    <meta name="keywords" content="airports, airport database, ICAO, IATA, GeoIP, airport search, nearby airports, aviation">
+    <meta name="author" content="Airports API">
+    <meta name="robots" content="{{.Robots}}">
+    <title>{{.Title}} - Airports API</title>
+    <link rel="canonical" href="{{.CanonicalURL}}">
+    <!-- OpenGraph (AI.md PART 16 SEO meta tags) -->
+    <meta property="og:title" content="{{.Title}} - Airports API">
+    <meta property="og:description" content="{{.Description}}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{.CanonicalURL}}">
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{.Title}} - Airports API">
+    <meta name="twitter:description" content="{{.Description}}">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/public.css">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#bd93f9">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- Structured Data (AI.md PART 16 SEO meta tags) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Airports API",
+      "description": "{{.Description}}",
+      "url": "{{.CanonicalURL}}"
+    }
+    </script>
+</head>
+{{end}}

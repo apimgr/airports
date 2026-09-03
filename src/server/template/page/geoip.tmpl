@@ -1,0 +1,58 @@
+{{define "content"}}
+<div class="page-header">
+    <h1>🌍 {{t "geoip.title"}}</h1>
+    <p>{{t "geoip.subtitle"}}</p>
+</div>
+
+<div class="search-box">
+    <form id="geoip-form" method="get" action="/geoip" data-action="lookup-ip">
+        <div class="search-input-group">
+            <input type="text" id="ip-input" name="ip" class="search-input"
+                   placeholder="{{t "geoip.ip_placeholder"}}"
+                   pattern="^(\d{1,3}\.){3}\d{1,3}$"
+                   autocomplete="off">
+            <button type="submit" class="btn-primary">{{t "geoip.lookup_button"}}</button>
+        </div>
+    </form>
+</div>
+
+<div id="geoip-result" class="result-container{{if not .Location}} hidden{{end}}">
+    <div class="result-card" id="location-card">
+        <h2>📍 {{t "geoip.location_heading"}}</h2>
+        <div class="result-data" id="location-data">
+            {{if .Location}}
+            <dl>
+                <dt>IP</dt><dd>{{.Location.IP}}</dd>
+                <dt>Country</dt><dd>{{.Location.CountryName}} ({{.Location.Country}})</dd>
+                <dt>City</dt><dd>{{if .Location.City}}{{.Location.City}}{{else}}-{{end}}</dd>
+                <dt>Latitude</dt><dd>{{.Location.Latitude}}</dd>
+                <dt>Longitude</dt><dd>{{.Location.Longitude}}</dd>
+                <dt>ASN</dt><dd>{{if .Location.ASN}}{{.Location.ASN}}{{else}}-{{end}}</dd>
+                <dt>ISP</dt><dd>{{if .Location.ASNOrg}}{{.Location.ASNOrg}}{{else}}-{{end}}</dd>
+            </dl>
+            {{end}}
+        </div>
+    </div>
+    <div class="result-card" id="nearby-card">
+        <h2>✈️ {{t "geoip.nearby_heading"}}</h2>
+        <div class="result-data" id="nearby-data">
+            {{if .Nearby}}
+            {{range .Nearby}}
+            <div class="airport-item">
+                <strong>{{.Name}}</strong>
+                <span class="airport-codes">{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</span>
+                <span class="airport-dist">{{printf "%.1f" .Distance}} {{.DistanceUnit}}</span>
+            </div>
+            {{end}}
+            {{else if .Location}}
+            <p>{{t "geoip.no_nearby_airports"}}</p>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<div id="geoip-error" class="error-container{{if not .LookupError}} hidden{{end}}">
+    <p id="error-message">{{.LookupError}}</p>
+</div>
+
+{{end}}

@@ -1,0 +1,23 @@
+{{define "cookie-consent"}}
+{{if .ShowCookieConsent}}
+<div id="cookie-consent" class="cookie-banner" data-sold="{{.ConsentDataSold}}">
+    <div class="cookie-banner-content">
+        <span class="cookie-message">
+            {{.ConsentMessage}} - <a href="{{.ConsentPolicyURL}}" class="policy-link">{{.ConsentPolicyText}}</a>
+        </span>
+        <div class="cookie-buttons">
+            <form method="post" action="/server/consent">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="choice" value="decline">
+                <button type="submit" class="btn-decline">{{.ConsentDeclineText}}</button>
+            </form>
+            <form method="post" action="/server/consent">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="choice" value="accept">
+                <button type="submit" class="btn-accept">{{.ConsentAcceptText}}</button>
+            </form>
+        </div>
+    </div>
+</div>
+{{end}}
+{{end}}

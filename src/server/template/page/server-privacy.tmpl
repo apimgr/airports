@@ -1,0 +1,25 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>{{t "privacy.title"}}</h1>
+    <p>{{t "privacy.intro"}}</p>
+
+    <h2>{{t "privacy.collect_heading"}}</h2>
+    <ul>
+        <li><strong>{{t "privacy.collect_logs_label"}}</strong> &mdash; {{t "privacy.collect_logs_desc"}}</li>
+        <li><strong>{{t "privacy.collect_geoip_label"}}</strong> &mdash; {{t "privacy.collect_geoip_desc"}}</li>
+    </ul>
+
+    <h2>{{t "privacy.not_collect_heading"}}</h2>
+    <ul>
+        <li>{{t "privacy.not_collect_accounts"}}</li>
+        <li>{{t "privacy.not_collect_cookies_pre"}} <code>localStorage</code> {{t "privacy.not_collect_cookies_post"}}</li>
+        <li>{{t "privacy.not_collect_analytics"}}</li>
+    </ul>
+
+    <h2>{{t "privacy.third_party_heading"}}</h2>
+    <p>{{t "privacy.third_party_desc"}}</p>
+
+    <h2>{{t "privacy.contact_heading"}}</h2>
+    <p>{{t "privacy.contact_pre"}} <a href="/security.txt">security.txt</a>{{t "privacy.contact_post"}}</p>
+</section>
+{{end}}

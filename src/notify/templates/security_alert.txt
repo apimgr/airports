@@ -1,0 +1,21 @@
+Subject: Security Alert - {app_name}
+---
+SECURITY ALERT
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+{event}
+
+Details:
+  Source IP: {ip}
+  {details}
+
+────────────────────────────────────────────────────────────────────────
+{app_name}
+{app_url}
+────────────────────────────────────────────────────────────────────────
+
+--
+{app_name}
+{app_url}

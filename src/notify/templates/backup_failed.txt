@@ -1,0 +1,14 @@
+Subject: Backup Failed - {app_name}
+---
+BACKUP FAILED
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+The backup "{filename}" failed to create.
+
+Error: {error}
+
+--
+{app_name}
+{app_url}

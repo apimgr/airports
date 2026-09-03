@@ -1,0 +1,63 @@
+name: airports-test
+
+# Test Docker Compose Configuration — AI/AUTOMATED TESTING ONLY.
+# Hardcoded sane defaults — no .env file required or supported.
+#
+# CRITICAL: This file MUST be copied to a temp directory before running.
+# Volume paths like ./volumes/config:/config resolve relative to the working
+# directory at `docker compose up` time — running from the project root would
+# bind-mount the repo, which is wrong for tests.
+#
+# Correct workflow:
+#   TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/airports-XXXXXX")
+#   mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+#   chown -R 1000:1000 "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+#   cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
+#   cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
+#   rm -rf "$TEMP_DIR"
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  airports:
+    image: ghcr.io/apimgr/airports:latest
+    pull_policy: always
+    container_name: airports-test
+    restart: "no"
+    logging: *default-logging
+
+    environment:
+      - MODE=development
+      - DEBUG=true
+      - TZ=America/New_York
+
+    ports:
+      - "64581:80"
+
+    tmpfs:
+      # Tests should not persist anything beyond the named volumes below.
+      - /tmp:size=64m
+
+    volumes:
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
+
+    networks:
+      - airports-test
+
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/airports", "--status"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+networks:
+  airports-test:
+    name: airports-test
+    external: false
+    driver: bridge
