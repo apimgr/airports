@@ -125,7 +125,7 @@ airports-cli [flags] <command> [args...]
 
 | Flag | Env | Description |
 |------|-----|-------------|
-| `--server URL` | `AIRPORTS_SERVER_PRIMARY` | Server base URL (default: `http://localhost:80`) |
+| `--server URL` | `AIRPORTS_SERVER_PRIMARY` | Server base URL (required unless saved in `cli.yml`) |
 | `--token TOKEN` | `AIRPORTS_TOKEN` | API token for authenticated operations |
 | `--config NAME` | — | Config profile name (default: `cli.yml`) |
 | `--api-version VERSION` | — | API version path segment (default: `v1`) |
@@ -148,7 +148,7 @@ airports-cli --shell help                 # show shell help
 
 ### Configuration
 
-Server URL, token, color, and language are saved to `~/.config/apimgr/airports/cli.yml` (or the profile named by `--config`) on first run, with the server URL stored under the nested `server.primary` key. A saved value is never overwritten by a flag unless it was previously empty — delete the file or set `AIRPORTS_SERVER_PRIMARY`/`AIRPORTS_TOKEN` to override.
+Server URL, token, color, and language are saved to `~/.config/apimgr/airports/cli.yml` (or the profile named by `--config`) on first run, with the server URL stored under the nested `server.primary` key. Command-line flags take precedence over saved values; `AIRPORTS_SERVER_PRIMARY` and `AIRPORTS_TOKEN` provide environment overrides when flags are omitted. There is no built-in localhost fallback: interactive setup tests the server health endpoint before saving the URL, and non-interactive use requires `--server`, `AIRPORTS_SERVER_PRIMARY`, or a saved server URL.
 
 ### Examples
 

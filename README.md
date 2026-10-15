@@ -32,8 +32,11 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 - **Auto-updates** — weekly GeoIP database refresh via built-in scheduler
 - **Multi-platform** — Linux, macOS, Windows, FreeBSD (amd64 & arm64)
 - **Tor hidden service** — optional .onion address
+- **OpenStreetMap maps** — interactive airport, search, and nearby maps with a no-JavaScript coordinate/link fallback
 
 ---
+
+Map tile behavior, attribution, and privacy details are documented in [Airport maps](docs/maps.md).
 
 ## Production Deployment
 

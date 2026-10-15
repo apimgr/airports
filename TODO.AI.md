@@ -71,16 +71,20 @@ features / larger restructuring the audit deferred — too large/risky for an un
 fix. Tracked here per "no issue left only in conversation."
 
 - [ ] PART 32: client uses stdlib `flag` not cobra/viper; no bubbletea TUI; no native GUI; no
-      `--update` self-update with SHA-256; setup wizard doesn't test connection before saving.
-      MAJOR feature work — the client is essentially a thin CLI vs the full spec.
-- [ ] PART 7: `src/common/display` / `display.DetectDisplayEnv()` package does not exist; neither
-      binary auto-detects GUI/TUI/CLI/Headless. Large, cross-binary.
+      `--update` self-update with SHA-256. The setup wizard now requires a server URL, validates it,
+      and checks `/server/healthz` before saving. Remaining client modes and self-update are major
+      feature work.
+- [ ] PART 7: shared `src/common/display` detects terminal and desktop environment details; terminal
+      sizing and server banner are implemented. Full GUI/TUI/CLI/Headless mode selection for both
+      binaries remains incomplete.
 - [x] PART 16: restructured `src/server/templates/*.html` into `src/server/template/{layout,partial,page,component}/*.tmpl`
       per AI.md's authoritative structure; added `src/common/theme/colors.go` shared palette;
       split `main.css` into `common.css`/`components.css`/`public.css` (load order common -> components -> public).
-- [ ] Minor compose deviations (healthcheck intervals, dev DEBUG/container_name, prod MODE/LISTEN),
-      email-template embed path, resolveFQDN order, version v-prefix logic — re-derive specifics
-      from AI.md on pickup (not re-detailed here to avoid drift from a stale paraphrase).
+- [x] Compose production/development/test files now follow AI.md health timing, environment mapping,
+      naming, defaults, and ephemeral Valkey requirements. Email defaults now embed from
+      `src/server/template/email/`; FQDN fallback now checks hostname, `$HOSTNAME`, then global IPv6/IPv4.
+- [x] Release tag formatting adds `v` only for semantic versions and preserves text tags in Makefile
+      and GitHub release metadata.
 
 ## Discovered during 2026-08-14 Site Banner implementation — resolved (2026-08-30)
 
@@ -133,14 +137,17 @@ Found incidentally while implementing the robots.txt/geoip-attribution/CSS pass 
 not part of that change's scope, too large to fix inline. Confirmed unbuilt by direct grep, not
 assumption.
 
-- [ ] PART 8: no startup console banner exists at all (`grep -rn "func.*[Bb]anner\|printBanner\|startupBanner"`
-      across `src/main.go`/`src/server/*.go` returns nothing) — no FQDN/proto/port resolution display,
-      no responsive full/compact/minimal/micro width adaptation, no `NO_COLOR`/`--color` handling for
-      it. `src/server/*banner*` files that exist are the unrelated in-app site-announcement-banner
-      feature, not this console startup banner.
-- [ ] PART 31: I2P support is entirely unbuilt — the only repo-wide match for "i2p" is a stray
-      reference in `src/notify/globalvars.go` (a config var name), not an actual I2P
-      listener/hidden-service implementation. Tor (PART 31's other half) is fully implemented;
+- [x] PART 8: responsive startup console banner with resolved URL, display-width variants, icons, and
+      `NO_COLOR`/`--color` handling added to the server startup path.
+- [ ] PART 31: I2P support is unbuilt — no I2P listener/hidden-service implementation. Tor (PART 31's
+      other half) is fully implemented;
       I2P is not.
-- [ ] PART 7: still unbuilt as of this note (re-confirmed) — no `display.DetectDisplayEnv()` package,
-      matches the existing 2026-08-05 entry above; not re-detailed twice, cross-referencing only.
+- [ ] PART 7: the shared display detector and terminal sizing exist, but mode selection is not fully
+      integrated into both binaries; see the current PART 7 entry above.
+
+## IDEA implementation — map enhancement (2026-10-10)
+
+- [x] Added responsive OpenStreetMap tile maps with airport markers, drag panning, wheel/buttons zoom,
+      attribution, localized labels, and graceful tile-failure fallback on airport detail, search, nearby,
+      and bounding-box result pages. Server-rendered coordinate links remain usable without JavaScript.
+      Documented the client-to-tile-server privacy boundary in `docs/maps.md`.
