@@ -66,9 +66,9 @@ airports
 On first run the binary will:
 
 1. Detect your OS and resolve config/data/log directories.
-2. Auto-create `server.yml` with sane defaults at `~/.config/airports/server.yml` (or OS equivalent).
+2. Auto-create `server.yml` with sane defaults at `~/.config/apimgr/airports/server.yml` (or OS equivalent).
 3. Create required directories.
-4. Download GeoIP databases (~80 MB) to `~/.local/share/airports/security/geoip/`.
+4. Download GeoIP databases (~80 MB) to `~/.local/share/apimgr/airports/security/geoip/`.
 5. Print a startup banner with listen URLs, version, commit, and build date.
 6. Begin serving on port 8080 (or 80 if run as root with `CAP_NET_BIND_SERVICE`).
 
@@ -77,9 +77,9 @@ On first run the binary will:
 The binary can install and manage its own systemd unit:
 
 ```bash
-sudo airports --service install
+sudo airports --service --install
 sudo airports --service start
-sudo airports --service status
+sudo airports --status
 ```
 
 Logs are written to journald and to `/var/log/airports/`.
@@ -87,7 +87,7 @@ Logs are written to journald and to `/var/log/airports/`.
 ## launchd Service (macOS)
 
 ```bash
-sudo airports --service install
+sudo airports --service --install
 sudo airports --service start
 ```
 
@@ -96,7 +96,7 @@ The launchd plist is installed at `/Library/LaunchDaemons/io.github.apimgr.airpo
 ## Windows Service
 
 ```powershell
-airports --service install
+airports --service --install
 airports --service start
 ```
 
@@ -127,9 +127,9 @@ The self-update path refuses to run inside Docker — pull the new image instead
 ## Uninstall
 
 ```bash
-sudo airports --service uninstall      # remove service unit
+sudo airports --service --uninstall   # remove service and all server data (confirms first)
 sudo rm /usr/local/bin/airports         # remove binary
-rm -rf ~/.config/airports ~/.local/share/airports ~/.cache/airports
+rm -rf ~/.config/apimgr/airports ~/.local/share/apimgr/airports ~/.cache/apimgr/airports
 ```
 
-Uninstall **never** removes config or data — they must be deleted manually as shown above.
+Uninstall removes config, data, cache, logs, backups, the PID file, and the service user after confirmation. The binary remains and must be removed manually.

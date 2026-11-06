@@ -15,9 +15,9 @@ This project uses the AI.md specification system.
 
 ## Rule cheatsheets
 
-`.claude/rules/*.md` hold condensed, regenerated-from-AI.md summaries per topic (not committed —
-regenerate locally after cloning if missing). See AI.md PART 0 → "Rule Files to Create/Update"
-for the full file → PART mapping.
+`.claude/rules/*.md` and `.claude/memory/` hold shared project context. Keep them committed and
+current with AI.md. See AI.md PART 0 → "Rule Files to Create/Update" for the full file → PART
+mapping.
 
 ## Project identity
 

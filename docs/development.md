@@ -73,7 +73,7 @@ make test                  # Go unit tests inside Docker
 ./tests/incus.sh           # Force Incus VM (preferred — systemd available)
 ```
 
-The Go integration tests live under `test/integration/` and are referenced from `go.mod` as `github.com/apimgr/airports/test/integration`.
+The Go integration tests live under `tests/integration/` (package path `github.com/apimgr/airports/tests/integration`).
 
 The Docker test compose file (`docker/docker-compose.test.yml`) **must** be copied to a temp dir before running — never run from the project directory:
 
@@ -93,7 +93,7 @@ Use the existing commit style — emoji header, 64-char title, blank line, body 
 ```
 Add bounding-box query endpoint
 
-Adds a new /api/v1/airports/within endpoint that accepts a bbox
+Adds a new /api/{api_version}/airports/within endpoint that accepts a bbox
 parameter and returns all airports inside the rectangle.
 
 - src/handler/airports.go: add WithinBBox handler
@@ -117,7 +117,7 @@ Do not add any tool-attribution footer to commit messages.
 ## Adding a New Feature
 
 1. Update `IDEA.md` "Business logic" section with the new capability.
-2. Add the route in `src/server/router.go` following the web + API pattern (every web page has a corresponding `/api/v1/...` endpoint).
+2. Add the route in `src/server/router.go` following the web + API pattern (every web page has a corresponding `/api/{api_version}/...` endpoint).
 3. Implement the handler under `src/handler/` and the model under `src/model/`.
 4. Add a unit test next to the source (`*_test.go`).
 5. Add an integration test under `test/integration/` if HTTP behaviour is non-trivial.

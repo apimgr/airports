@@ -28,7 +28,7 @@ client_binary: airports-cli
 - Server pages: `/server/about`, `/server/help`, `/server/healthz`, `/server/privacy`, `/server/terms`
 - CLI client (`airports-cli`) for querying from the terminal
 - OpenAPI/Swagger docs at `/api/{api_version}/server/swagger`
-- GraphQL at `/graphql`
+- GraphQL POST at `/api/{api_version}/server/graphql`, with the current-version alias `/api/graphql`
 - Map view of airport locations on OpenStreetMap tiles (no API key) for single airport, search results, and radius/bounding-box query results — server-rendered no-JS baseline (coordinates table + static OSM link), progressively enhanced to an interactive pan/zoom map when JavaScript is available
 
 **Non-goals:**

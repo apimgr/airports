@@ -9,155 +9,151 @@ TODO.AI.md with a precise entry and deleted from here.
 
 ## Pass 5: Spec Compliance — PART 0-4
 
-- [ ] PART 0 / `.claude/memory/`: absent; AI.md 2608 requires the dir plus an empty `MEMORY.md` index (gitignored, per PART 3 6203)
-- [ ] PART 0 / `.claude/rules/*.md`: 12 of 13 headers missing the literal `Rules` token required by AI.md 2636 (`# {Topic} Rules (PART X, Y, Z)`)
-- [ ] PART 0 / `.claude/rules/backend-rules.md`: PART 31 renamed "Overlay Networks (Tor & I2P)" at AI.md 3993; file covers Tor only, zero I2P content
-- [ ] PART 1 / `src/mode/mode.go:15`: `type Mode string`; AI.md 4575 bans bare `Mode`, requires `AppMode`
-- [ ] PART 1 / `src/mode/mode.go:99,123,128,283`: `IsDebug()`/`IsDevelopment()`/`IsProduction()`/`Validate()`; AI.md 4551-4553 require `IsDebugEnabled()`/`IsAppModeDev()`/`IsAppModeProd()`, 4540 bans bare `Validate()`
-- [ ] PART 1 / `src/geoip/service.go:82`: bare `Available()` banned by AI.md 4557
+- [x] PART 0 / `.claude/memory/MEMORY.md` exists; all 13 `.claude/rules/*.md` headers include the required `Rules` token and PART numbers (AI.md PART 0).
+- [x] PART 0 / `.claude/rules/backend-rules.md` now summarizes the current Tor and I2P requirements from PART 31.
+- [x] PART 1 / `src/mode` now declares `type AppMode int` with production/development/debug values; the exported checks are `IsDebugEnabled`, `IsAppModeDev`, and `IsAppModeProd`; validation is named `ValidateAppMode` (AI.md 4540, 4551-4553, 4575).
+- [x] PART 1 / GeoIP database availability is exposed as `Service.IsGeoIPAvailable()` (AI.md 4557).
 - [ ] PART 1 / bare `type Config struct` in `src/config/config.go:21`, `src/tor/config.go:8`, `src/logging/config.go:66`, `src/ssl/ssl.go:19`; bare `type Status struct` in `src/tor/admin.go:30` — AI.md 4577-4578
 - [ ] PART 1 / ~20 bare generic exported funcs (`New`/`Get`/`Load`/`Save`/`Update`/`Start`/`Stop`/`Create`/`Handle`/`Validate`) across cache, scheduler, server, config, i18n, service, backup, shellcompl, cve, tor — AI.md 4515-4545
-- [ ] PART 1 / `src/common/display/`: absent. AI.md 4620-4627 requires `DetectDisplayEnv()` + `IsAutoDetectDisplayModeGUI/TUI/CLI/Headless()` — LARGE, likely TODO.AI.md
-- [ ] PART 1 / `src/config/`: missing `defaults.go`, `validate.go` (AI.md 4695)
-- [ ] PART 1 / `src/mode/`: missing `production.go`, `development.go` (AI.md 4697)
-- [ ] PART 1 / `src/server/`: missing `routes.go`, `middleware.go` (AI.md 4693)
-- [ ] PART 1 / `src/signals_unix.go`,`src/signals_windows.go`: AI.md 4699-4701 requires `src/signal/{signal.go,signal_unix.go,signal_windows.go}`
-- [ ] PART 1 / `README.md:5`: Build badge points at `release.yml`; AI.md 4762-4773 requires `ci.yml` badge
-- [ ] PART 1 / `README.md`: no Docs badge although RTD is configured (AI.md 4791, 4838-4849, 5117)
-- [ ] PART 1 / curl format: AI.md 5293 mandates `curl -q -LSsf {url}` everywhere in docs/examples/tests/scripts. Violations in `README.md:44,53,67,88,158,161,164,167,170`, `docs/api.md:577-586`, `docs/index.md:37`, `docs/admin.md:21`, `scripts/linux.sh:70`, `scripts/macos.sh:47`
-- [ ] PART 1 / curl in tests: `tests/docker.sh:70,77,86,102,104`, `tests/incus.sh:110,126,128` missing `-L`/`-S` (AI.md 5293 + 5363 status-capture exception allows dropping only `-f`)
-- [ ] PART 1 / doc curl hosts: AI.md 4977 requires `{official_site}` not `localhost`/placeholder hosts — `README.md`, `docs/api.md`, `docs/index.md`, `docs/admin.md`
-- [ ] PART 2 / `LICENSE.md:66,69`: stale versions `golang.org/x/crypto v0.54.0`, `golang.org/x/text v0.40.0`; `go.mod` has v0.55.0 / v0.41.0 (AI.md 5662)
-- [ ] PART 2 / `LICENSE.md:57-72`: only 14 direct deps attributed; ~220 indirect modules compiled into the binary are unattributed (AI.md 5528)
-- [ ] PART 2 / `scripts/verify-licenses.sh`: absent (AI.md 5699-5701)
-- [ ] PART 2 / `.github/workflows/licenses.yml`: absent (AI.md 5667-5697)
-- [ ] PART 3 / `tests/e2e.sh`: absent; AI.md 6033 marks it REQUIRED (headless Chromium browser E2E)
-- [ ] PART 3 / `go.mod:11`: uses `github.com/robfig/cron/v3`; AI.md 6453 specifies `github.com/go-co-op/gocron/v2`
+- [x] PART 1 / `src/common/display/` now provides `DetectDisplayEnv()` and all four `IsAutoDetectDisplayMode*()` methods; `src/common/terminal/` and `src/common/banner/` also exist. Remaining display-mode selection integration is tracked in TODO.AI.md.
+- [x] PART 1 / required `src/config/{defaults.go,validate.go}`, `src/mode/{production.go,development.go}`, `src/server/{routes.go,middleware.go}`, and platform-aware `src/signal/{signal.go,signal_unix.go,signal_windows.go}` now exist per AI.md 4693-4701. Functional verification remains with the primary validation pass.
+- [x] PART 1 / README build badge now targets `ci.yml`.
+- [ ] PART 1 / docs badge: `.readthedocs.yaml` is configured, but `https://apimgr-airports.readthedocs.io/` and the RTD project page return 404, so AI.md's rule forbids a badge until the documentation project is actually deployed.
+- [x] PART 1 / curl commands in docs, installers, and container checks now use `-q -LSsf`; HTTP status-capture commands use the documented `-q -LSs` exception (AI.md PART 1).
+- [x] PART 1 / `official_site` remains undefined in IDEA.md; public API examples in README.md, docs/api.md, and docs/admin.md use `YOUR_SERVER` per AI.md 5001-5003. docs/index.md localhost example is inside the Docker quick-start, explicitly allowed by AI.md 4973.
+- [x] PART 2 / direct Go dependency versions in LICENSE.md now match go.mod for x/crypto, x/sys, x/term, and x/text.
+- [x] PART 2 / `LICENSE.md`: all dependency records from `go-licenses csv ./...` now have version, license, attribution, and upstream license links; Apache NOTICE files are included. `modernc.org/mathutil` v1.7.1 is manually attributed from upstream because its module archive has no scanner-readable license file (AI.md 5528).
+- [x] PART 2 / `scripts/verify-licenses.sh` checks for copyleft dependencies and generates CSV/license artifacts using the preinstalled `go-licenses` tool (AI.md PART 2).
+- [x] PART 2 / `.github/workflows/licenses.yml` runs the license checker and saves third-party license texts in the project toolchain image (AI.md PART 2).
+- [ ] PART 3 / `tests/e2e.sh` and tagged `tests/e2e/` scenarios cover SSR, no-JS, full-JS, map interaction, responsive navigation, browser errors, API JSON/CSV/GeoJSON exports, GraphQL airport lookup, deterministic positive GeoIP, and controlled HTTP 500; the expanded on-demand run passed on 2026-10-26. Complete per-feature Tier 1/2/3 workflows remain (AI.md PART 28, 39014-39097).
+- [x] PART 3 / `src/scheduler` parses PART 18 five-field cron forms and descriptors, and drives persisted task timing with Go's `time.Ticker`; no external scheduler library remains in `go.mod`. Where PART 3's generic gocron dependency list conflicts with PART 18's explicit “time/ticker” and “no external cron libraries” implementation requirements, the feature-specific PART 18 direction governs. Ticker task isolation, persistent next-run updates, timezone evaluation, catch-up, panic-to-failed status, retries, and 30-second shutdown handling are implemented. Primary validation remains required (AI.md PART 3 6453; PART 18).
 
 ## Pass 5: Spec Compliance — PART 13-14 + API checklist
 
-- [ ] P0 PART 14 / `src/common/httputil/` absent. AI.md 18693-18985 + checklist 47884-47919 mandate `detect.go` (`isOurCliClient`, `isTextBrowser`, `isHttpTool`, `isNonInteractiveClient`) + `html2text.go` (`renderNoJSHTML`, `HTML2TextConverter`). Zero non-test hits for all six — LARGE
-- [ ] P0 PART 14 / `src/server/web_handlers.go`,`server_pages.go`: frontend routes do no content negotiation at all (no `Accept`/`User-Agent` read); AI.md 18449-18626 — LARGE
-- [ ] P1 PART 13 / `src/server/healthz.go` `FeaturesInfo`: no `features.i2p` (AI.md 17416-17417, 17438-17450)
-- [ ] P1 PART 13 / `src/server/healthz.go` `ChecksInfo`: no `checks.i2p` omitempty field (AI.md 17464-17465)
-- [ ] P1 PART 13 / `src/server/healthz.go` `healthResponseText`: no `features.i2p.*` lines (AI.md 17879-17883)
-- [ ] P1 PART 13 / `src/server/healthz.go:428-435`: both branches hardcode HTTP 200; AI.md 17938-17949 require 503 for `unhealthy`/`maintenance`/`shutting_down`. Breaks `--status`, Docker HEALTHCHECK, k8s probes
-- [ ] P2 PART 13 / `overallStatus` never returns `restart_required`/`maintenance`/`shutting_down` (AI.md 17938-17949)
-- [ ] P2 PART 13 / `src/server/healthz.go:416-435`: API healthz paths serve HTML when `Accept: text/html`; AI.md 18464-18467 require JSON default on API routes
-- [ ] P2 PART 13 / `wantsHealthzText` (`healthz.go:391-405`) matches only curl/wget/httpie; AI.md 18741-18757 `isHttpTool()` also covers libcurl, python-requests, go-http-client, axios, node-fetch, and empty UA
-- [ ] P2 PART 13 / `/api/{api_version}/server/healthz.txt` not registered (AI.md 18531)
-- [ ] P1 PART 14 / 94 non-test literal `/api/v1` occurrences (`page/index.tmpl:45,50`, `server-help.tmpl`, `static/js/app.js:277,299,429,451`, …); AI.md 18196 forbids hardcoding `v1` — `templates.go:125` already injects `APIBase`
-- [ ] P1 PART 14 / `/api/swagger.json` and `/api/{api_version}/server/swagger.json` registered; AI.md 19590 says no `.json` suffix on the path
-- [ ] P1 PART 14 / parallel legacy route tree `/search`, `/search.txt`, `/nearby`, `/nearby.txt`, `/bbox`, `/autocomplete` duplicating canonical `/airports/*` (AI.md 18024-18037)
-- [ ] P1 PART 14 / `/api/{v}/health`, `/health.txt` + `handlers.go:~20 handleHealth`: fifth non-canonical health route, wraps in `{ok,data}` violating bare-object rule (AI.md 17296-17304, 18016, 17762)
-- [ ] P2 PART 14 / metrics route set incomplete: missing `/server/metrics/{service}`, `/metrics/{service}`, `/api/metrics[/{service}]`, `/api/{api_version}/server/metrics[/{service}]` (AI.md 19577-19587)
-- [ ] P2 PART 14 / `/announcements/dismiss` uses a verb (AI.md 18056)
-- [ ] P2 PART 14 / orphan routes: API-only `/api/{v}/{countries,states/{country},autocomplete,settings,airports/within}`; frontend-only POST `/theme`, `/server/consent`, `/announcements/dismiss` (checklist 47823-47919)
-- [ ] P2 PART 14 / `respondText` (`server.go:629-633`) does not guarantee one trailing `\n`; `handlers.go:170,466,497` omit it (AI.md 18287-18298)
-- [ ] P2 PART 14 / `handlers.go:170,466,497` emit plain-text errors without the `ERROR: CODE: message` shape (AI.md 19641-19734)
-- [ ] P3 PART 14 / JSON responses emitted compact; AI.md 18287-18298 require 2-space indent (only `healthz.go:433` complies)
-- [ ] P3 PART 14 / Swagger UI / GraphiQL point at `apiBase+"/server/swagger"`/`"/server/graphql"`; AI.md 19575-19576 use the unversioned `/api/swagger` and `/api/graphql`
-- [ ] P3 PART 14 / `/api/{v}/airports.json`,`.csv`,`.geojson`: extensions beyond `.txt` (AI.md 18469, 18529-18533) — verify against IDEA.md before removing
+- [x] P0 PART 14 / shared `src/common/httputil` client detection, API/frontend format selection, HTML-to-text conversion, and no-JS rendering added; all template routes now negotiate through the shared renderer. Recheck converter coverage during final review.
+- [x] P1 PART 13 / healthz exposes the I2P feature/check fields and plain-text fields; the opt-in I2P provider lifecycle is implemented under `src/i2p/`. Provider runtime verification remains open in TODO.AI.md.
+- [x] P1 PART 13 / healthz now maps unhealthy/maintenance/shutting_down to HTTP 503 for every response format.
+- [x] P2 PART 13 / `statusWithRuntimeState` returns `restart_required`, `maintenance`, and `shutting_down` for their corresponding lifecycle states (`src/server/healthz.go:426-437`); finding resolved.
+- [x] P2 PART 13 / healthz API paths now follow API negotiation (JSON for browser/first-party CLI; text for `.txt`, text/plain, and HTTP tools); API `.txt` aliases registered.
+- [x] P1 PART 14 / frontend pages, static assets, API discovery, service-worker/PWA resources, Swagger, GraphiQL, and OpenAPI URLs include the configured or trusted-proxy base URL; wrapped Go tests and browser E2E passed on 2026-10-26.
+- [x] P1 PART 14 / removed Swagger `.json` path aliases.
+- [x] P1 PART 14 / removed duplicate flat airport search/nearby/bbox/autocomplete routes and migrated page links, scripts, docs, and integration requests to canonical paths.
+- [x] P1 PART 14 / removed the non-canonical `/api/{version}/health` and `/health.txt` routes; canonical healthz endpoints now serve status.
+- [x] P2 PART 14 / all required per-service metrics route families and aliases are registered with independent service tokens.
+- [x] P2 PART 14 / `/announcements/dismiss` is the specified POST action for server-rendered banner dismissal (AI.md PART 16, "Site-wide Announcements").
+- [x] P2 PART 14 / `/api/{v}/airports/autocomplete`, `/countries`, `/countries.txt`, and `/states/{country}` are API-only utilities with no dedicated UI route. AI.md 18204 explicitly permits API-only endpoints, and IDEA.md gives anonymous API clients full read access. `/settings` is safe server metadata, and `/airports/within`'s bounding-box feature is available through `/airports/nearby`; none is a missing frontend feature.
+- [x] P2 PART 14 / `respondText` normalizes CRLF and guarantees exactly one trailing LF; all shared response helpers use it (AI.md PART 14 "Newline Rules").
+- [x] P2 PART 14 / API, rate-limit, blocklist, GeoIP, and path-security text errors use `ERROR: CODE: message`; JSON is selected when `Accept: application/json` is explicit and text for explicit `text/plain` or detected HTTP tools (AI.md PART 14 "Text Response Format").
+- [x] P3 PART 14 / server JSON encoders now use two-space indentation and `Encoder.Encode`'s trailing LF, including error, API, export, manifest, Grafana, and Loki responses; health already used this format (AI.md PART 14 "JSON Rules").
+- [x] P3 PART 14 / Swagger UI and GraphiQL load schemas through `/api/swagger` and `/api/graphql`; versioned `/server/*` routes remain for server namespace access (AI.md PART 14).
+- [x] P3 PART 14 / `/api/{v}/airports.json`, `.csv`, and `.geojson` are required by IDEA.md's multiple export formats and are implemented at the canonical versioned routes; retain these routes (AI.md PART 14; IDEA.md Product Scope)
+- [x] PART 14/32 / interactive client API explorer examples use the version-independent `/airports` route; the request executor adds its API-version prefix (AI.md PART 14 API versioning).
+- [x] PART 14 / remaining Markdown API route examples and README URLs use the `{api_version}` placeholder; no hardcoded `/api/v1` remains in production source, README, or docs (AI.md PART 14 API versioning).
 
 ## Pass 5: Spec Compliance — PART 17-22
 
-- [ ] P0 PART 21 / `src/main.go:2286-2340 restoreBackup`: `backup.AuthorizeRestore` (`src/backup/restore.go:43`) has ZERO non-test callers — restore proceeds unauthorized from any account. AI.md 30678-30687 — SECURITY
-- [ ] P0 PART 20 / `src/server/metrics.go:266-269`: `metricsAuthMiddleware` returns `next` unauthenticated when token empty; AI.md 28796-28808 make per-service bearer auth mandatory ("no unauthenticated default"; empty token → 403 empty body). Doc comment states the opposite of spec — SECURITY
-- [ ] P0 PART 20 / `src/server/server.go:297,422-433`: only `/server/metrics` + one configurable root path. AI.md 28760-28776 require four route families incl. `/prometheus`,`/grafana`,`/loki` sub-routes and both `/api/...` families; reference mount at 29939-30000 — LARGE
-- [ ] P1 PART 20 / no `/server/metrics/grafana` handler; dashboard JSON specified verbatim at AI.md 30152-30228
-- [ ] P1 PART 20 / no `/server/metrics/loki` handler; `MetricsConfig` has no `Loki` struct (AI.md 28769, 28783, 28857-28860)
-- [ ] P1 PART 20 / `src/config/config.go:413-430`: `MetricsConfig` missing `root.enabled`, `auth.allow_unauthenticated`, per-service `auth.tokens.*`, `include_runtime`, `loki.*` (AI.md 28830-28867)
-- [ ] P1 PART 20 / `src/server/metrics.go:20-44,181-194`: required metric families absent — db(5), cache(5), scheduler(4), ratelimit(2), auth(2), system(7), tor(4) (AI.md 28965-29107) — LARGE
-- [ ] P1 PART 22 / `src/main.go:2596-2723 checkAndUpdate`: unconditional `os.Rename` with no `GOOS=windows` branch; AI.md 30944-30973 require rename-to-`.old` + `MOVEFILE_DELAY_UNTIL_REBOOT`. Self-update broken on both windows release targets
-- [ ] P2 PART 20 / `src/config/config.go:740`: `Metrics.Enabled` defaults false; AI.md 28833 defaults true
-- [ ] P2 PART 20 / `src/server/metrics.go:103-110,246`: `airports_http_request_duration_seconds` carries a third `status_code` label; AI.md 28929 defines `method, path` only (cardinality, 29075)
-- [ ] P2 PART 17 / `src/notify/render.go`: no template validation (unknown `{variable}`, empty subject/body) before accepting an override (AI.md 27969-27984)
-- [ ] P3 PART 18 / `i2p_health` task never registered (AI.md 28255) — blocked on I2P
-- [ ] P3 PART 18 / `src/main.go:1817`: `token_cleanup` registered as a declared permanent no-op (AI.md 28242-28255)
-- [ ] P3 PART 17 / `src/notify/templates.go:15`: embeds from `src/notify/templates/`; AI.md 27614 specifies `src/server/template/email/`. Override path and all 10 templates are otherwise correct
+- [ ] PART 11 / `server.compliance` now has independent booleans for all eleven AI.md standards, and any selected standard activates the existing encrypted-backup check. The maintenance report names enabled standards. Standard-specific requirements and privacy/data-rights behavior remain unimplemented; the generic `enabled` compatibility flag must not imply full compliance (AI.md 15536-15793).
+
+- [x] P0 PART 21 / restore authorization is now called before destructive restore operations.
+- [x] P0 PART 20 / every metrics service requires its own bearer token unless the explicit unauthenticated escape hatch is enabled; unset tokens return an empty 403.
+- [x] P0 PART 20 / the required metrics route families are registered.
+- [ ] P1 PART 20 / Grafana dashboard has panels and PromQL coverage for every required metric category, but still needs validation by importing into Grafana (AI.md 29043-29047).
+- [x] P1 PART 20 / Loki now returns bounded recent logs from the in-memory ring buffer. Credential fields, cookies, URL userinfo, and private-key blocks are sanitized; verified by the full test gate.
+- [x] P1 PART 20 / metrics config now includes root, auth tokens, runtime, and Loki settings; generated YAML reflects configured values and sanitized config redacts all tokens.
+- [ ] P1 PART 20 / `src/server/metrics.go`: database connection/query/error metrics, system CPU/memory/disk metrics (7), all five `airports_go_*` runtime metrics, cache metrics measurable without cross-client Redis sampling, scheduler(4), rate-limit(2), service-token auth(2), Tor lifecycle gauges (3), and `tor_requests_total` using validated Tor HAProxy PROXY-protocol circuit metadata are implemented. Redis size/bytes/eviction metrics are omitted because go-redis `PoolStats` tracks connection reuse, while `INFO evicted_keys`/`DBSIZE` are server/database-wide. Prefix scans scale with database size and may include other instances; keyspace notifications require server-wide config and can lose events. Grafana import validation, metrics documentation/config coverage, and once-at-startup disabled-service logging remain open (AI.md 28965-29107) — LARGE
+- [x] P1 PART 22 / executable replacement now has a Windows-specific rename-to-`.old` path and schedules old binary cleanup with `MOVEFILE_DELAY_UNTIL_REBOOT`; Unix keeps atomic replacement.
+- [x] P2 PART 22 / `devel` is the canonical rolling update channel; `daily`, `rolling`, `dev`, and `development` aliases normalize before saving or comparison. Rolling candidates compare `published_at` to the embedded `BUILD_EPOCH`, and the scheduled check ignores `defer_days` for devel. Gated tests/lint and all 16 server/CLI cross-builds passed on 2026-11-01; commit remains pending.
+- [x] P2 PART 20 / metrics default enabled, verified in `src/config/config.go` `DefaultConfig` (`MetricsConfig{Enabled: true}`).
+- [x] P2 PART 20 / HTTP request counter labels now match AI.md (`method`, `path`, `status`); the duration histogram uses `method`, `path`.
+- [ ] P2 PART 17 / template loading rejects empty subjects/bodies and malformed `{variable}` syntax, but unknown variables only produce a deduplicated load-time warning; AI.md PART 17 requires unknown-variable validation before save and specifies editor/autocomplete/preview features (AI.md 28170-28215). The exact editing surface is unclear because PART 17 requires editor behavior while PART 17 also says API projects have no admin UI; no template editing/save surface is implemented.
+- [x] P3 PART 18 / `i2p_health` is conditionally registered when I2P is enabled and calls the manager health check (AI.md 28255); primary build/test verification remains.
+- [x] PART 31.1 / removed the `server.tor.enabled` override; Tor is now enabled only by finding a usable Tor binary, with deterministic auto-detection tests and no generated config toggle (AI.md 41705-41720).
+- [x] PART 18 / `token_cleanup` is registered on the required schedule. Its handler intentionally does no database work because IDEA.md explicitly defines a read-only airport API with no user accounts or resource-owner tokens; PART 10 says read-only APIs generate no such tokens. There are no API-token or session rows to expire, so adding unused auth storage solely to make this task non-empty would contradict project scope.
+- [x] P3 PART 17 / default email templates embed from `src/server/template/email/`, with the configured override path and all ten templates (AI.md PART 17).
 
 ## Pass 5: Spec Compliance — PART 7-8
 
-- [ ] P1 PART 7 / `src/common/{display,terminal,banner,version}/` all absent (AI.md 9440-9565, 9641-9748, 9765-9793, 9830-9901) — LARGE
-- [ ] P1 PART 7 / `src/main.go:1288-1292`: two bare `fmt.Printf` lines instead of `PrintServerStartupBanner` with width tiers ≥80/60-79/40-59/<40 (AI.md 9925-9959, 10696-10714, 48127-48213) — LARGE
-- [ ] P1 PART 8 / `src/main.go:107,239-244,2940-2975`: `--mode` implemented as persist-and-exit maintenance action; AI.md 10162-10209, 12176 define it as the runtime mode for the current run
-- [ ] P1 PART 8 / `src/main.go` `--maintenance`: only `backup`/`restore` handled; AI.md 10204 requires `update, mode, setup, pgp, secret, token, data, compliance, --help` too, and `--maintenance` doubles as an unspecified boolean — LARGE
-- [ ] P1 PART 8 / `src/main.go:1559-1592 checkStatus`: queries `/healthz`, which is an opt-in root alias; `--status` and the Docker HEALTHCHECK fail whenever `server.healthz.root.enabled` is false. Must use `/server/healthz`
-- [ ] P1 PART 8 / `src/config/config.go`: no `server.token` operator token (AI.md 11810-11820) — this is why `backup.AuthorizeRestore` has no caller
-- [ ] P1 PART 8 / proxy headers: only `X-Forwarded-Proto`/`X-Forwarded-For` supported; AI.md 12474, 12539-12554, 12845-12852 require `X-Forwarded-Host`,`X-Real-Host`,`X-Original-Host`,`X-Forwarded-Port`,`X-Real-Port`,`X-Forwarded-Ssl`,`X-Url-Scheme`,`Front-End-Https`
-- [ ] P2 PART 8 / `src/main.go:1061`: config-file mode passed as `cliMode`, so `server.yml` outranks `MODE` env (AI.md 11926-11933)
-- [ ] P2 PART 8 / `src/main.go:1081,1098`: `firstNonEmpty(flag, config, env)` puts config ahead of env for `--port`/`--address` (AI.md 12162-12178)
-- [ ] P2 PART 8 / `src/main.go:1321-1334`: SIGHUP is handled+reloads; AI.md 11127, 11204 require `signal.Ignore(syscall.SIGHUP)`
-- [ ] P2 PART 8 / SIGUSR1 handler logs but never reopens log file handles (AI.md 11116-11326)
-- [ ] P2 PART 8 / `src/main.go:2827-2853 resolveFQDN`: inserts the config value at priority 2 and has no IPv6-before-IPv4 split (AI.md 12469-12481)
-- [ ] P2 PART 8 / `src/main.go:2775-2792 getAccessibleURL`: hardcodes `http://` and always appends the port; AI.md 12426, 12460-12463 require proto detection and stripping `:80`/`:443`
-- [ ] P2 PART 8 / no shared `GetURLVars`/`BuildURL`/`GetBaseDomain`/`GetWildcardDomain`; five sites re-implement scheme detection (AI.md 12629-12647)
-- [ ] P2 PART 8 / `src/main.go:1002`: `--lang` parsed then discarded (`_ = lang`) (AI.md 9975)
-- [ ] P2 PART 8 / `src/main.go:108-140`: extra top-level `--restore` flag; spec has only `--maintenance restore <file>` (AI.md 10204)
-- [ ] P2 PART 8 / `src/main.go:925-1285 run()`: 4 deviations from the 22-step startup order (config before privilege drop; PID after DB/scheduler/Tor; Tor after drop; immediate-exit flags dispatched late) (AI.md 10496-10726)
-- [ ] P2 PART 8 / `src/server/handlers.go:565-585 getClientIP`: only `X-Forwarded-For`; AI.md 12856-12865 require `CF-Connecting-IP`→`True-Client-IP`→`X-Real-IP`→`X-Forwarded-For`→`X-Client-IP`→`RemoteAddr`
-- [ ] P2 PART 8 / `src/path/paths.go:332-380 GetBackupDir`: re-evaluates euid live (post-drop takes the unprivileged branch) and falls back to `$HOME`-derived paths; AI.md 12224-12253 require `startedElevated` captured pre-drop, a writability probe, and a `{data_dir}/backup` fallback
-- [ ] P2 PART 8 / no `publicsuffix`-based `IsValidHost`/`IsValidSSLHost`; `DOMAIN` accepted verbatim (AI.md 12662-12808)
-- [ ] P2 PART 7 / `ColorEnabled`/`EmojiEnabled` not shared+exported and missing the config-file tier; server and client each roll their own (AI.md 10046-10158)
-- [ ] P3 PART 8 / `--service` accepts `install|…|logs` not the spec's `--install`/`--uninstall`/`--disable` forms (AI.md 10195)
-- [ ] P3 PART 8 / request ID: no `X-Correlation-ID`/`X-Trace-ID` fallback, no UUID v4 validation (AI.md 12872-12917)
-- [ ] P3 PART 8 / auth-token header chain: only `Authorization` read (AI.md 12920-12951)
-- [ ] P3 PART 8 / `--port` rejects the dual-port form `80,443` (AI.md 12414-12463)
-- [ ] P3 PART 8 / `printHelp` advertises `--restore`, omits `--maintenance` subcommands, drops `{internal_org}` from the config path (AI.md 10211-10252)
-- [ ] P3 PART 8 / no `server.url_detection.*` / domain learning (AI.md 12556-12621)
-- [ ] P3 PART 7 / no `CanUseANSI(env)`; `TERM=dumb` only suppresses color/emoji, doesn't gate spinners/progress/tables (AI.md 9567-9639)
+- [x] PART 7 / `src/common/version/` now centralizes BuildEpoch parsing, RFC3339 UTC date derivation, and the shared version line formatter used by both binaries, with focused tests. Server-side display behavior remains incomplete (AI.md PART 7).
+- [x] P1 PART 7 / startup calls `appbanner.PrintServerBanner`, which selects full/compact/minimal/micro layouts at ≥80/60-79/40-59/<40 columns (AI.md PART 7).
+- [x] P1 PART 8 / `--mode` is now the runtime mode for the current run and follows `--mode` > `MODE` > production priority; it no longer writes `server.yml` (AI.md PART 6, 8681-8695).
+- [ ] P1 PART 8 / `src/main.go` dispatches backup, restore, update, setup, and compliance report; mode, PGP, secret, token, and data actions currently exit with explicit unavailable errors. AI.md 10204 requires these actions, but `mode` persistence conflicts between PART 6 and PART 8, and IDEA.md excludes user accounts/data. Implement the remaining supported actions and resolve only spec-defined behaviors; keep unresolved conflicts visible — LARGE
+- [x] P1 PART 8 / `--status` now queries `/server/healthz` and decodes its bare health response with the first-party client User-Agent.
+- [x] P1 PART 8 / `server.token` is represented in config, generated, sanitized, and used by backup restore authorization (AI.md PART 8).
+- [x] P1 PART 8 / trusted proxy middleware handles the specified host, port, protocol, client-IP, and base-path headers behind the trusted-peer gate.
+- [x] P2 PART 8 / runtime mode now resolves from `--mode`, then `MODE`, then production; selected mode is copied into healthz runtime config and is not loaded as the mode source (AI.md PART 6, 8681-8695).
+- [x] P2 PART 8 / `src/main.go`: `--port` and `--address` now follow CLI flag > environment > config > default priority per AI.md PART 8 environment fallbacks.
+- [x] PART 8 / config file changes are handled by the automatic watcher; Unix now ignores SIGHUP and Windows defines the corresponding no-op helper, avoiding duplicate reload paths (AI.md PART 8).
+- [x] P2 PART 8 / SIGUSR1 now calls `logging.Manager.Reopen()` to close and reopen active file descriptors after external rotation; focused coverage verifies writes move to the newly created active path (`src/main.go`, `src/logging/manager.go`, `src/logging/writer.go`, `src/logging/manager_test.go`; AI.md PART 8 "Signal Handling & Graceful Shutdown").
+- [x] P2 PART 8 / `resolveFQDN` now follows AI.md's static source order: `DOMAIN` → `os.Hostname()` → `$HOSTNAME` → public IPv6 → public IPv4 → `localhost`; configured FQDN is no longer an extra fallback. The source precedence is covered by focused table tests in `src/main_test.go` (AI.md PART 8, "{fqdn} Resolution").
+- [x] PART 8 / startup URL formatting detects HTTPS from TLS configuration or port 443, and strips standard ports 80/443; added coverage for standard and nonstandard ports (AI.md PART 8 "URL Display Rules").
+- [x] P2 PART 8 / shared `src/common/urlvars` resolver provides `GetURLVars`, `BuildURL`, `GetBaseDomain`, and `GetWildcardDomain`; trusted-proxy scheme consumers and server public URLs use it, with bounded domain learning and host validation. Public interface IPs are allowed only for the final automatic fallback; hostname validation still rejects IPs for DOMAIN, proxy hosts, and TLS names. Resolver/config/server tests passed (AI.md 12556-12647).
+- [x] PART 8 / server output language now follows `--lang` → `server.lang` → `LC_ALL`/`LANG` → English, and the resolved language is passed to the startup banner (AI.md PART 8). The user directed adherence to this priority when clarifying the config schema.
+- [x] P2 PART 8 / Removed the noncanonical top-level `--restore` flag; restore now runs only through `--maintenance restore <file>`. Updated help, shell completion metadata, CLI/admin docs, and tests to the canonical command (AI.md PART 8 / PART 21).
+- [ ] P2 PART 8 / immediate-exit help handling and early PID detection/write are now implemented. Startup order still differs: PID is created before default logging (AI.md steps 10–12), root port selection needs config before the spec's step-13 full config load, Tor currently starts after privilege drop because its process launcher lacks setuid credentials (step 8g), and cleanup of the shared runtime PID path after drop needs a safe ownership strategy. AI.md steps 8e/13 also conflict on when config is read (10496-10726).
+- [x] P2 PART 8 / trusted-client middleware now normalizes `CF-Connecting-IP`→`True-Client-IP`→`X-Real-IP`→`X-Forwarded-For`→`X-Client-IP` before chi's trusted-proxy walk; an untrusted TCP peer still resolves to its own address. Added precedence and spoofing tests (AI.md 12856-12865).
+- [x] P2 PART 8 / `GetBackupDir` uses the captured pre-drop elevation state, probes the system backup path for writability, and falls back to `{data_dir}/backup` for an elevated-start process; path tests passed (AI.md 12224-12253).
+- [x] P2 PART 8 / `IsValidHost`/`IsValidSSLHost` now enforce public-suffix, development-only TLD, localhost, IP, and Let's Encrypt host rules; DOMAIN entries are validated and overlay addresses are skipped as app-managed values (AI.md 12747-12912)
+- [x] P2 PART 7 / shared exported color/emoji helpers and server/client config priority are implemented and covered by tests; full test gate passed (AI.md 10046-10158).
+- [x] P3 PART 8 / `--service` now accepts the specified `start|restart|stop|reload|--install|--uninstall|--disable|--help` forms; unsupported legacy words are rejected. Main and detailed service help plus README/CLI/admin/installation docs use the canonical forms. A flag-parser test confirms `--service --install` is accepted as one subcommand value (AI.md PART 8 "Server Binary CLI").
+- [x] P3 PART 8 / incoming request IDs accept `X-Request-ID`, `X-Correlation-ID`, and `X-Trace-ID`, validate UUID v4, generate replacements, and populate response/context. Outgoing service requests propagate the request ID; tests passed (AI.md 12952-12987).
+- [x] P3 PART 8 / protected metrics routes accept the supported auth-header priority; query-string credentials remain forbidden by the more specific PART 20 rule. CORS permits the defined auth/CSRF/request-ID headers. The public Airports API intentionally has no auth per IDEA.md.
+- [x] P3 PART 8 / `--port HTTP_PORT,HTTPS_PORT` now validates and starts simultaneous HTTP and HTTPS listeners, loads TLS through the SSL manager, and redirects HTTP to HTTPS when SSL is enabled. Forwarded-protocol bypass uses the server's dynamically refreshed trusted-proxy CIDR checker; health and overlay requests bypass redirect. Focused parser, redirect, and trusted-peer tests were added (`src/main.go`, `src/main_test.go`, `src/server/server.go`, `src/server/trustedproxy_test.go`; AI.md PART 8 "Dual Port Support" and PART 15 certificate lookup).
+- [x] P3 PART 8 / top-level help points to `--maintenance help`, and `printMaintenanceHelp` lists every required maintenance command and usage family; config paths use `{internal_org}/{internal_name}` (AI.md PART 8 "Server --help Output" / "Directory Flags").
+- [x] P3 PART 8 / `server.url_detection.{learning,min_samples,sample_window,log_changes,live_reload}` has defaults, serialization, trusted-proxy-only bounded learning, live resolution, and configuration docs; config/resolver/server tests passed (AI.md 12556-12621).
+- [x] P3 PART 7 / resolved the missing-`CanUseANSI` finding: `CanUseANSI` exists in `src/common/display/detect.go:37-39` and is used by the startup banner. Broader `TERM=dumb` behavior for TUI, spinners, progress, and ASCII tables remains incomplete and is tracked separately in TODO.AI.md.
 
 ## Pass 5: Spec Compliance — PART 5, 6, 12
 
-- [ ] P0 PART 5 / path-security module absent: no `normalizePath`/`validatePathSegment`/`validatePath`/`SafePath`, no `ErrPathTraversal`/`ErrInvalidPath`/`ErrPathTooLong` (AI.md 6909-7008); no `SafeFilePath(baseDir,userPath)` (7126-7153) — MEDIUM
-- [ ] P0 PART 5 / `src/server/server.go:169-216`: no `PathSecurityMiddleware` at position #3 rejecting `..`/`RawPath`/`%2e` with 400 (AI.md 7064, 7081-7083) — MEDIUM
-- [ ] P0 PART 5 / maintenance mode is dead config: `MaintenanceConfig`/`SelfHealingConfig` referenced only in `src/config/config.go`; no 503-on-write, no `X-Maintenance-*` headers, no `status:"maintenance"` healthz branch, no self-healing (AI.md 7222-7496) — LARGE
-- [ ] P0 PART 12 / `src/server/ratelimit.go:54`,`server.go:112`: hardcoded in-memory `NewRateLimiter(60,120,…)`; `cfg.Server.RateLimit.*` never read at enforcement time; no per-IP sliding window in `server.db`, no read/write/health buckets, no `global_burst` (AI.md 16160-16187) — MEDIUM
-- [ ] P0 PART 12 / no Tor request detection at all (`isTorRequest` absent): onion requests get clearnet HSTS, clearnet absolute URLs, `127.0.0.1` in logs (AI.md 16059-16134) — MEDIUM/LARGE
-- [ ] P1 PART 5 / `src/server/server.go:173`: middleware order wrong — chain starts at RequestID (no URLNormalize anywhere), Logging at position 3 instead of last (AI.md 7159-7183) — MEDIUM
-- [ ] P1 PART 5 / `src/config/config.go:352`: no `applyDatabaseEnvOverrides` for runtime `DATABASE_DRIVER`/`DATABASE_URL` (AI.md 7719-7721)
-- [ ] P1 PART 5 / no `rate_limits` table; DB tables list at AI.md 7523-7535 incomplete — MEDIUM
-- [ ] P1 PART 5 / `Maintenance.Cleanup.*` has no consumer (AI.md 7486-7487) — MEDIUM
-- [ ] P1 PART 12 / no `server.baseurl` yaml key; `X-Forwarded-Prefix`/`X-Forwarded-Path`/`X-Script-Name` never read (AI.md 15895-15957) — MEDIUM
-- [ ] P1 PART 12 / no `server.limits.{max_body_size,read_timeout,write_timeout,idle_timeout}` section (AI.md 15961-15975) — MEDIUM
-- [ ] P1 PART 12 / contact schema non-canonical: has `server.privacy.contact.{general,abuse}` + `web.security.admin` instead of `server.contact.{admin,security,abuse,general}.email` + per-role webhooks (AI.md 16209-16281, 16358-16365) — MEDIUM
-- [ ] P1 PART 12 / no webhook transport at all; no `X-Webhook-Signature`/`-Timestamp`/`-ID`/`-Event` (AI.md 16298-16329) — LARGE
-- [ ] P1 PART 12 / `src/server/ratelimit.go:187`: `server.rate_limit.enabled` never checked — SMALL
-- [ ] P1 PART 12 / `src/server/server.go:737`: `publicBaseURL` honors only `X-Forwarded-Proto`; FQDN/port/base-path header categories unread (AI.md 16003-16013) — MEDIUM
-- [ ] P1 PART 12 / `src/tor/config.go`: no `tor.onion_address`/`tor.contact_email` keys (AI.md 16048-16055) — SMALL
-- [ ] P1 PART 12 / `handleSecurityTxt` (`server.go:827`) has no Tor variant (AI.md 16136-16152) — SMALL
-- [ ] P1 PART 12 / no `server.tracking.{type,id,url}` + 9-platform matrix (AI.md 16375-16385, 16650-16734) — LARGE
-- [ ] P1 PART 12 / `PrivacyConfig` missing most of AI.md 16743-16912 (`data.sharing[]`, `retention.*`, `consent.show_until_acknowledged/default_enabled/show_preferences/preferences_text`, `cookies.*`, `third_party.services`, `content.*`) — LARGE
-- [ ] P1 PART 12 / no `ConsentMiddleware`/`CanSetPreferenceCookie`/`CanLoadAnalytics` — nothing gates tracking on consent (AI.md 17163-17184) — MEDIUM
-- [ ] P2 PART 5 / `src/config/bool.go:10-22`: truthy/falsy word sets deviate from AI.md 7583-7620 (13 truthy + 15 falsy words missing; non-spec `active`/`positive`/`inactive` added) — SMALL
-- [ ] P2 PART 5 / `src/server/consent.go:97`: form booleans parsed with `=="on"||=="true"` instead of `config.IsTruthy` (AI.md 7539, 7711) — SMALL
-- [ ] P2 PART 5 / `DATABASE_DIR`, `APPLICATION_NAME`, `APPLICATION_TAGLINE` env vars never read (AI.md 7743-7755) — SMALL
-- [ ] P2 PART 6 / `src/server/debug.go:42`: `/debug/db` and `/debug/cache` omitted though `src/db` and `src/cache` both exist (AI.md 8813-8820) — SMALL
-- [ ] P2 PART 6 / no expvar counters `requests_total`/`requests_duration_seconds`/`errors_total`, no published `uptime_seconds`/`goroutines`/`memory` (AI.md 9097-9127) — SMALL
-- [ ] P2 PART 6 / no `server.debug.*` config section (pprof, log_queries, log_cache, log_bodies, max_body_log_size, block_profile_rate, mutex_profile_fraction, runtime_endpoints) (AI.md 9172-9200) — MEDIUM
-- [ ] P2 PART 6 / no `debugLog`/`debugLogDB`/`debugLogCache`/`debugMiddleware` (AI.md 8969-9044) — MEDIUM
-- [ ] P2 PART 6 / `src/mode/mode.go:244 getLogLevel` unexported with zero call sites; level fixed at `warn`, matching neither mode's spec'd level (AI.md 8714, 8730) — MEDIUM
-- [ ] P2 PART 12 / no `server.compression.*` (AI.md 15979-15992) — MEDIUM
-- [ ] P2 PART 12 / no `server.i18n.{default_language,supported}` (AI.md 16195-16200) — SMALL
-- [ ] P2 PART 12 / `ratelimit.go:158 abuseNotifyRecipient` uses a non-spec fallback chain (AI.md 16285-16292) — SMALL
-- [ ] P2 PART 12 / `ratelimit.go:200`: `Retry-After` and `X-RateLimit-Limit` hardcoded to `60` (AI.md 16189) — SMALL
-- [ ] P2 PART 12 / `trustedproxy.go:14`: listen-address `/24` missing from always-trusted set (AI.md 16021-16027) — SMALL
-- [ ] P2 PART 12 / `trustedproxy.go:57`: DNS names in `additional` resolved once at startup, not every 5 min (AI.md 16029) — MEDIUM
-- [ ] P2 PART 12 / no `Onion-Location` header (AI.md 16118-16121) — SMALL
-- [ ] P2 PART 12 / no `GetAnalyticsDescription`/`GetDataUsageContent`/`IsCCPAApplicable`/`ccpa_opt_out` cookie (AI.md 16930-17033) — MEDIUM
-- [ ] P2 PART 12 / `validateConfig` skips `server.port`, `mode`, `address`, `api_version`, `ssl.min_version`, `web.ui.theme`, cache `type`, and every cron string (AI.md 15871-15885) — MEDIUM
-- [ ] P3 PART 5 / no `MustParseBool` (AI.md 7658) — SMALL
-- [ ] P3 PART 6 / no third `AppMode` Debug value / no `GetAppModeString()` `" [debugging]"` suffix (AI.md 9207-9215, 8776) — SMALL
-- [ ] P3 PART 6 / `ParseMode` errors on unrecognized `server.mode` instead of warn+default (AI.md 15865-15891) — SMALL
-- [ ] P3 PART 12 / original-TCP-peer context key absent; invariant holds only by construction (AI.md 16015) — SMALL
-- [ ] P3 PART 12 / `config.go:826`: `privacy.data.stored_on_server` defaults false, spec says true (AI.md 16745) — SMALL
-- [ ] P3 PART 12 / no session settings section (AI.md 17278-17286) — SMALL
-
-### NEEDS USER DECISION
-- PART 13 / `release.txt` contains `0.0.1`; AI.md 17969 requires the first stable release to start at `1.0.0` and forbids `0.x.x`. Bumping the version is externally visible (release tags, Docker tags, update channel) — not changed in this pass.
+- [x] P0 PART 5 / path normalization, traversal validation, safe path resolution, and HTTP traversal middleware are implemented with tests.
+- [x] P0 PART 5 / `PathSecurityMiddleware` runs at execution position #3 after URL normalization and request-ID attachment; rejects decoded/raw `..` and encoded `%2e` traversal with 400 (AI.md 7064, 7081-7083). Verified in `src/server/server.go:180-182`.
+- [ ] P0 PART 5 / runtime maintenance recovery now probes DB connection/write access, disk pressure, and config/data/log directory write access; it enters read-only maintenance, runs configured cleanup, retries, updates lifecycle status, and sends configured notifications (`src/maintenance_recovery.go`). Startup `db.Open`/schema failures still occur before this monitor can run, and tests/verification remain pending (AI.md 7222-7496) — LARGE
+- [x] P0 PART 12 / configured sliding-window counters persist in `server.db` by default using hashed client identities and one-second buckets; configured Redis/Valkey uses atomic sorted-set Lua operations. Redis failure switches to DB fallback and a pseudonymous-free marker keeps DB authoritative through restart until the maximum active window expires. Stale DB rows are cleaned in bounded batches. Restart/privacy/failover tests passed in the full test gate (AI.md 16160-16187).
+- [ ] P0 PART 12 / configured `tor.onion_address` is now detected for HTTP absolute URLs, HSTS/CSP behavior, canonical URLs, `security.txt`, clearnet HTML `Onion-Location`, secure-cookie behavior, and trusted circuit-ID-aware request identity/logging/rate limiting through the dedicated PROXY-protocol listener. Request-time URL consistency across every handler and the remaining Tor privacy rules still need a complete spec review (AI.md 16059-16134).
+- [x] P1 PART 5 / router middleware is registered in execution order with URL normalization first, request ID second, traversal security third, and request logging last (AI.md PART 5 "Middleware Order").
+- [x] P1 PART 5 / `DATABASE_DRIVER`/`DATABASE_URL` now override the loaded config at runtime without rewriting `server.yml`; `sqlite2`/`sqlite3` and `turso` aliases normalize per AI.md PART 8. Runtime `libsql` support still depends on the database backend.
+- [x] P1 PART 5 / `server.db` creates the required `rate_limits` table and window index idempotently; storage implementation and idempotency test passed in the full test gate (AI.md 7523-7535, 11625-11638).
+- [x] P1 PART 5 / `Maintenance.Cleanup.*` is consumed by startup disk-pressure cleanup for expired rotated logs, project-scoped regular temp files older than 24 hours, and backup retention using the cached backup directory. Update downloads now use the project temp namespace; cleanup skips symlinks, directories, and other projects. Focused tests passed (AI.md 7486-7487).
+- [x] P1 PART 12 / `server.baseurl`, `--baseurl`, and trusted-proxy prefix headers are implemented and tested; generated routes and assets preserve the normalized prefix (AI.md 15895-15957).
+- [x] P1 PART 12 / `server.limits` now defaults and validates the configured body-size/read/write/idle limits; the HTTP server uses the three configured timeouts, and router middleware rejects declared oversized bodies and caps streamed bodies with `http.MaxBytesReader`. Focused config and middleware tests added (AI.md 16105-16119).
+- [ ] P1 PART 12 / the public contact page, bounded SMTP form submission, and single-use arithmetic challenge for built-in `simple` CAPTCHA are implemented. The user selected arithmetic for `simple`; external reCAPTCHA/hCaptcha provider configuration and verification, contact webhook event dispatch/signing-secret provisioning, and full primary behavioral verification remain open (AI.md 16209-16329, 27530-27547).
+- [ ] P1 PART 12 / webhook adapters/signing headers/UUIDv7 retries now exist in `src/notify/webhook.go`; no config secret generation/persistence/one-time API return or event dispatch is wired, and primary verification remains (AI.md 16438-16479).
+- [x] P1 PART 12 / `server.rate_limit.enabled: false` bypasses rate limiting; read/write/health thresholds and `global_burst` now drive per-IP sliding-window enforcement, with route-class and global-ceiling tests. Persistence remains tracked under the P0 finding.
+- [x] P1 PART 12 / trusted proxies resolve required host/port/protocol and base-path headers; generated routes, assets, API docs, and PWA resources preserve the public prefix (AI.md 15895-15957, 16003-16013).
+- [x] P1 PART 12 / `server.tor.onion_address` and `server.tor.contact_email` config keys are available (AI.md 16048-16055).
+- [x] P1 PART 12 / `handleSecurityTxt` uses `server.tor.contact_email` for Tor requests and omits clearnet-only `Preferred-Languages` (`src/server/server.go:906-921`); finding resolved.
+- [ ] P1 PART 12 / `server.tracking` config/validation for all nine providers, consent-gated local analytics loading, provider-specific CSP origins, Tor suppression, and theme/language preference-write/read gates are implemented. The privacy schema is present; primary behavioral verification remains (AI.md 16375-16385, 16650-16734, 17163-17184).
+- [x] P1 PART 12 / privacy defaults now match Airports' no-account scope: `src/config/defaults.go:229-231` disables data export/deletion; `:261-279` describes hashed IP rate limits, configured logs/analytics, and explicitly says Airports has no accounts or profiles. The public page conditionally omits export/deletion rights (`src/server/template/page/server-privacy.tmpl:82-87`), and the privacy API returns those configured flags (`src/server/server_pages.go:276-280`). The earlier account/auth/deletion mismatch finding was stale; delete this resolved audit entry after commit (AI.md 16743-16912; IDEA.md 35, 44).
+- [ ] P1 PART 12 / consent middleware, `CanLoadAnalytics`, and `CanSetPreferenceCookie` now gate tracking and preference cookies. Verify accept/decline, query-language, existing-cookie, CSP, and Tor behavior (AI.md 17163-17184).
+- [x] P2 PART 5 / truthy/falsy parser now exactly matches AI.md PART 5's accepted words; non-spec `active`/`positive`/`inactive` are rejected and every listed value is tested.
+- [x] P2 PART 5 / consent form booleans now use `config.ParseBool()` and reject invalid values (AI.md PART 5 "Boolean Handling").
+- [x] P2 PART 5 / `DATABASE_DIR` is read by SQLite setup; `APPLICATION_NAME` and `APPLICATION_TAGLINE` now seed `branding.title`/`branding.tagline` only when the first `server.yml` is created, then persisted config takes precedence (AI.md PART 8 init-only variables).
+- [x] PART 6 / `/debug/db` returns database pool statistics; `/debug/cache` returns backend health and backend-supported counters/sizes, omitting unavailable Redis metrics rather than reporting false zeros (AI.md PART 6).
+- [x] PART 6 / debug expvar now publishes request count, cumulative duration, 5xx count, uptime, goroutine count, and selected runtime memory values. The shared HTTP instrumentation updates counters and a focused test verifies them (AI.md PART 6 "expvar Registration").
+- [ ] P2 PART 6 / `server.debug.*` configuration, generated YAML, pprof/expvar gates, profiling rates, and debug-gated SQL/cache operation logging are wired across database, scheduler, backup, maintenance recovery, cache backends, and rate limiting. SQL bound values are excluded, cache keys are hashed, and request/response body capture is bounded and sanitized. The configured/global log-level filter and routing `slog` diagnostics into configured log files remain unimplemented; primary verification is still required (AI.md 8969-9044, 9172-9200).
+- [ ] P2 PART 6 / mode baseline levels are defined by `getLogLevel`, but the helper has no call sites and configured/global level filtering is not wired through logging output (AI.md 8714, 8730) — MEDIUM
+- [x] P2 PART 12 / `server.compression.{enabled,level,types}` defaults and validation are wired into generated YAML; gzip middleware honors negotiated `Accept-Encoding`, configured MIME types/level, `Vary`, and no-transform/range/HEAD/status exclusions. Runtime config reloads take effect on the next response. Focused compression tests cover payload round-trip and pass-through behavior (AI.md PART 12 "Response Compression").
+- [x] P2 PART 12/30 / `src/common/i18n` now applies configured `enabled`, default/available/fallback languages, cookie name, and cookie age to language negotiation and language-selector metadata (AI.md 16195-16200, 41425-41438).
+- [x] P2 PART 12 / `abuseNotifyRecipient` now resolves the configured abuse contact, then general contact, then the existing admin-contact field `web.security.admin`, matching AI.md PART 12's abuse → general → admin order. Canonical `server.contact.*` schema adoption remains tracked by the separate contact-schema finding.
+- [x] P2 PART 12 / `Retry-After` and `X-RateLimit-Limit` now report the selected bucket's actual reset and request limit (AI.md 16189).
+- [x] PART 12 / a configured IPv4 listen address now adds its masked `/24` to the trusted proxy ranges, covering the documented sidecar pattern; the behavior has a focused test (AI.md PART 12 "Trusted Proxies").
+- [x] PART 12 / DNS names in `trusted_proxies.additional` refresh every five minutes; a changed config fingerprint refreshes immediately, and both client-IP and forwarded-prefix trust use the same CIDR source (AI.md PART 12 "Trusted Proxies").
+- [x] P2 PART 12 / clearnet HTML 2xx GET pages advertise the configured onion URL with request path/query; Tor responses, API responses, static assets, and redirects omit it (AI.md 16118-16121).
+- [x] P2 PART 12 / `GetAnalyticsDescription`, `GetDataUsageContent`, `IsCCPAApplicable`, and the `ccpa_opt_out` cookie flow now exist in config and server handlers (AI.md 16930-17033). Behavioral validation remains pending.
+- [x] P2 PART 12 / `validateConfig` now warns and resets invalid `server.port`, `mode`, `address`, `api_version`, `ssl.min_version`, `web.ui.theme`, cache `type`, compression level/MIME types, limits, and all built-in scheduler cron schedules to documented defaults; valid values remain intact. Focused invalid/default and valid-preservation tests added (`src/config/config.go`, `src/config/config_test.go`; AI.md PART 12 "Config Validation Rule").
+- [x] P3 PART 5 / `config.MustParseBool` exists and delegates to `ParseBool`, panicking only on invalid initialization values (AI.md 7658).
+- [x] P3 PART 6 / `AppMode` includes Debug and `GetAppModeString()` adds `" [debugging]"` when debug is enabled; covered by mode tests (AI.md 9207-9215, 8776).
+- [x] P3 PART 12 / trusted client-IP middleware now stores the socket peer in a private request-context value before proxy-header normalization; `OriginalTCPPeer` exposes only that captured value to downstream security/rate-limit code. Focused tests confirm forwarded IP values and later `RemoteAddr` mutation do not change it (AI.md 16159).
+- [x] P3 PART 12 / `privacy.data.stored_on_server` now defaults true per AI.md 16745 and is covered by `TestDefaultConfig`.
+- [ ] P3 PART 12 / user directed implementing global session config and cookie behavior. Config, validation, generated YAML, docs, and a cookie builder use the user-selected defaults: `session`, browser-session lifetime, Secure `auto`, HttpOnly true, SameSite `Lax`. No feature issues session cookies because the product-specific rules say the app has no session/account model; the remaining spec conflict is whether an issuance use case is intended. CSRF, consent, and preference cookie rules remain separate (AI.md 17427, 26379, 26724-27059).
 
 ### Adjudicated, NOT findings
 - `.claude/` gitignored is CORRECT per AI.md 6203-6208 + 6252-6257 + 6272. The FINAL CHECKPOINT line implying a committed `.claude/memory/` contradicts PART 3; PART 3 wins (more specific, normative tree).
 - `docker/rootfs/` committed is CORRECT per PART 26; AI.md 6068 listing it as gitignored is a spec self-contradiction.
 - PART 4 path table: 64/64 rows verified against `src/path/paths.go` — fully compliant.
 - Root `coverage.out` / `.test-out.log`: untracked and gitignored; stale local artifacts, removed as cleanup, not spec violations.
+
+### Outstanding decisions and verification
+
+- PART 12 / The user supplied session-cookie defaults (`session`, browser-session lifetime, Secure `auto`, HttpOnly true, SameSite `Lax`) and directed implementing global config/cookie behavior; those are implemented. Product-specific no-session rules leave the cookie issuance purpose unresolved, so no session state or issuance path has been invented.
+- PART 12 / CLI artifact storage is unspecified by AI.md; the user selected matching project GitHub Release assets and `sha256.txt`, now implemented in the working tree.
+- PART 12 / The user selected an arithmetic challenge for built-in `simple` CAPTCHA; challenge issuance/validation and form POST handling are implemented in the working tree. Provider-specific CAPTCHA, webhook secret provisioning, and dispatch remain open.

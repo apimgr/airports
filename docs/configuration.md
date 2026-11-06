@@ -13,8 +13,8 @@ Every setting is expressible at all four layers.
 
 | Platform | Default path |
 |----------|--------------|
-| Linux (system) | `/etc/airports/server.yml` |
-| Linux (user) | `~/.config/airports/server.yml` |
+| Linux (system) | `/etc/apimgr/airports/server.yml` |
+| Linux (user) | `~/.config/apimgr/airports/server.yml` |
 | macOS | `~/Library/Application Support/airports/server.yml` |
 | Windows | `%APPDATA%\airports\server.yml` |
 | Container | `/config/airports/server.yml` |
@@ -35,20 +35,66 @@ The file is auto-generated with sane defaults on first run.
 
 ## Core Settings
 
+The optional `server.baseurl` setting serves every route below a path prefix.
+Use `/` for the site root or a normalized path such as `/myproject`; trusted
+reverse proxy prefix headers take precedence when the request comes from a
+configured trusted proxy. The `--baseurl` flag overrides the config value.
+
 ```yaml
 server:
   mode: production          # development | production
+  lang: auto                # output language: auto, or a supported locale code
+  baseurl: /                # URL path prefix; defaults to /
+  i18n:
+    enabled: true
+    default_language: en
+    available_languages: [en, es, zh, fr, ar, de, ja]
+    fallback_language: en
+    cookie_name: lang
+    cookie_max_age: 365d
+  session:
+    cookie_name: session
+    max_age: 0s               # browser-session lifetime
+    secure: auto              # trusted request scheme; always secure for Tor
+    http_only: true
+    same_site: lax
   address: 0.0.0.0          # bind address
   port: 8080                # listen port (containers always 80 internally)
   domain: ""                # comma-separated allowed hosts (auto-detect behind reverse proxy)
   timezone: America/New_York
 
+`server.url_detection` controls request-aware URL resolution and trusted proxy
+domain learning. Forwarded host and protocol values are considered only when
+the request peer is a configured trusted proxy; invalid hosts and untrusted
+forwarded headers are ignored. Tor requests detected through the dedicated
+loopback listener's validated PROXY-protocol circuit metadata keep their HTTP
+URL; a client-controlled `.onion` Host header does not establish Tor identity.
+Learning is bounded by `sample_window` and
+`min_samples`; `live_reload` controls whether an observed trusted host is used
+immediately, and `log_changes` controls domain/protocol change logs.
+
+`server.session` sets attributes for cookies issued by browser-session
+features. The default `max_age: 0s` creates a browser-session cookie. The
+`secure: auto` setting follows HTTPS as resolved from TLS or trusted proxy
+headers and remains secure for trusted Tor requests. These settings do not change the separate
+CSRF, consent, or JavaScript-readable preference-cookie policies.
+
+```yaml
+server:
+  url_detection:
+    learning: true
+    min_samples: 3
+    sample_window: 5m
+    log_changes: true
+    live_reload: true
+```
+
 paths:
-  config_dir: ~/.config/airports
-  data_dir:   ~/.local/share/airports
+  config_dir: ~/.config/apimgr/airports
+  data_dir:   ~/.local/share/apimgr/airports
   log_dir:    ~/.local/state/airports/log
-  cache_dir:  ~/.cache/airports
-  database_dir: ~/.local/share/airports/db/sqlite
+  cache_dir:  ~/.cache/apimgr/airports
+  database_dir: ~/.local/share/apimgr/airports/db/sqlite
 
 logging:
   format: json              # json | text
@@ -62,8 +108,81 @@ rate_limit:
   default_per_minute: 100
   burst: 20
   endpoint_overrides:
-    /api/v1/airports/search: 200
-    /api/v1/airports/nearby: 100
+    /api/{api_version}/airports/search: 200
+    /api/{api_version}/airports/nearby: 100
+
+`server.contact` is the canonical recipient tree for server notifications,
+security reports, abuse reports, and contact form submissions. The admin
+address and webhook URLs are private; the security and abuse addresses may be
+shown on public security/contact pages according to their fallback rules.
+
+```yaml
+server:
+  contact:
+    admin:
+      email: "admin@{fqdn}"
+      webhooks:
+        telegram: ""
+        discord: ""
+        slack: ""
+        mattermost: ""
+        pushover: ""
+        gotify: ""
+        generic: ""
+    security:
+      email: "security@{fqdn}"
+      webhooks: {}
+    abuse:
+      email: ""
+      webhooks: {}
+    general:
+      email: ""
+      webhooks: {}
+```
+
+An empty role email falls back to the admin email, except public abuse contact
+display, which falls back to the general email and never exposes admin. Webhook
+destinations use the same per-role fallback order. Keep webhook URLs private;
+debug config output redacts them.
+
+The contact page uses a self-hosted arithmetic challenge when
+`server.pages.contact.captcha` is `simple`. Submissions are sent to the
+effective general email address; SMTP must be enabled and configured.
+
+The server's CLI binary endpoint reads matching versioned assets and
+`sha256.txt` from the `apimgr/airports` GitHub Release. Downloads are public by
+default; require the operator token with:
+
+```yaml
+cli:
+  binary_download:
+    require_auth: true
+```
+
+Analytics is disabled by default. Configure one provider under
+`server.tracking`; the server validates its ID and URL and disables tracking
+with a warning if the configuration is invalid. Analytics loads only when the
+effective consent state allows it, and is always disabled for Tor requests.
+
+```yaml
+server:
+  tracking:
+    type: ""                 # google, matomo, piwik, owa, fathom, plausible, umami, simple, cloudflare
+    id: ""
+    url: ""
+  privacy:
+    consent:
+      show_until_acknowledged: true
+      default_enabled: true
+      show_preferences: true
+      preferences_text: "Manage Preferences"
+```
+
+`url` is required for Matomo, Piwik, Open Web Analytics, and Umami; it is
+optional for Fathom and Plausible. Google Analytics, Simple Analytics, and
+Cloudflare Web Analytics use their hosted endpoints. The consent banner stores
+the visitor's analytics choice in the `cookie_consent` cookie. Tor requests do
+not load third-party analytics scripts.
 
 geoip:
   enabled: true
@@ -86,7 +205,7 @@ tls:
     challenge: http-01       # http-01 | dns-01
 
 tor:
-  enabled: true              # binary owns Tor entirely
+  binary: ""                 # auto-detected; Tor starts whenever the binary is found
   publish_onion: true
 
 scheduler:
@@ -100,7 +219,7 @@ scheduler:
 
 backup:
   enabled: false
-  directory: ~/.local/share/airports/backups
+  directory: ~/.local/share/apimgr/airports/backups
   retain: 7
 ```
 

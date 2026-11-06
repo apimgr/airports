@@ -17,13 +17,12 @@ If you are looking for "how do I log into the admin panel?", there is no answer 
 | Task | Tool |
 |------|------|
 | Start / stop / restart | `airports --service {start,stop,restart}` |
-| View live status | `airports --service status` |
-| View health | `curl http://localhost:8080/server/healthz` |
-| Tail logs | `airports --service logs` or `journalctl -u airports` |
-| Reload config | Send `SIGHUP` to the process (`systemctl reload airports`) |
-| Change config | Edit `server.yml`, then reload |
+| View live status | `airports --status` |
+| View health | `curl -q -LSsf http://YOUR_SERVER/server/healthz` |
+| Tail logs | `journalctl -u airports` |
+| Change config | Edit `server.yml`; the server watches for changes |
 | Run backup | `airports --backup` |
-| Restore | `airports --restore <archive.tar.gz>` |
+| Restore | `airports --maintenance restore <archive.tar.gz>` |
 | Upgrade | `airports --update` or `docker pull` |
 | Validate config | `airports --config validate` |
 | Show config | `airports --config show` (secrets masked) |
@@ -58,7 +57,7 @@ Backups **do not** include GeoIP, blocklist, or CVE data — these are re-downlo
 ```bash
 airports --backup                                    # writes to {data_dir}/backups/
 airports --backup /mnt/external/backups/             # custom destination
-airports --restore /mnt/external/backups/airports-2026-05-15T03-00-00Z.tar.gz
+airports --maintenance restore /mnt/external/backups/airports-2026-05-15T03-00-00Z.tar.gz
 ```
 
 Automated backups can be enabled via the scheduler block in `server.yml`.
@@ -66,7 +65,7 @@ Automated backups can be enabled via the scheduler block in `server.yml`.
 ## Monitoring
 
 - **Prometheus metrics**: `GET /metrics` (Prometheus text exposition format).
-- **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/v1/server/healthz` (JSON).
+- **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/{api_version}/server/healthz` (JSON).
 - **About endpoint**: `GET /server/about` shows version, build date, commit, GeoIP DB freshness, Tor onion address (if enabled), and uptime.
 - **Docker healthcheck**: built in (`airports --status`).
 

@@ -35,13 +35,13 @@ Running `airports` with no flags starts the server in the foreground, creating d
 | `--daemon` | — | Detach from the terminal and run as a background daemon |
 | `--debug` | `DEBUG` | Enable pprof, expvar, verbose request logs |
 | `--color {auto\|yes\|no}` | — | Color output (default: `auto`) |
-| `--lang CODE` | `LANG`/`LC_ALL` | Language code (e.g. en, es, zh, fr, ar, de, ja) |
+| `--lang CODE` | `LANG`/`LC_ALL` | Startup output language; priority: flag, `server.lang`, `LC_ALL`/`LANG`, English |
 | `--status` | — | Health check; exits 0 if healthy (used by Docker HEALTHCHECK) |
 | `--version`, `-v` | — | Print version, commit, build date; exit |
 | `--help`, `-h` | — | Show help; exit |
 | `--maintenance` | — | Start in maintenance mode (read-only, serves maintenance page) |
 | `--maintenance backup [path]` | — | Run a backup now |
-| `--restore <path>` | — | Restore from a backup archive |
+| `--maintenance restore <path>` | — | Restore from a backup archive |
 
 ### Shell Integration
 
@@ -58,22 +58,28 @@ airports --shell help                 # show shell help
 ```
 airports --update check        # check for updates
 airports --update yes          # install available updates
-airports --update branch NAME  # set update branch (stable, beta, daily)
+airports --update branch NAME  # set update branch (stable, beta, devel; daily/rolling/dev/development alias devel)
 ```
+
+### CLI Binary Downloads
+
+The server's `/api/autodiscover` response lists CLI versions, checksums, and
+local download URLs for the assets in the matching `apimgr/airports` GitHub
+Release. The server streams those release assets from
+`/cli/binaries/airports-cli-{os}-{arch}`. Downloads are public by default; set
+`cli.binary_download.require_auth: true` to require the server operator token.
 
 ### Service Subcommands
 
 ```
-airports --service install     # install system service (systemd/launchd/SCM)
-airports --service uninstall   # remove service unit + delete all data (confirms first)
+airports --service --install   # install, enable, and start the system service
+airports --service --uninstall # remove service and all server data (confirms first)
 airports --service start
 airports --service stop
 airports --service restart
 airports --service reload      # reload configuration
-airports --service status
-airports --service enable      # enable on boot
-airports --service disable
-airports --service logs        # tail recent service logs
+airports --service --disable   # stop and disable the service
+airports --service --help
 ```
 
 The binary auto-detects the host service manager: systemd, OpenRC, SysVinit, runit, launchd, FreeBSD rc, or Windows Service.
@@ -95,7 +101,7 @@ airports scheduler history <id>        # show a task's execution history
 airports                                # start with defaults
 airports --port 9000 --debug            # dev run on alt port with debug
 airports --config /etc/apimgr/airports  # use alternate config directory
-sudo airports --service install
+sudo airports --service --install
 sudo airports --service start
 airports --backup /var/backups/airports/backup.tar.gz
 airports --update check
@@ -121,6 +127,10 @@ airports-cli [flags] <command> [args...]
 | `health` | Show server health status |
 | `version` | Print client version, then the remote server's version/build info |
 
+### Interactive mode
+
+Starting `airports-cli` without a command selects the interface from the current environment. A terminal opens the TUI, which includes search, airport lookup, nearby airports, health, version, connection setup, and a general API explorer. A supported local desktop session opens the native GUI when the client was built with `-tags gui`; otherwise it falls back to the TUI when a terminal is available. Headless sessions show command help and require a command.
+
 ### Flags
 
 | Flag | Env | Description |
@@ -133,7 +143,7 @@ airports-cli [flags] <command> [args...]
 | `--json` | — | Output as JSON (default) |
 | `--yaml` | — | Output as YAML |
 | `--color {auto\|yes\|no}` | — | Color output (default: `auto`, respects `NO_COLOR`) |
-| `--lang CODE` | `LANG`/`LC_ALL` | Language for output (default: config > `LANG`/`LC_ALL` env) |
+| `--lang CODE` | `LANG`/`LC_ALL` | Language for output (priority: flag, saved config, `LC_ALL`/`LANG`, English) |
 | `--debug` | — | Enable debug output |
 | `--help`, `-h` | — | Show this help |
 | `--version`, `-v` | — | Show client version |

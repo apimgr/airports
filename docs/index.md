@@ -19,7 +19,7 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - ICAO/IATA lookup, free-text search, nearby-by-radius, bounding-box, nearest-N
 - GeoIP-based caller-location detection on the home page
 - JSON / CSV / GeoJSON output
-- REST under `/api/v1/...`, GraphQL at `/graphql`, OpenAPI at `/api/v1/server/swagger`
+- REST under `/api/{api_version}/...`, GraphQL POST at `/api/{api_version}/server/graphql` (alias `/api/graphql`), OpenAPI at `/api/{api_version}/server/swagger`
 - Server-side rendered web UI with dark / light / auto theme
 - Tor hidden-service support (binary owns Tor entirely)
 - Single static binary, no runtime dependencies
@@ -34,7 +34,7 @@ docker run --rm -d \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest
 
-curl http://localhost:8080/api/v1/airports/KJFK
+curl -q -LSsf http://localhost:8080/api/{api_version}/airports/KJFK
 ```
 
 See [installation.md](installation.md) for binary installs and systemd integration.

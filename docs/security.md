@@ -9,8 +9,8 @@ Airports is a public, read-only reference API. There are **no user accounts**, *
 | Surface | Auth | Notes |
 |---------|------|-------|
 | All HTML pages | None | Public read-only |
-| All REST endpoints (`/api/v1/...`) | None | Public read-only |
-| GraphQL (`/graphql`) | None | Public read-only; depth + complexity limited |
+| All REST endpoints (`/api/{api_version}/...`) | None | Public read-only |
+| GraphQL (`/api/{api_version}/server/graphql`, alias `/api/graphql`) | None | Public read-only; depth + complexity limited |
 | `/metrics` | Network ACL | Loopback or private network only |
 | `/server/healthz` | None | Public |
 | Service CLI (`airports --service ...`) | OS user privilege | Requires sudo where needed |

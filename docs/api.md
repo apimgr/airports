@@ -4,9 +4,9 @@ Complete API reference for the Airports API Server.
 
 ## Base URLs
 
-- **Production**: `https://your-domain.com`
+- **Production**: `https://YOUR_SERVER`
 - **Development**: `http://localhost:PORT`
-- **API Base**: `/api/v1` (the version segment is configurable via `server.api_version`; `v1` is the default)
+- **API Base**: `/api/{api_version}` (the version segment is configurable via `server.api_version`; `v1` is the default)
 
 ## Interactive Documentation
 
@@ -21,10 +21,10 @@ All endpoints are **public** and require no authentication. There are no user ac
 
 Every `/api/**` endpoint that returns data also supports a plain-text representation, in addition to its default JSON response. Request it either by:
 
-- appending `.txt` to the path (e.g. `/api/v1/airports/search.txt`), or
+- appending `.txt` to the path (e.g. `/api/{api_version}/airports/search.txt`), or
 - sending `Accept: text/plain`
 
-Endpoints with an explicit `.txt` route: `/api/v1/airports/{ident}.txt`, `/api/v1/airports/search.txt`, `/api/v1/airports/nearby.txt`, `/api/v1/search.txt`, `/api/v1/nearby.txt`, `/api/v1/countries.txt`, `/api/v1/stats.txt`, `/api/v1/geoip.txt`, `/api/v1/geoip/{ip}.txt`, `/api/v1/health.txt`. The rest of the endpoints below are JSON-only.
+Endpoints with an explicit `.txt` route: `/api/{api_version}/airports/{ident}.txt`, `/api/{api_version}/airports/search.txt`, `/api/{api_version}/airports/nearby.txt`, `/api/{api_version}/countries.txt`, `/api/{api_version}/stats.txt`, `/api/{api_version}/geoip.txt`, `/api/{api_version}/geoip/{ip}.txt`, `/api/{api_version}/server/healthz.txt`. The rest of the endpoints below are JSON-only.
 
 ---
 
@@ -70,7 +70,7 @@ All JSON API responses use the canonical envelope:
 ### Get All Airports
 
 ```http
-GET /api/v1/airports
+GET /api/{api_version}/airports
 ```
 
 **Query Parameters:**
@@ -107,8 +107,8 @@ GET /api/v1/airports
 ### Get Airport by Code
 
 ```http
-GET /api/v1/airports/{ident}
-GET /api/v1/airports/{ident}.txt
+GET /api/{api_version}/airports/{ident}
+GET /api/{api_version}/airports/{ident}.txt
 ```
 
 **Parameters:**
@@ -136,11 +136,8 @@ GET /api/v1/airports/{ident}.txt
 ### Search Airports
 
 ```http
-GET /api/v1/airports/search
-GET /api/v1/search
+GET /api/{api_version}/airports/search
 ```
-
-Flat `/api/v1/search` is a retained alias of `/api/v1/airports/search` for existing clients — both use the same handler.
 
 **Query Parameters:**
 - `q` (string) - Search query (name, city, code)
@@ -164,8 +161,7 @@ Flat `/api/v1/search` is a retained alias of `/api/v1/airports/search` for exist
 ### Find Nearby Airports
 
 ```http
-GET /api/v1/airports/nearby
-GET /api/v1/nearby
+GET /api/{api_version}/airports/nearby
 ```
 
 **Query Parameters:**
@@ -200,8 +196,7 @@ GET /api/v1/nearby
 ### Bounding Box Search
 
 ```http
-GET /api/v1/airports/within
-GET /api/v1/bbox
+GET /api/{api_version}/airports/within
 ```
 
 **Query Parameters:**
@@ -224,8 +219,7 @@ GET /api/v1/bbox
 ### Autocomplete
 
 ```http
-GET /api/v1/airports/autocomplete
-GET /api/v1/autocomplete
+GET /api/{api_version}/airports/autocomplete
 ```
 
 **Query Parameters:**
@@ -250,8 +244,8 @@ GET /api/v1/autocomplete
 ### List Countries
 
 ```http
-GET /api/v1/countries
-GET /api/v1/countries.txt
+GET /api/{api_version}/countries
+GET /api/{api_version}/countries.txt
 ```
 
 **Response:**
@@ -268,7 +262,7 @@ GET /api/v1/countries.txt
 ### List States in a Country
 
 ```http
-GET /api/v1/states/{country}
+GET /api/{api_version}/states/{country}
 ```
 
 **Parameters:**
@@ -290,8 +284,8 @@ GET /api/v1/states/{country}
 ## Statistics
 
 ```http
-GET /api/v1/stats
-GET /api/v1/stats.txt
+GET /api/{api_version}/stats
+GET /api/{api_version}/stats.txt
 ```
 
 **Response:**
@@ -316,19 +310,19 @@ These export the full database and are JSON/CSV/GeoJSON only — there is no `.c
 ### Export as JSON
 
 ```http
-GET /api/v1/airports.json
+GET /api/{api_version}/airports.json
 ```
 
 ### Export as CSV
 
 ```http
-GET /api/v1/airports.csv
+GET /api/{api_version}/airports.csv
 ```
 
 ### Export as GeoJSON
 
 ```http
-GET /api/v1/airports.geojson
+GET /api/{api_version}/airports.geojson
 ```
 
 ---
@@ -338,8 +332,8 @@ GET /api/v1/airports.geojson
 ### Lookup Current IP
 
 ```http
-GET /api/v1/geoip
-GET /api/v1/geoip.txt
+GET /api/{api_version}/geoip
+GET /api/{api_version}/geoip.txt
 ```
 
 **Response:**
@@ -358,8 +352,8 @@ GET /api/v1/geoip.txt
 ### Lookup Specific IP
 
 ```http
-GET /api/v1/geoip/{ip}
-GET /api/v1/geoip/{ip}.txt
+GET /api/{api_version}/geoip/{ip}
+GET /api/{api_version}/geoip/{ip}.txt
 ```
 
 **Parameters:**
@@ -368,7 +362,7 @@ GET /api/v1/geoip/{ip}.txt
 ### Find Nearby Airports (IP-based)
 
 ```http
-GET /api/v1/geoip/airports/nearby
+GET /api/{api_version}/geoip/airports/nearby
 ```
 
 ---
@@ -381,39 +375,20 @@ GET /api/v1/geoip/airports/nearby
 GET /healthz
 GET /server/healthz
 GET /api/healthz
-GET /api/v1/server/healthz
+GET /api/{api_version}/server/healthz
+GET /server/healthz.txt
+GET /api/healthz.txt
+GET /api/{api_version}/server/healthz.txt
 ```
 
-All four paths serve the same handler. Content negotiation applies: browsers get HTML, `curl`/CLI clients get plain text, `Accept: application/json` gets JSON.
-
-### Airport-Data Health
-
-```http
-GET /api/v1/health
-GET /api/v1/health.txt
-```
-
-**Response:**
-```json
-{
-  "ok": true,
-  "data": {
-    "status": "healthy",
-    "version": "1.0.0",
-    "checks": {
-      "airports": { "status": "loaded", "total": 35479 },
-      "geoip": { "status": "loaded" }
-    }
-  }
-}
-```
+All paths serve the same handler. The `/healthz` root alias is optional and only exists when configured. Content negotiation follows route type: frontend routes return HTML to browsers, API routes return JSON by default, and `.txt`, `Accept: text/plain`, or a non-interactive HTTP client receives plain text.
 
 ---
 
 ## Settings
 
 ```http
-GET /api/v1/settings
+GET /api/{api_version}/settings
 ```
 
 Read-only, no auth required. Returns a safe subset of server configuration (theme, CORS origins, metrics enabled) — never credentials or internal topology.
@@ -425,15 +400,15 @@ Read-only, no auth required. Returns a safe subset of server configuration (them
 Mirrors of the public `/server/*` frontend pages, JSON/versioned under the API tree:
 
 ```http
-GET /api/v1/server/healthz
-GET /api/v1/server/about
-GET /api/v1/server/help
-GET /api/v1/server/privacy
-GET /api/v1/server/terms
-GET /api/v1/server/contact
-GET /api/v1/server/swagger
-GET /api/v1/server/swagger.json
-POST /api/v1/server/graphql
+GET /api/{api_version}/server/healthz
+GET /api/{api_version}/server/about
+GET /api/{api_version}/server/help
+GET /api/{api_version}/server/privacy
+GET /api/{api_version}/server/terms
+GET /api/{api_version}/server/contact
+POST /api/{api_version}/server/contact
+GET /api/{api_version}/server/swagger
+POST /api/{api_version}/server/graphql
 ```
 
 ---
@@ -443,7 +418,7 @@ POST /api/v1/server/graphql
 The canonical, versioned GraphQL endpoint is:
 
 ```http
-POST /api/v1/server/graphql
+POST /api/{api_version}/server/graphql
 ```
 
 An unversioned alias is also mounted at the same handler:
@@ -454,7 +429,7 @@ POST /api/graphql
 
 **Interactive Playground**: `/server/docs/graphql`
 
-There is no GET-based GraphQL endpoint and no `/api/v1/graphql` or `/api/v1/docs` path — those were removed; use the paths above.
+There is no GET-based GraphQL endpoint and no `/api/{api_version}/graphql` or `/api/{api_version}/docs` path — those were removed; use the paths above.
 
 ### Example Query
 
@@ -544,13 +519,13 @@ On `429 Too Many Requests`, the retry delay is communicated via the `Retry-After
 
 ```javascript
 // Using fetch
-const response = await fetch('https://api.example.com/api/v1/airports/KJFK');
+const response = await fetch('https://YOUR_SERVER/api/{api_version}/airports/KJFK');
 const data = await response.json();
 console.log(data.data);
 
 // Search nearby
 const nearby = await fetch(
-  'https://api.example.com/api/v1/airports/nearby?lat=40.6398&lon=-73.7789&radius=50'
+  'https://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.6398&lon=-73.7789&radius=50'
 );
 const airports = await nearby.json();
 ```
@@ -561,12 +536,12 @@ const airports = await nearby.json();
 import requests
 
 # Get airport
-response = requests.get('https://api.example.com/api/v1/airports/KJFK')
+response = requests.get('https://YOUR_SERVER/api/{api_version}/airports/KJFK')
 airport = response.json()['data']
 
 # Search
 params = {'q': 'New York', 'limit': 10}
-response = requests.get('https://api.example.com/api/v1/airports/search', params=params)
+response = requests.get('https://YOUR_SERVER/api/{api_version}/airports/search', params=params)
 results = response.json()['data']
 ```
 
@@ -574,16 +549,16 @@ results = response.json()['data']
 
 ```bash
 # Get airport
-curl https://api.example.com/api/v1/airports/KJFK
+curl -q -LSsf https://YOUR_SERVER/api/{api_version}/airports/KJFK
 
 # Search nearby
-curl "https://api.example.com/api/v1/airports/nearby?lat=40.6398&lon=-73.7789&radius=50"
+curl -q -LSsf "https://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.6398&lon=-73.7789&radius=50"
 
 # All endpoints are public — no token, no auth header needed
-curl "https://api.example.com/api/v1/airports/search?q=Tokyo"
+curl -q -LSsf "https://YOUR_SERVER/api/{api_version}/airports/search?q=Tokyo"
 
 # Plain-text response instead of JSON
-curl https://api.example.com/api/v1/airports/KJFK.txt
+curl -q -LSsf https://YOUR_SERVER/api/{api_version}/airports/KJFK.txt
 ```
 
 ---

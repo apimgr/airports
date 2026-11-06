@@ -2,7 +2,7 @@
 
 Global airport information API — 35,000+ airports worldwide, single static Go binary with embedded data.
 
-[![Build](https://github.com/apimgr/airports/actions/workflows/release.yml/badge.svg)](https://github.com/apimgr/airports/actions/workflows/release.yml)
+[![CI](https://github.com/apimgr/airports/actions/workflows/ci.yml/badge.svg)](https://github.com/apimgr/airports/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/apimgr/airports)](https://github.com/apimgr/airports/releases)
 [![License](https://img.shields.io/github/license/apimgr/airports)](LICENSE.md)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/apimgr/airports/pkgs/container/airports)
@@ -44,7 +44,7 @@ Map tile behavior, attribution, and privacy details are documented in [Airport m
 
 ```bash
 # Download production compose file
-curl -LO https://raw.githubusercontent.com/apimgr/airports/main/docker/docker-compose.yml
+curl -q -LSsf -O https://raw.githubusercontent.com/apimgr/airports/main/docker/docker-compose.yml
 
 # Start
 docker compose up -d
@@ -53,7 +53,7 @@ docker compose up -d
 docker compose logs -f
 
 # Access API
-curl http://172.17.0.1:64580/api/v1/airports/KJFK
+curl -q -LSsf http://172.17.0.1:64580/api/{api_version}/airports/KJFK
 ```
 
 The server listens on `172.17.0.1:64580` (Docker bridge only). Place a reverse proxy (nginx, Caddy, Traefik) in front for public access.
@@ -67,20 +67,20 @@ The server listens on `172.17.0.1:64580` (Docker bridge only). Place a reverse p
 
 ```bash
 # Download for Linux amd64
-curl -L -o airports https://github.com/apimgr/airports/releases/latest/download/airports-linux-amd64
+curl -q -LSsf -o airports https://github.com/apimgr/airports/releases/latest/download/airports-linux-amd64
 chmod +x airports
 sudo mv airports /usr/local/bin/airports
 
 # Install and start systemd service
-sudo airports --service install
+sudo airports --service --install
 sudo airports --service start
 
 # Check status
-sudo airports --service status
+sudo airports --status
 ```
 
-**Root run** uses `/etc/airports`, `/var/lib/airports`, `/var/log/airports`.
-**User run** uses `~/.config/airports`, `~/.local/share/airports`, `~/.local/state/airports/log`.
+**Root run** uses `/etc/apimgr/airports`, `/var/lib/apimgr/airports`, `/var/log/apimgr/airports`.
+**User run** uses `~/.config/apimgr/airports`, `~/.local/share/apimgr/airports`, and `~/.local/state/apimgr/airports/log`.
 
 ---
 
@@ -88,21 +88,21 @@ sudo airports --service status
 
 ```bash
 # Download for Linux amd64
-curl -L -o airports-cli https://github.com/apimgr/airports/releases/latest/download/airports-cli-linux-amd64
+curl -q -LSsf -o airports-cli https://github.com/apimgr/airports/releases/latest/download/airports-cli-linux-amd64
 chmod +x airports-cli
 sudo mv airports-cli /usr/local/bin/airports-cli
 
-# First run: configure server URL
+# First run in a terminal: configure the server URL and open the interactive client
 airports-cli
 
 # Examples
 airports-cli get KJFK
 airports-cli search "New York"
-airports-cli nearby --lat 40.63 --lon -73.77 --radius 50
-airports-cli within --min-lat 40 --max-lat 42 --min-lon -75 --max-lon -72
+airports-cli nearby 40.63 -73.77 10
+airports-cli --server https://YOUR_SERVER health
 ```
 
-Output defaults to text on TTY; use `--json` or `--yaml` for structured output. Respects `NO_COLOR`.
+With no command, the client opens a TUI in a terminal or a native GUI in a supported local desktop session when built with `-tags gui`. The TUI includes a general API explorer. Command output defaults to JSON; use `--format text` for plain text. Color output respects `NO_COLOR`.
 
 ---
 
@@ -120,34 +120,41 @@ All settings can be expressed as CLI flags, environment variables, or `server.ym
 
 Config file is auto-created at first run with sane defaults. No manual setup required.
 
+Terminal color priority is `--color=yes|no`, then the applicable config setting, then nonempty
+`NO_COLOR`, then TTY/`TERM` detection. Server `server.yml` accepts optional boolean `output.color`
+and `output.emoji`; `output.emoji: true` keeps emojis enabled when `NO_COLOR` is set. Client `cli.yml`
+uses `output.color: auto|yes|no` (boolean values are also accepted as `yes`/`no`). A legacy root-level
+client `color` value is read as a fallback and written under `output.color` the next time the client
+saves its config.
+
 ---
 
 ## API
 
-Base URL: `http://your-server/api/v1`
+Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v1` and follows `server.api_version` in configuration).
 
 ### Airport endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/v1/airports` | List airports (paginated) |
-| `GET /api/v1/airports/{ident}` | Airport by ICAO/IATA code |
-| `GET /api/v1/airports/search?q=...` | Search by name, city, country |
-| `GET /api/v1/airports/nearby?lat=...&lon=...&radius=...` | Airports within radius (km) |
-| `GET /api/v1/airports/within?min_lat=...&max_lat=...&min_lon=...&max_lon=...` | Airports in bounding box |
+| `GET /api/{api_version}/airports` | List airports (paginated) |
+| `GET /api/{api_version}/airports/{ident}` | Airport by ICAO/IATA code |
+| `GET /api/{api_version}/airports/search?q=...` | Search by name, city, country |
+| `GET /api/{api_version}/airports/nearby?lat=...&lon=...&radius=...` | Airports within radius (km) |
+| `GET /api/{api_version}/airports/within?min_lat=...&max_lat=...&min_lon=...&max_lon=...` | Airports in bounding box |
 
 ### Server endpoints
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /server/healthz` | Health status (HTML) |
-| `GET /api/v1/server/healthz` | Health status (JSON) |
+| `GET /api/{api_version}/server/healthz` | Health status (JSON) |
 | `GET /server/about` | Version and build info (HTML) |
-| `GET /api/v1/server/about` | Version and build info (JSON) |
+| `GET /api/{api_version}/server/about` | Version and build info (JSON) |
 | `GET /server/docs/swagger` | Swagger UI |
-| `GET /api/v1/server/swagger` | OpenAPI spec |
+| `GET /api/{api_version}/server/swagger` | OpenAPI spec |
 | `GET /server/docs/graphql` | GraphiQL UI |
-| `POST /api/v1/server/graphql` | GraphQL endpoint |
+| `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
 | `GET /metrics` | Prometheus metrics |
 
 **Response format:** JSON by default. Use `Accept: text/csv`, `Accept: application/geo+json`, or `?format=csv|geojson` for alternate formats.
@@ -158,19 +165,19 @@ Base URL: `http://your-server/api/v1`
 
 ```bash
 # Health check
-curl http://your-server/api/v1/server/healthz
+curl -q -LSsf http://YOUR_SERVER/api/{api_version}/server/healthz
 
 # Airport by ICAO code
-curl http://your-server/api/v1/airports/KJFK
+curl -q -LSsf http://YOUR_SERVER/api/{api_version}/airports/KJFK
 
 # Search
-curl "http://your-server/api/v1/airports/search?q=Heathrow"
+curl -q -LSsf "http://YOUR_SERVER/api/{api_version}/airports/search?q=Heathrow"
 
 # Nearby airports (50 km radius)
-curl "http://your-server/api/v1/airports/nearby?lat=40.63&lon=-73.77&radius=50"
+curl -q -LSsf "http://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.63&lon=-73.77&radius=50"
 
 # Export as GeoJSON
-curl -H "Accept: application/geo+json" http://your-server/api/v1/airports
+curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_version}/airports
 ```
 
 ---
