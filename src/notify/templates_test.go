@@ -1,8 +1,11 @@
 package notify
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +20,7 @@ func testTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
 
@@ -84,6 +87,34 @@ func TestLoadTemplateConfigDirOverride(t *testing.T) {
 	}
 }
 
+func TestLoadTemplateWarnsAboutUnknownVariable(t *testing.T) {
+	dir := testTempDir(t)
+	overrideDir := filepath.Join(dir, "template", "email")
+	if err := os.MkdirAll(overrideDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	custom := "Subject: Custom - {foo}\n---\nBody for {fqdn}.\n"
+	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte(custom), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var logOutput bytes.Buffer
+	previousWriter := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logOutput)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
+	if _, _, err := LoadTemplate(dir, "test"); err != nil {
+		t.Fatalf("LoadTemplate: %v", err)
+	}
+	if got := logOutput.String(); !strings.Contains(got, `unknown variable {foo}`) || !strings.Contains(got, `did you mean {fqdn}`) {
+		t.Errorf("warning = %q, want unknown-variable message with fqdn suggestion", got)
+	}
+}
+
 func TestLoadTemplateConfigDirFallsBackWhenMissing(t *testing.T) {
 	dir := testTempDir(t)
 
@@ -111,5 +142,30 @@ func TestParseTemplateMissingSubjectPrefix(t *testing.T) {
 func TestParseTemplateTooShort(t *testing.T) {
 	if _, _, err := parseTemplate("only one line"); err == nil {
 		t.Error("expected error for too-short template")
+	}
+}
+
+func TestParseTemplateRejectsEmptySubject(t *testing.T) {
+	if _, _, err := parseTemplate("Subject:   \n---\nbody\n"); err == nil || err.Error() != "subject cannot be empty" {
+		t.Errorf("parseTemplate error = %v, want empty subject error", err)
+	}
+}
+
+func TestParseTemplateRejectsEmptyBody(t *testing.T) {
+	if _, _, err := parseTemplate("Subject: valid\n---\n \n"); err == nil || err.Error() != "body cannot be empty" {
+		t.Errorf("parseTemplate error = %v, want empty body error", err)
+	}
+}
+
+func TestParseTemplateRejectsMalformedVariable(t *testing.T) {
+	for _, raw := range []string{
+		"Subject: {app_name\n---\nbody\n",
+		"Subject: app_name}\n---\nbody\n",
+		"Subject: {}\n---\nbody\n",
+		"Subject: {bad-name}\n---\nbody\n",
+	} {
+		if _, _, err := parseTemplate(raw); err == nil {
+			t.Errorf("parseTemplate(%q) succeeded, want malformed variable error", raw)
+		}
 	}
 }

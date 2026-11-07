@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed locales/*.json
@@ -18,11 +19,99 @@ var localeFS embed.FS
 
 // DefaultLanguage is the fallback language used when a requested language
 // or key is unavailable.
-const DefaultLanguage = "en"
+var DefaultLanguage = "en"
 
 // SupportedLanguages lists every language code shipped with the binary,
 // per PART 30's required language set.
 var SupportedLanguages = []string{"en", "es", "zh", "fr", "ar", "de", "ja"}
+
+// Config controls runtime language availability and preference persistence.
+type Config struct {
+	Enabled            bool
+	DefaultLanguage    string
+	AvailableLanguages []string
+	FallbackLanguage   string
+	CookieName         string
+	CookieMaxAge       string
+}
+
+var settingsMu sync.RWMutex
+var languageConfig = Config{
+	Enabled: true, DefaultLanguage: "en", AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
+	FallbackLanguage: "en", CookieName: "lang", CookieMaxAge: "365d",
+}
+
+// Configure applies server language settings before requests are served.
+func Configure(cfg Config) {
+	_ = Load()
+	mu.RLock()
+	available := make([]string, 0, len(cfg.AvailableLanguages))
+	seen := make(map[string]bool, len(cfg.AvailableLanguages))
+	for _, code := range cfg.AvailableLanguages {
+		code = strings.ToLower(strings.TrimSpace(code))
+		if _, exists := locales[code]; exists && !seen[code] {
+			available = append(available, code)
+			seen[code] = true
+		}
+	}
+	mu.RUnlock()
+	if len(available) == 0 {
+		available = []string{"en"}
+	}
+	fallback := strings.ToLower(strings.TrimSpace(cfg.FallbackLanguage))
+	if !contains(available, fallback) {
+		fallback = "en"
+	}
+	defaultLanguage := strings.ToLower(strings.TrimSpace(cfg.DefaultLanguage))
+	if !contains(available, defaultLanguage) {
+		defaultLanguage = fallback
+	}
+	cookieName := strings.TrimSpace(cfg.CookieName)
+	if cookieName == "" {
+		cookieName = "lang"
+	}
+	cfg.AvailableLanguages = available
+	cfg.DefaultLanguage = defaultLanguage
+	cfg.FallbackLanguage = fallback
+	cfg.CookieName = cookieName
+	settingsMu.Lock()
+	languageConfig = cfg
+	DefaultLanguage = defaultLanguage
+	SupportedLanguages = append([]string(nil), available...)
+	settingsMu.Unlock()
+}
+
+func currentConfig() Config {
+	settingsMu.RLock()
+	defer settingsMu.RUnlock()
+	cfg := languageConfig
+	cfg.AvailableLanguages = append([]string(nil), cfg.AvailableLanguages...)
+	return cfg
+}
+
+func contains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func cookieAge(value string) int {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err == nil && days > 0 {
+			return days * 24 * 60 * 60
+		}
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 365 * 24 * 60 * 60
+	}
+	return int(duration.Seconds())
+}
 
 // Meta holds the metadata block from a locale file.
 type Meta struct {
@@ -109,12 +198,11 @@ func loadAll() error {
 
 // IsSupported reports whether lang is one of the shipped languages.
 func IsSupported(lang string) bool {
-	for _, l := range SupportedLanguages {
-		if l == lang {
-			return true
-		}
-	}
-	return false
+	return contains(currentConfig().AvailableLanguages, normalizeLanguage(lang))
+}
+
+func normalizeLanguage(lang string) string {
+	return strings.ToLower(strings.TrimSpace(lang))
 }
 
 // Direction returns "ltr" or "rtl" for the given language, defaulting to
@@ -141,21 +229,22 @@ type AvailableLanguage struct {
 // directly to WebUI JavaScript at /locales/{lang}.json (PART 30 "WebUI
 // JavaScript" row). Falls back to DefaultLanguage when lang is unsupported.
 func RawLocale(lang string) ([]byte, error) {
+	cfg := currentConfig()
 	if !IsSupported(lang) {
-		lang = DefaultLanguage
+		lang = cfg.FallbackLanguage
 	}
 	return localeFS.ReadFile("locales/" + lang + ".json")
 }
 
-// AvailableLanguages returns metadata for every supported language, sorted
-// by SupportedLanguages order, for rendering a language selector.
+// AvailableLanguages returns metadata for every enabled language, in config order.
 func AvailableLanguages() []AvailableLanguage {
 	_ = Load()
 	mu.RLock()
 	defer mu.RUnlock()
 
-	out := make([]AvailableLanguage, 0, len(SupportedLanguages))
-	for _, code := range SupportedLanguages {
+	cfg := currentConfig()
+	out := make([]AvailableLanguage, 0, len(cfg.AvailableLanguages))
+	for _, code := range cfg.AvailableLanguages {
 		l, ok := locales[code]
 		if !ok {
 			continue
@@ -189,8 +278,9 @@ func lookup(lang, key string) string {
 		}
 	}
 
-	if lang != DefaultLanguage {
-		if l, ok := locales[DefaultLanguage]; ok {
+	fallback := currentConfig().FallbackLanguage
+	if lang != fallback {
+		if l, ok := locales[fallback]; ok {
 			if v, ok := l.Data[ns][k]; ok {
 				return v
 			}
@@ -297,9 +387,6 @@ type contextKey int
 
 const langContextKey contextKey = 0
 
-// cookieName is the name of the cookie used to persist a resolved language.
-const cookieName = "lang"
-
 // SetLanguage returns a new context carrying the resolved language.
 func SetLanguage(ctx context.Context, lang string) context.Context {
 	return context.WithValue(ctx, langContextKey, lang)
@@ -311,7 +398,7 @@ func FromContext(ctx context.Context) string {
 	if lang, ok := ctx.Value(langContextKey).(string); ok && lang != "" {
 		return lang
 	}
-	return DefaultLanguage
+	return currentConfig().DefaultLanguage
 }
 
 // ParseAcceptLanguage parses an Accept-Language header and returns the
@@ -361,31 +448,49 @@ func ParseAcceptLanguage(header string) string {
 // ResolveLanguage applies the documented fallback chain for HTTP requests:
 // ?lang= query param -> lang cookie -> Accept-Language header -> default.
 func ResolveLanguage(r *http.Request) string {
-	if q := r.URL.Query().Get("lang"); q != "" && IsSupported(q) {
+	return resolveLanguage(r, true)
+}
+
+func resolveLanguage(r *http.Request, allowCookie bool) string {
+	cfg := currentConfig()
+	if !cfg.Enabled {
+		return cfg.DefaultLanguage
+	}
+	if q := normalizeLanguage(r.URL.Query().Get("lang")); q != "" && IsSupported(q) {
 		return q
 	}
-	if c, err := r.Cookie(cookieName); err == nil && IsSupported(c.Value) {
-		return c.Value
+	if allowCookie {
+		if c, err := r.Cookie(cfg.CookieName); err == nil && IsSupported(c.Value) {
+			return normalizeLanguage(c.Value)
+		}
 	}
 	if al := ParseAcceptLanguage(r.Header.Get("Accept-Language")); al != "" {
 		return al
 	}
-	return DefaultLanguage
+	return cfg.DefaultLanguage
 }
 
 // LanguageMiddleware resolves the request language per PART 30's fallback
 // chain, stores it in the request context, and sets the lang cookie when
-// the language was chosen via the ?lang= query parameter.
+// the language was chosen via ?lang=.
 func LanguageMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		lang := ResolveLanguage(r)
+	return LanguageMiddlewareWithPreferenceGate(next, nil)
+}
 
-		if q := r.URL.Query().Get("lang"); q != "" && IsSupported(q) {
+// LanguageMiddlewareWithPreferenceGate resolves language for the current
+// request and optionally gates persistence of the ?lang= choice.
+func LanguageMiddlewareWithPreferenceGate(next http.Handler, canSetPreferenceCookie func(*http.Request) bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg := currentConfig()
+		canPersist := canSetPreferenceCookie == nil || canSetPreferenceCookie(r)
+		lang := resolveLanguage(r, canPersist)
+		queryLanguage := normalizeLanguage(r.URL.Query().Get("lang"))
+		if cfg.Enabled && canPersist && queryLanguage != "" && IsSupported(queryLanguage) {
 			http.SetCookie(w, &http.Cookie{
-				Name:     cookieName,
-				Value:    lang,
+				Name:     cfg.CookieName,
+				Value:    queryLanguage,
 				Path:     "/",
-				MaxAge:   365 * 24 * 60 * 60,
+				MaxAge:   cookieAge(cfg.CookieMaxAge),
 				SameSite: http.SameSiteLaxMode,
 				Secure:   r.TLS != nil,
 				HttpOnly: true,

@@ -10,7 +10,8 @@ func TestParseBool(t *testing.T) {
 		"yes", "Yes", "YES", "on", "On", "ON",
 		"enable", "Enable", "ENABLE",
 		"enabled", "Enabled", "ENABLED",
-		"y", "Y",
+		"ok", "yep", "yup", "yeah", "aye", "si", "oui", "da", "hai",
+		"affirmative", "accept", "allow", "grant", "sure", "totally", "y", "Y",
 	}
 	for _, v := range trueValues {
 		t.Run("true:"+v, func(t *testing.T) {
@@ -29,7 +30,8 @@ func TestParseBool(t *testing.T) {
 		"no", "No", "NO", "off", "Off", "OFF",
 		"disable", "Disable", "DISABLE",
 		"disabled", "Disabled", "DISABLED",
-		"n", "N",
+		"nope", "nah", "nay", "nein", "non", "niet", "iie", "lie",
+		"negative", "reject", "block", "revoke", "deny", "never", "noway", "n", "N",
 	}
 	for _, v := range falseValues {
 		t.Run("false:"+v, func(t *testing.T) {
@@ -61,6 +63,13 @@ func TestParseBool(t *testing.T) {
 			t.Error("ParseBool(\"maybe\"): expected error, got nil")
 		}
 	})
+	for _, value := range []string{"active", "positive", "inactive"} {
+		t.Run("non_spec:"+value, func(t *testing.T) {
+			if _, err := ParseBool(value, false); err == nil {
+				t.Errorf("ParseBool(%q) succeeded; expected non-spec value to be rejected", value)
+			}
+		})
+	}
 
 	// Empty string returns the provided default
 	t.Run("empty-default-true", func(t *testing.T) {

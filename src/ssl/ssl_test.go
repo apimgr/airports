@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,7 +29,7 @@ func testTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
 
@@ -59,7 +60,7 @@ func writeTestCert(t *testing.T, certPath, keyPath, domain string) {
 	if err != nil {
 		t.Fatalf("create cert file: %v", err)
 	}
-	defer certOut.Close()
+	defer func() { _ = certOut.Close() }()
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
 		t.Fatalf("pem.Encode cert: %v", err)
 	}
@@ -72,7 +73,7 @@ func writeTestCert(t *testing.T, certPath, keyPath, domain string) {
 	if err != nil {
 		t.Fatalf("create key file: %v", err)
 	}
-	defer keyOut.Close()
+	defer func() { _ = keyOut.Close() }()
 	if err := pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}); err != nil {
 		t.Fatalf("pem.Encode key: %v", err)
 	}
@@ -100,6 +101,13 @@ func TestGetTLSConfigDisabled(t *testing.T) {
 	}
 	if cfg != nil {
 		t.Errorf("GetTLSConfig(disabled) = %+v, want nil", cfg)
+	}
+}
+
+func TestLetsEncryptRejectsNonPublicHostBeforeIssuing(t *testing.T) {
+	manager := NewManager(Config{Enabled: true, LetsEncrypt: LetsEncryptConfig{Enabled: true, Email: "ops@example.com"}})
+	if _, err := manager.GetTLSConfig([]string{"app.test"}); err == nil || !strings.Contains(err.Error(), "publicly valid hostname") {
+		t.Fatalf("GetTLSConfig(app.test) error = %v, want public-host validation failure", err)
 	}
 }
 

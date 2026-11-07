@@ -248,7 +248,7 @@ func TestBlocklistMiddleware_BlocksAndPassesThrough(t *testing.T) {
 	if rw.Code != http.StatusForbidden {
 		t.Fatalf("blocked request status = %d, want %d", rw.Code, http.StatusForbidden)
 	}
-	if body := rw.Body.String(); !strings.Contains(body, `"ok":false`) || !strings.Contains(body, `"error":"IP_BLOCKED"`) {
+	if body := rw.Body.String(); !strings.Contains(body, `"ok": false`) || !strings.Contains(body, `"error": "IP_BLOCKED"`) {
 		t.Errorf("body = %q, missing expected envelope fields", body)
 	}
 	if strings.Contains(rw.Body.String(), "test block") {
@@ -313,4 +313,3 @@ func TestBlocklistMiddleware_WebPathThemedErrorPage(t *testing.T) {
 		t.Errorf("block reason must never be exposed to the client")
 	}
 }
-

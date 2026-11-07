@@ -52,7 +52,9 @@ jobs:
           if [ -f release.txt ]; then
             echo "VERSION=$(cat release.txt)" >> $GITHUB_ENV
           else
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+            TAG="${GITHUB_REF_NAME}"
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then TAG="${TAG#v}"; fi
+            echo "VERSION=$TAG" >> $GITHUB_ENV
           fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           BUILD_EPOCH=$(date -u +%s)
@@ -120,16 +122,20 @@ jobs:
       - name: Set version
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # VERSION for version.txt (strip v if present)
-          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
-          # RELEASE_TAG: add v prefix only if semver without v
-          if [[ "$TAG" == v* ]]; then
-            echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+          # Strip v only from semantic-version tags; text tags stay unchanged.
+          VERSION="$TAG"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then VERSION="${TAG#v}"; fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          # Add v only to an unprefixed semantic version.
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            RELEASE_TAG="$TAG"
           elif [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "RELEASE_TAG=v$TAG" >> $GITHUB_ENV
+            RELEASE_TAG="v$TAG"
           else
-            echo "RELEASE_TAG=$TAG" >> $GITHUB_ENV
+            RELEASE_TAG="$TAG"
+            if [[ "$RELEASE_TAG" == v* ]]; then RELEASE_TAG="${RELEASE_TAG#v}"; fi
           fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
 
       - name: Create version.txt
         run: echo "${{ env.VERSION }}" > binaries/version.txt

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apimgr/airports/src/common/i18n"
+	"github.com/apimgr/airports/src/common/urlvars"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
@@ -45,14 +46,19 @@ func generateCSRFToken(length int) (string, error) {
 // csrfCookieSecure resolves the csrf_token cookie's Secure attribute from
 // server.csrf.secure. "auto" follows the resolved request scheme (TLS or a
 // trusted X-Forwarded-Proto: https), mirroring canonicalURL's detection.
-func csrfCookieSecure(r *http.Request, mode string) bool {
+func csrfCookieSecure(r *http.Request, mode string, resolvers ...*urlvars.Manager) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "true", "yes", "on", "1":
 		return true
 	case "false", "no", "off", "0":
 		return false
 	default:
-		return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+		if len(resolvers) > 0 && resolvers[0] != nil {
+			proto, _, _ := resolvers[0].GetURLVars(r)
+			return proto == "https"
+		}
+		proto, _, _ := urlvars.GetURLVars(r)
+		return proto == "https"
 	}
 }
 
@@ -120,7 +126,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 				Value:    token,
 				Path:     "/",
 				MaxAge:   int((365 * 24 * time.Hour).Seconds()),
-				Secure:   csrfCookieSecure(r, cfg.Secure),
+				Secure:   s.isTorRequest(r) || csrfCookieSecure(r, cfg.Secure, s.urlResolver),
 				HttpOnly: false,
 				SameSite: http.SameSiteStrictMode,
 			})

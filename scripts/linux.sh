@@ -61,13 +61,14 @@ check_root() {
 
 # Download latest release
 download_binary() {
-    local arch=$(detect_arch)
+    local arch
+    arch=$(detect_arch)
     local url="${REPO}/releases/latest/download/${PROJECT}-linux-${arch}"
 
     log_info "Downloading ${PROJECT} for linux/${arch}..."
 
     if command -v curl &> /dev/null; then
-        curl -fsSL -o "/tmp/${BINARY_NAME}" "${url}"
+        curl -q -LSsf -o "/tmp/${BINARY_NAME}" "${url}"
     elif command -v wget &> /dev/null; then
         wget -q -O "/tmp/${BINARY_NAME}" "${url}"
     else
@@ -195,7 +196,8 @@ main() {
     create_directories
     create_user
 
-    local init=$(detect_init)
+    local init
+    init=$(detect_init)
     case "${init}" in
         systemd) install_systemd ;;
         runit)   install_runit ;;
@@ -217,7 +219,8 @@ uninstall() {
     check_root
     log_info "Uninstalling ${PROJECT}..."
 
-    local init=$(detect_init)
+    local init
+    init=$(detect_init)
     case "${init}" in
         systemd)
             systemctl stop "${SERVICE_NAME}" 2>/dev/null || true

@@ -1,18 +1,32 @@
 {{define "content"}}
 <section class="page-section">
     <h1>{{t "contact.title"}}</h1>
-    <p>{{t "contact.intro_pre"}} <a href="/server/help">{{t "nav.help"}}</a>{{t "contact.intro_post"}}</p>
+    <form method="post" action="{{.BaseURL}}/api/{{.APIVersion}}/server/contact" data-captcha="{{.CaptchaType}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <label for="contact-name">Name</label>
+        <input id="contact-name" name="name" type="text" autocomplete="name" required>
+        <label for="contact-email">Email</label>
+        <input id="contact-email" name="email" type="email" autocomplete="email" required>
+        <label for="contact-subject">Subject</label>
+        <input id="contact-subject" name="subject" type="text" required>
+        <label for="contact-message">Message</label>
+        <textarea id="contact-message" name="message" required></textarea>
+        {{if .CaptchaRequired}}
+        <label for="contact-captcha">Captcha</label>
+        <p id="contact-captcha-question">{{.CaptchaQuestion}}</p>
+        <input type="hidden" name="captcha_id" value="{{.CaptchaID}}">
+        <input id="contact-captcha" name="captcha" type="text" required>
+        {{end}}
+        <button type="submit">Send message</button>
+    </form>
 
-    <h2>{{t "contact.general_heading"}}</h2>
-    <p><a href="mailto:{{.GeneralEmail}}">{{.GeneralEmail}}</a></p>
-
-    <h2>{{t "contact.abuse_heading"}}</h2>
-    <p><a href="mailto:{{.AbuseEmail}}">{{.AbuseEmail}}</a></p>
-
-    <h2>{{t "contact.security_heading"}}</h2>
-    <p>{{t "contact.security_pre"}} <a href="/security.txt">security.txt</a> {{t "contact.security_post"}}</p>
-
-    <h2>{{t "contact.project_heading"}}</h2>
-    <p><a href="https://github.com/apimgr/airports">github.com/apimgr/airports</a></p>
+    <section id="security-issues">
+        <h2>Security Issues</h2>
+        <p>To report a security vulnerability, consult our security policy at <a href="{{.SecurityURL}}">/server/security</a>.</p>
+    </section>
+    <section id="abuse-reports">
+        <h2>Abuse Reports</h2>
+        <p>To report abusive content or policy violations, use this contact form{{if .AbuseEmail}} or email <a href="mailto:{{.AbuseEmail}}">{{.AbuseEmail}}</a>{{end}}.</p>
+    </section>
 </section>
 {{end}}

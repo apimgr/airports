@@ -159,7 +159,7 @@ func TestUpdateFirstRunSinglePage(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -211,7 +211,7 @@ func TestUpdatePagination(t *testing.T) {
 		seenStartIndexes = append(seenStartIndexes, startIdx)
 
 		idx := 0
-		fmt.Sscanf(startIdx, "%d", &idx)
+		_, _ = fmt.Sscanf(startIdx, "%d", &idx)
 		var vulns []nvdVulnerabilityWrapper
 		if idx < total {
 			vulns = []nvdVulnerabilityWrapper{
@@ -225,7 +225,7 @@ func TestUpdatePagination(t *testing.T) {
 			Vulnerabilities: vulns,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -258,7 +258,7 @@ func TestUpdateUpsertsIntoExistingIndex(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -300,7 +300,7 @@ func TestUpdateRetriesOnRateLimitThenSucceeds(t *testing.T) {
 		n := atomic.AddInt32(&attempts, 1)
 		if n <= 2 {
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"message":"rate limited"}`))
+			_, _ = w.Write([]byte(`{"message":"rate limited"}`))
 			return
 		}
 		resp := nvdAPIResponse{
@@ -310,7 +310,7 @@ func TestUpdateRetriesOnRateLimitThenSucceeds(t *testing.T) {
 			Vulnerabilities: []nvdVulnerabilityWrapper{{CVE: sampleCVE("CVE-2026-0099", "2026-07-24T00:00:00.000")}},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -336,7 +336,7 @@ func TestUpdateGivesUpAfterMaxRetries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte(`{"message":"unavailable"}`))
+		_, _ = w.Write([]byte(`{"message":"unavailable"}`))
 	}))
 	defer server.Close()
 
@@ -355,7 +355,7 @@ func TestUpdateNonRetryableFailsImmediately(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"message":"bad request"}`))
+		_, _ = w.Write([]byte(`{"message":"bad request"}`))
 	}))
 	defer server.Close()
 
@@ -372,7 +372,7 @@ func TestUpdateNonRetryableFailsImmediately(t *testing.T) {
 func TestUpdateMalformedJSONResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{not valid json`))
+		_, _ = w.Write([]byte(`{not valid json`))
 	}))
 	defer server.Close()
 
@@ -394,7 +394,7 @@ func TestUpdateSkipsMalformedRecordButKeepsOthers(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

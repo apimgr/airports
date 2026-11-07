@@ -240,7 +240,7 @@ func Daemonize() error {
 	if err != nil {
 		return fmt.Errorf("failed to open %s: %w", os.DevNull, err)
 	}
-	defer devNull.Close()
+	defer func() { _ = devNull.Close() }()
 
 	execPath, err := os.Executable()
 	if err != nil {

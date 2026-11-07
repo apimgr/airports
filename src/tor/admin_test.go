@@ -1,6 +1,7 @@
 package tor
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -16,8 +17,7 @@ import (
 )
 
 func TestStatusReportsDisabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	st := m.Status()
 	if st.Enabled {
@@ -32,8 +32,7 @@ func TestStatusReportsDisabled(t *testing.T) {
 }
 
 func TestValidateNotEnabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.Validate(); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("Validate() error = %v, want ErrNotEnabled", err)
@@ -41,8 +40,7 @@ func TestValidateNotEnabled(t *testing.T) {
 }
 
 func TestValidateEnabledNotRunningNoKeyFile(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test-novanity", 8080, Config{Enabled: &yes})
+	m := managerForTest(t, "airports-test-novanity", 8080, true)
 
 	if err := m.Validate(); err != nil {
 		t.Errorf("Validate() error = %v, want nil when no key file exists yet and Tor is not running", err)
@@ -50,8 +48,7 @@ func TestValidateEnabledNotRunningNoKeyFile(t *testing.T) {
 }
 
 func TestRestartDisabledIsInert(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.Restart(context.Background()); err != nil {
 		t.Errorf("Restart() error = %v, want nil (inert no-op when disabled)", err)
@@ -59,8 +56,7 @@ func TestRestartDisabledIsInert(t *testing.T) {
 }
 
 func TestRegenerateNotEnabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.Regenerate(context.Background()); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("Regenerate() error = %v, want ErrNotEnabled", err)
@@ -68,8 +64,7 @@ func TestRegenerateNotEnabled(t *testing.T) {
 }
 
 func TestStartVanitySearchInvalidPrefix(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test", 8080, Config{Enabled: &yes})
+	m := managerForTest(t, "airports-test", 8080, true)
 
 	for _, bad := range []string{"", "TOO-UPPER", "has space", "invalid1", strings.Repeat("a", 17)} {
 		if err := m.StartVanitySearch(bad); err == nil {
@@ -79,8 +74,7 @@ func TestStartVanitySearchInvalidPrefix(t *testing.T) {
 }
 
 func TestStartVanitySearchNotEnabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.StartVanitySearch("a"); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("StartVanitySearch() error = %v, want ErrNotEnabled", err)
@@ -88,8 +82,7 @@ func TestStartVanitySearchNotEnabled(t *testing.T) {
 }
 
 func TestVanitySearchFindsSingleCharPrefixAndStatusReports(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test", 8080, Config{Enabled: &yes})
+	m := managerForTest(t, "airports-test", 8080, true)
 
 	if _, ok := m.VanityStatus(); ok {
 		t.Fatal("VanityStatus() ok = true before any search was started")
@@ -128,8 +121,7 @@ func TestVanitySearchFindsSingleCharPrefixAndStatusReports(t *testing.T) {
 }
 
 func TestApplyVanityNotEnabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.ApplyVanity(context.Background()); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("ApplyVanity() error = %v, want ErrNotEnabled", err)
@@ -137,8 +129,7 @@ func TestApplyVanityNotEnabled(t *testing.T) {
 }
 
 func TestApplyVanityNoResultYet(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test-apply-novanity", 8080, Config{Enabled: &yes})
+	m := managerForTest(t, "airports-test-apply-novanity", 8080, true)
 
 	if err := m.ApplyVanity(context.Background()); err == nil {
 		t.Error("ApplyVanity() error = nil, want an error when no vanity search has completed")
@@ -146,8 +137,7 @@ func TestApplyVanityNoResultYet(t *testing.T) {
 }
 
 func TestApplyVanityPersistsWinningKey(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test-apply", 8080, Config{Enabled: &yes})
+	m := managerForTest(t, "airports-test-apply", 8080, true)
 	t.Cleanup(func() { _ = os.Remove(m.dirs.KeyPath) })
 
 	if err := m.StartVanitySearch("a"); err != nil {
@@ -162,10 +152,9 @@ func TestApplyVanityPersistsWinningKey(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	// ApplyVanity will attempt Start() afterward; with no real tor binary
-	// configured that leaves Tor disabled and Start() returns nil per its
-	// documented inert behavior, so the only thing under test here is that
-	// the winning key was actually persisted to disk first.
+	// ApplyVanity attempts Start() afterward. The manager's configured binary
+	// path does not exist, so startup returns harmlessly after persisting the
+	// winning key; this test only checks that persistence step.
 	if err := m.ApplyVanity(context.Background()); err != nil {
 		t.Fatalf("ApplyVanity() error = %v", err)
 	}
@@ -176,18 +165,16 @@ func TestApplyVanityPersistsWinningKey(t *testing.T) {
 }
 
 func TestImportKeysNotEnabled(t *testing.T) {
-	no := false
-	m := NewManager("airports-test", 8080, Config{Enabled: &no})
+	m := managerForTest(t, "airports-test", 8080, false)
 
 	if err := m.ImportKeys(context.Background(), []byte("garbage")); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("ImportKeys() error = %v, want ErrNotEnabled", err)
 	}
 }
 
-func TestImportKeysOwnFormatRoundTrip(t *testing.T) {
-	yes := true
-	m := NewManager("airports-test-import-own", 8080, Config{Enabled: &yes})
-	t.Cleanup(func() { _ = os.Remove(m.dirs.KeyPath) })
+func TestImportKeysLegacyFormatWritesTorNativeKey(t *testing.T) {
+	m := managerForTest(t, "airports-test-import-own", 8080, true)
+	t.Cleanup(func() { _ = os.RemoveAll(m.dirs.SiteDir) })
 
 	kp, err := tored25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -203,8 +190,15 @@ func TestImportKeysOwnFormatRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted key: %v", err)
 	}
-	if strings.TrimSpace(string(saved)) != blob {
-		t.Errorf("persisted key = %q, want %q", strings.TrimSpace(string(saved)), blob)
+	if len(saved) != 96 || !bytes.HasPrefix(saved[:32], []byte(nativeSecretKeyHeader)) {
+		t.Fatalf("persisted key does not use Tor native format: %d bytes", len(saved))
+	}
+	parsed, err := loadOrGenerateKey(m.dirs.KeyPath)
+	if err != nil {
+		t.Fatalf("load persisted key: %v", err)
+	}
+	if parsed == nil || parsed.Blob() != base64.StdEncoding.EncodeToString(kp.PrivateKey()) {
+		t.Error("persisted key does not match imported onion identity")
 	}
 }
 
@@ -215,6 +209,7 @@ func TestParseImportedKeyNativeFormatRoundTrip(t *testing.T) {
 	}
 
 	native := make([]byte, 32+64)
+	copy(native[:32], nativeSecretKeyHeader)
 	copy(native[32:], kp.PrivateKey())
 
 	key, err := parseImportedKey(native)

@@ -1,21 +1,30 @@
 {{define "cookie-consent"}}
 {{if .ShowCookieConsent}}
-<div id="cookie-consent" class="cookie-banner" data-sold="{{.ConsentDataSold}}">
+<div id="cookie-consent" class="cookie-banner" data-sold="{{.ConsentDataSold}}" data-position="{{.ConsentPosition}}">
     <div class="cookie-banner-content">
         <span class="cookie-message">
             {{.ConsentMessage}} - <a href="{{.ConsentPolicyURL}}" class="policy-link">{{.ConsentPolicyText}}</a>
         </span>
         <div class="cookie-buttons">
-            <form method="post" action="/server/consent">
+            <form method="post" action="{{.BaseURL}}/server/consent">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="choice" value="decline">
                 <button type="submit" class="btn-decline">{{.ConsentDeclineText}}</button>
             </form>
-            <form method="post" action="/server/consent">
+            <form method="post" action="{{.BaseURL}}/server/consent">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="choice" value="accept">
                 <button type="submit" class="btn-accept">{{.ConsentAcceptText}}</button>
             </form>
+            {{if .ConsentShowPreferences}}
+            <form method="post" action="{{.BaseURL}}/server/consent" class="cookie-preferences-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="choice" value="save">
+                <label><input type="checkbox" name="preferences" value="true" {{if .ConsentPreferences}}checked{{end}} {{if not .PreferencesCategoryEnabled}}disabled{{end}}>{{.ConsentPreferencesDescription}}</label>
+                <label><input type="checkbox" name="analytics" value="true" {{if .ConsentAnalytics}}checked{{end}} {{if not .AnalyticsCategoryEnabled}}disabled{{end}}>{{.ConsentAnalyticsDescription}}</label>
+                <button type="submit">{{.ConsentPreferencesText}}</button>
+            </form>
+            {{end}}
         </div>
     </div>
 </div>

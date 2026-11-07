@@ -67,23 +67,30 @@ echo ">> Bringing up Airports test stack in $TEMP_DIR"
 echo ">> Waiting for /server/healthz to become ready..."
 __deadline=$(( $(date +%s) + 90 ))
 while [[ $(date +%s) -lt $__deadline ]]; do
-    if curl -q -fsS "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
+    if curl -q -LSsf "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
         echo ">> Server is up."
         break
     fi
     sleep 2
 done
 
-if ! curl -q -fsS "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
+if ! curl -q -LSsf "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
     echo "ERROR: server did not become healthy in time" >&2
     (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
     exit 1
 fi
 
+API_VERSION="$(curl -q -LSsf "${BASE_URL}/api/autodiscover" | sed -n 's/.*"current_version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+if [[ -z "$API_VERSION" ]]; then
+    echo "ERROR: could not discover the current API version" >&2
+    exit 1
+fi
+API_BASE="/api/${API_VERSION}"
+
 __expect_2xx() {
     local path="$1"
     local code
-    code=$(curl -q -o /dev/null -s -w "%{http_code}" "${BASE_URL}${path}" || true)
+    code=$(curl -q -LSs -o /dev/null -w "%{http_code}" "${BASE_URL}${path}" || true)
     if [[ "$code" != 2* ]]; then
         echo "FAIL  $path  HTTP $code"
         return 1
@@ -99,9 +106,9 @@ __expect_content_type() {
     local path="$1" accept="$2" want_substr="$3"
     local ct
     if [[ -n "$accept" ]]; then
-        ct=$(curl -q -s -o /dev/null -D - -H "Accept: ${accept}" "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
+        ct=$(curl -q -LSs -o /dev/null -D - -H "Accept: ${accept}" "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
     else
-        ct=$(curl -q -s -o /dev/null -D - "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
+        ct=$(curl -q -LSs -o /dev/null -D - "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
     fi
     if [[ "$ct" != *"$want_substr"* ]]; then
         echo "FAIL  $path  Accept:${accept:-<none>}  Content-Type '$ct' does not contain '$want_substr'"
@@ -115,9 +122,9 @@ __failed=0
 for path in \
     "/server/healthz" \
     "/server/about" \
-    "/api/v1/server/healthz" \
-    "/api/v1/server/about" \
-    "/api/v1/airports/search?q=Tokyo&limit=1"
+    "${API_BASE}/server/healthz" \
+    "${API_BASE}/server/about" \
+    "${API_BASE}/airports/search?q=Tokyo&limit=1"
 do
     __expect_2xx "$path" || __failed=1
 done
@@ -126,18 +133,18 @@ echo ">> Content negotiation matrix"
 while IFS='|' read -r path accept want; do
     [[ -z "$path" ]] && continue
     __expect_content_type "$path" "$accept" "$want" || __failed=1
-done <<'MATRIX'
+done <<MATRIX
 /server/about|text/html|text/html
 /server/about|text/plain|text/plain
-/api/v1/server/healthz|application/json|application/json
-/api/v1/server/healthz|text/plain|text/plain
+${API_BASE}/server/healthz|application/json|application/json
+${API_BASE}/server/healthz|text/plain|text/plain
 MATRIX
 
 echo ">> .txt endpoint coverage"
 for path in \
     "/robots.txt" \
-    "/health.txt" \
-    "/api/v1/airports/search.txt?q=Tokyo&limit=1"
+    "/server/healthz.txt" \
+    "${API_BASE}/airports/search.txt?q=Tokyo&limit=1"
 do
     __expect_2xx "$path" || __failed=1
     __expect_content_type "$path" "" "text/plain" || __failed=1

@@ -3,8 +3,10 @@ package server
 import (
 	"net/http"
 	"runtime"
+	"strings"
 
 	"github.com/apimgr/airports/src/common/i18n"
+	"github.com/apimgr/airports/src/config"
 )
 
 // Server pages required by IDEA.md and AI.md spec:
@@ -50,10 +52,57 @@ func (s *Server) handleServerHelp(w http.ResponseWriter, r *http.Request) {
 
 // handleServerPrivacy renders the Privacy page.
 func (s *Server) handleServerPrivacy(w http.ResponseWriter, r *http.Request) {
+	privacy := s.config.Server.Privacy
+	tracking := s.config.Server.Tracking
+	services := configuredThirdPartyServices(privacy, tracking)
 	s.renderTemplate(w, r, "server_privacy", map[string]interface{}{
-		"Title": "Privacy",
-		"Theme": s.config.Web.UI.Theme,
+		"Title":              "Privacy",
+		"Theme":              s.config.Web.UI.Theme,
+		"Privacy":            &privacy,
+		"Tracking":           &tracking,
+		"TrackingTypeName":   trackingTypeName(tracking.Type),
+		"ThirdPartyServices": services,
+		"CCPAOptedOut":       ccpaOptOutFromRequest(r),
 	})
+}
+
+func configuredThirdPartyServices(privacy config.PrivacyConfig, tracking config.TrackingConfig) []config.ThirdPartyService {
+	services := append([]config.ThirdPartyService(nil), privacy.ThirdParty.Services...)
+	if tracking.Type == "" || tracking.Type == "none" {
+		return services
+	}
+	name := trackingTypeName(tracking.Type)
+	for _, service := range services {
+		if strings.EqualFold(service.Name, name) {
+			return services
+		}
+	}
+	return append(services, config.ThirdPartyService{
+		Name: name, Purpose: "Usage analytics", DataSent: "Anonymized: page views, browser type, country",
+	})
+}
+
+func trackingTypeName(provider string) string {
+	switch provider {
+	case "google":
+		return "Google Analytics"
+	case "matomo", "piwik":
+		return "Matomo"
+	case "owa":
+		return "Open Web Analytics"
+	case "fathom":
+		return "Fathom"
+	case "plausible":
+		return "Plausible"
+	case "umami":
+		return "Umami"
+	case "simple":
+		return "Simple Analytics"
+	case "cloudflare":
+		return "Cloudflare Web Analytics"
+	default:
+		return ""
+	}
 }
 
 // handleServerTerms renders the Terms of Use page.
@@ -64,47 +113,135 @@ func (s *Server) handleServerTerms(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// contactAddresses resolves the display-only contact addresses for
-// /server/contact, falling back to WebSecurity.Admin (the security.txt
-// contact) when server.privacy.contact.general/abuse are unset — this
-// project has no SMTP subsystem, so the page is read-only mailto: links
-// rather than a submission form (features-rules.md: never queue email
-// without a tested SMTP connection).
-func (s *Server) contactAddresses() (general, abuse string) {
-	general = s.config.Server.Privacy.Contact.General
-	abuse = s.config.Server.Privacy.Contact.Abuse
-	fallback := s.config.Web.Security.Admin
-	if fallback == "" {
-		fallback = "security@apimgr.us"
+// handleServerSecurity renders the public security reporting overview.
+func (s *Server) handleServerSecurity(w http.ResponseWriter, r *http.Request) {
+	contact := s.securityContactEmail(r)
+	s.renderTemplate(w, r, "server_security", map[string]interface{}{
+		"Title":          "Security",
+		"Theme":          s.config.Web.UI.Theme,
+		"SecurityEmail":  contact,
+		"SecurityTxtURL": strings.TrimSuffix(RequestBaseURL(r), "/") + "/.well-known/security.txt",
+	})
+}
+
+// handleServerSecurityPolicy renders the coordinated disclosure guidance.
+func (s *Server) handleServerSecurityPolicy(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "server_security_policy", map[string]interface{}{
+		"Title": "Security Policy",
+		"Theme": s.config.Web.UI.Theme,
+	})
+}
+
+// handleServerSecurityThanks renders the public researcher acknowledgments.
+func (s *Server) handleServerSecurityThanks(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "server_security_thanks", map[string]interface{}{
+		"Title": "Security Acknowledgments",
+		"Theme": s.config.Web.UI.Theme,
+	})
+}
+
+func (s *Server) publicContactEmails(r *http.Request) (general, abuse string) {
+	if s.isTorRequest(r) {
+		address := strings.TrimSpace(s.config.Server.Tor.ContactEmail)
+		return address, address
 	}
+	contacts := s.config.Server.Contact
+	host := strings.TrimSpace(s.config.Server.FQDN)
+	resolve := func(value string) string {
+		if strings.Contains(value, "{fqdn}") && host == "" {
+			return ""
+		}
+		return strings.ReplaceAll(strings.TrimSpace(value), "{fqdn}", host)
+	}
+	general = resolve(contacts.General.Email)
 	if general == "" {
-		general = fallback
+		general = resolve(s.config.Server.Privacy.Contact.General)
+	}
+	// Public abuse contact intentionally never falls back to the private admin
+	// address; PART 12 permits only abuse.email then general.email here.
+	abuse = resolve(contacts.Abuse.Email)
+	if abuse == "" {
+		abuse = resolve(contacts.General.Email)
 	}
 	if abuse == "" {
-		abuse = fallback
+		abuse = resolve(s.config.Server.Privacy.Contact.Abuse)
+	}
+	if abuse == "" {
+		abuse = resolve(s.config.Server.Privacy.Contact.General)
 	}
 	return general, abuse
 }
 
-// handleServerContact renders the Contact page (display-only mailto links).
+func (s *Server) securityContactEmail(r *http.Request) string {
+	if s.isTorRequest(r) {
+		return strings.TrimSpace(s.config.Server.Tor.ContactEmail)
+	}
+	value := strings.TrimSpace(s.config.Server.Contact.Security.Email)
+	if value == "" || value == "security@{fqdn}" {
+		value = s.config.Web.Security.Admin
+	}
+	if value == "" {
+		value = "security@{fqdn}"
+	}
+	host := strings.TrimSpace(s.config.Server.FQDN)
+	if strings.Contains(value, "{fqdn}") && host == "" {
+		return ""
+	}
+	return strings.ReplaceAll(strings.TrimSpace(value), "{fqdn}", host)
+}
+
+// handleServerContact renders the public contact form and contact information.
 func (s *Server) handleServerContact(w http.ResponseWriter, r *http.Request) {
-	general, abuse := s.contactAddresses()
+	if !s.config.Server.Pages.Contact.Enabled {
+		http.NotFound(w, r)
+		return
+	}
+	general, abuse := s.publicContactEmails(r)
+	captchaType := strings.ToLower(strings.TrimSpace(s.config.Server.Pages.Contact.Captcha))
+	if captchaType == "" {
+		captchaType = "simple"
+	}
+	if captchaType != "simple" {
+		message := "The configured contact CAPTCHA provider is unavailable."
+		if s.isTorRequest(r) {
+			message = "The configured CAPTCHA provider is not available over Tor; choose the self-hosted simple challenge."
+		}
+		s.writeErrorJSON(w, r, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", message)
+		return
+	}
+	question, challengeID := "", ""
+	captchaRequired := s.contactCaptchaIsRequired(r)
+	if captchaRequired {
+		var err error
+		question, challengeID, err = s.newContactCaptcha()
+		if err != nil {
+			s.writeErrorJSON(w, r, http.StatusServiceUnavailable, "CAPTCHA_UNAVAILABLE", "A contact challenge could not be created.")
+			return
+		}
+	}
 	s.renderTemplate(w, r, "server_contact", map[string]interface{}{
-		"Title":        "Contact",
-		"Theme":        s.config.Web.UI.Theme,
-		"GeneralEmail": general,
-		"AbuseEmail":   abuse,
+		"Title":           "Contact",
+		"Theme":           s.config.Web.UI.Theme,
+		"GeneralEmail":    general,
+		"AbuseEmail":      abuse,
+		"SecurityURL":     strings.TrimSuffix(RequestBaseURL(r), "/") + "/server/security",
+		"APIVersion":      s.config.Server.APIVersion,
+		"CaptchaType":     captchaType,
+		"CaptchaQuestion": question,
+		"CaptchaID":       challengeID,
+		"CaptchaRequired": captchaRequired,
 	})
 }
 
 // handleServerContactAPI returns contact addresses as JSON per AI.md PART 14.
 func (s *Server) handleServerContactAPI(w http.ResponseWriter, r *http.Request) {
-	general, abuse := s.contactAddresses()
+	general, abuse := s.publicContactEmails(r)
+	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
 	s.respondItem(w, http.StatusOK, map[string]interface{}{
 		"general": general,
 		"abuse":   abuse,
 		"security": map[string]string{
-			"info_url": "/security.txt",
+			"info_url": baseURL + "/security.txt",
 		},
 		"repo": "https://github.com/apimgr/airports",
 	})
@@ -113,7 +250,8 @@ func (s *Server) handleServerContactAPI(w http.ResponseWriter, r *http.Request) 
 // handleServerHelpAPI returns the API help reference as JSON per AI.md PART 14.
 func (s *Server) handleServerHelpAPI(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.FromContext(r.Context())
-	base := s.APIBasePath()
+	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
+	base := baseURL + s.APIBasePath()
 	s.respondItem(w, http.StatusOK, map[string]interface{}{
 		"name":    i18n.T(lang, "help.api_name"),
 		"version": s.config.Server.APIVersion,
@@ -130,57 +268,79 @@ func (s *Server) handleServerHelpAPI(w http.ResponseWriter, r *http.Request) {
 			{"method": "GET", "path": base + "/geoip/{ip}", "description": i18n.T(lang, "help.ep_geoip_ip_desc")},
 			{"method": "GET", "path": base + "/server/healthz", "description": i18n.T(lang, "help.ep_healthz_desc")},
 			{"method": "GET", "path": base + "/server/about", "description": i18n.T(lang, "help.ep_about_desc")},
-			{"method": "GET", "path": "/api/autodiscover", "description": i18n.T(lang, "help.ep_autodiscover_desc")},
+			{"method": "GET", "path": baseURL + "/api/autodiscover", "description": i18n.T(lang, "help.ep_autodiscover_desc")},
 		},
 		"formats": []string{"json", "csv", "geojson", "text"},
-		"docs":    "/server/docs/swagger",
+		"docs":    baseURL + "/server/docs/swagger",
 	})
 }
 
 // handleServerPrivacyAPI returns the privacy policy as JSON per AI.md PART 14.
 func (s *Server) handleServerPrivacyAPI(w http.ResponseWriter, r *http.Request) {
-	lang := i18n.FromContext(r.Context())
+	privacy := s.config.Server.Privacy
+	tracking := s.config.Server.Tracking
+	services := configuredThirdPartyServices(privacy, tracking)
+	sharing := make([]map[string]string, 0, len(privacy.Data.Sharing))
+	for _, condition := range privacy.Data.Sharing {
+		sharing = append(sharing, map[string]string{
+			"condition": condition.Condition,
+			"when":      condition.When,
+			"data":      condition.Data,
+		})
+	}
+	serviceData := make([]map[string]string, 0, len(services))
+	for _, service := range services {
+		serviceData = append(serviceData, map[string]string{
+			"name": service.Name, "purpose": service.Purpose,
+			"data_sent": service.DataSent, "policy_url": service.PolicyURL,
+		})
+	}
 	s.respondItem(w, http.StatusOK, map[string]interface{}{
 		"summary": map[string]interface{}{
-			"data_stored_on_server": false,
-			"data_sold":             false,
-			"user_control":          false,
+			"data_stored_on_server": privacy.Data.StoredOnServer,
+			"data_sold":             privacy.Data.Sold,
+			"user_control":          true,
 		},
 		"cookies": map[string]interface{}{
 			"essential": map[string]interface{}{
 				"enabled":     true,
-				"description": i18n.T(lang, "privacy.api_cookie_essential_desc"),
+				"description": privacy.Cookies.Essential.Description,
 			},
 			"preferences": map[string]interface{}{
-				"enabled":     false,
-				"description": i18n.T(lang, "privacy.api_cookie_preferences_desc"),
+				"enabled":     privacy.Cookies.Preferences.Enabled,
+				"description": privacy.Cookies.Preferences.Description,
 			},
 			"analytics": map[string]interface{}{
-				"enabled":     false,
-				"description": i18n.T(lang, "privacy.api_cookie_analytics_desc"),
+				"enabled":     privacy.Cookies.Analytics.Enabled,
+				"description": privacy.GetAnalyticsDescription(),
 			},
 		},
 		"data": map[string]interface{}{
-			"sold":             false,
-			"stored_on_server": false,
-			"sharing":          []interface{}{},
+			"sold":             privacy.Data.Sold,
+			"stored_on_server": privacy.Data.StoredOnServer,
+			"sharing":          sharing,
 		},
 		"tracking": map[string]interface{}{
-			"enabled":   false,
-			"type":      "",
-			"type_name": "",
+			"enabled":   CanLoadAnalytics(r),
+			"type":      tracking.Type,
+			"type_name": trackingTypeName(tracking.Type),
 		},
 		"retention": map[string]interface{}{
-			"period":             i18n.T(lang, "privacy.api_retention_period"),
-			"export_available":   false,
-			"deletion_available": false,
+			"period":             privacy.Retention.Period,
+			"export_available":   privacy.Retention.ExportAvailable,
+			"deletion_available": privacy.Retention.DeletionAvailable,
 		},
 		"third_party": map[string]interface{}{
-			"services": []interface{}{},
+			"services": serviceData,
+		},
+		"ccpa": map[string]interface{}{
+			"applicable":     privacy.IsCCPAApplicable(),
+			"opt_out_url":    strings.TrimSuffix(RequestBaseURL(r), "/") + "/server/privacy#ccpa-opt-out",
+			"user_opted_out": ccpaOptOutFromRequest(r),
 		},
 		"content": map[string]interface{}{
-			"consent_message": i18n.T(lang, "privacy.api_consent_message"),
-			"data_usage":      i18n.T(lang, "privacy.api_data_usage"),
+			"consent_message": privacy.GetConsentMessage(),
+			"data_usage":      privacy.GetDataUsageContent(),
 		},
 	})
 }
@@ -222,15 +382,8 @@ func (s *Server) handleServerAboutAPI(w http.ResponseWriter, r *http.Request) {
 // Response includes: server version, API versions, primary URL, cluster URLs,
 // cli_versions (per-platform tarball info), and cli_min_version.
 func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
-	// Determine primary URL from request host (respects X-Forwarded-Proto / TLS).
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
-		scheme = fwdProto
-	}
-	primaryURL := scheme + "://" + r.Host
+	primaryURL := s.publicBaseURL(r)
+	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
 	base := s.APIBasePath()
 
 	resp := map[string]interface{}{
@@ -245,13 +398,12 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 		"api": map[string]interface{}{
 			"versions":        []string{s.config.Server.APIVersion},
 			"current_version": s.config.Server.APIVersion,
-			"base_path":       "/api",
+			"base_path":       baseURL + "/api",
 		},
-		// cli_versions maps os/arch → {version, url, sha256}.
-		// Populated at release time; empty map when not configured.
-		"cli_versions": map[string]interface{}{},
+		// cli_versions maps os/arch → {version, url, sha256} from the matching GitHub release.
+		"cli_versions": s.cliReleaseVersions(r),
 		// cli_min_version is the oldest CLI that this server still supports.
-		"cli_min_version": "0.0.1",
+		"cli_min_version": s.config.Server.Update.CLIMinVersion,
 		"endpoints": map[string]string{
 			"healthz":      primaryURL + base + "/server/healthz",
 			"about":        primaryURL + base + "/server/about",

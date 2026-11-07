@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -13,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	urlvars "github.com/apimgr/airports/src/common/urlvars"
 	"github.com/apimgr/airports/src/config"
+	"github.com/apimgr/airports/src/logging"
 	"github.com/apimgr/airports/src/path"
 )
 
@@ -29,7 +32,7 @@ func newMainTestDir(t *testing.T) string {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
 	t.Cleanup(func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	})
 	return dir
 }
@@ -45,7 +48,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	orig := os.Stdout
 	os.Stdout = w
 	fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = orig
 
 	out, err := io.ReadAll(r)
@@ -98,6 +101,275 @@ func TestExtractUpdateFlag(t *testing.T) {
 	}
 }
 
+func TestMaintenanceCommandHelpers(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		found     bool
+		action    string
+		target    string
+		remaining []string
+	}{
+		{name: "backup target", args: []string{"--maintenance", "backup", "/tmp/backup.tar.gz", "--config", "/cfg"}, found: true, action: "backup", target: "/tmp/backup.tar.gz", remaining: []string{"--config", "/cfg"}},
+		{name: "inline help", args: []string{"--maintenance=--help", "--version"}, found: true, action: "help", remaining: []string{"--version"}},
+		{name: "compliance report", args: []string{"--maintenance", "compliance", "report"}, found: true, action: "compliance", target: "report"},
+		{name: "bare maintenance flag", args: []string{"--maintenance", "--debug"}, remaining: []string{"--maintenance", "--debug"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			found, action, target, remaining := extractMaintenanceFlag(test.args)
+			if found != test.found || action != test.action || target != test.target || strings.Join(remaining, "\x00") != strings.Join(test.remaining, "\x00") {
+				t.Fatalf("extractMaintenanceFlag(%v) = %t, %q, %q, %v", test.args, found, action, target, remaining)
+			}
+		})
+	}
+	for _, action := range []string{"backup", "restore", "update", "mode", "setup", "pgp", "secret", "token", "data", "compliance", "help", "--help"} {
+		if !isMaintenanceAction(action) {
+			t.Errorf("isMaintenanceAction(%q) = false", action)
+		}
+	}
+	if isMaintenanceAction("unknown") {
+		t.Error("isMaintenanceAction(unknown) = true")
+	}
+}
+
+func TestExtractServiceSchedulerAndTorCommands(t *testing.T) {
+	serviceCases := []struct {
+		args      []string
+		wantFound bool
+		wantAct   string
+		wantRest  []string
+	}{
+		{[]string{"--service", "--install", "--debug"}, true, "--install", []string{"--debug"}},
+		{[]string{"--service=restart", "--version"}, true, "restart", []string{"--version"}},
+		{[]string{"--service", "--debug"}, true, "help", []string{"--debug"}},
+		{[]string{"--version"}, false, "", []string{"--version"}},
+	}
+	for _, test := range serviceCases {
+		found, action, remaining := extractServiceFlag(test.args)
+		if found != test.wantFound || action != test.wantAct || strings.Join(remaining, "\x00") != strings.Join(test.wantRest, "\x00") {
+			t.Errorf("extractServiceFlag(%v) = %t, %q, %v", test.args, found, action, remaining)
+		}
+	}
+	for _, test := range []struct {
+		args   []string
+		found  bool
+		action string
+		taskID string
+	}{
+		{[]string{"scheduler", "show", "health_check"}, true, "show", "health_check"},
+		{[]string{"scheduler"}, true, "", ""},
+		{[]string{"--help"}, false, "", ""},
+	} {
+		found, action, taskID, _ := extractSchedulerCommand(test.args)
+		if found != test.found || action != test.action || taskID != test.taskID {
+			t.Errorf("extractSchedulerCommand(%v) = %t, %q, %q", test.args, found, action, taskID)
+		}
+	}
+	for _, test := range []struct {
+		args     []string
+		found    bool
+		action   string
+		sub      string
+		argument string
+	}{
+		{[]string{"tor", "vanity", "start", "AB"}, true, "vanity", "start", "AB"},
+		{[]string{"tor", "vanity", "apply"}, true, "vanity", "apply", ""},
+		{[]string{"tor", "import-keys", "keys.zip"}, true, "import-keys", "", "keys.zip"},
+		{[]string{"tor", "status"}, true, "status", "", ""},
+		{[]string{"--version"}, false, "", "", ""},
+	} {
+		found, action, sub, argument, _ := extractTorCommand(test.args)
+		if found != test.found || action != test.action || sub != test.sub || argument != test.argument {
+			t.Errorf("extractTorCommand(%v) = %t, %q, %q, %q", test.args, found, action, sub, argument)
+		}
+	}
+}
+
+func TestRestartRequiredSettings(t *testing.T) {
+	oldConfig := config.DefaultConfig()
+	newConfig := config.DefaultConfig()
+	if got := restartRequiredSettings(oldConfig, newConfig); len(got) != 0 {
+		t.Fatalf("unchanged settings = %v", got)
+	}
+	newConfig.Server.Port = "8080"
+	newConfig.Server.Address = "127.0.0.1"
+	newConfig.Server.Daemonize = true
+	newConfig.Server.SSL.Enabled = true
+	newConfig.Server.SSL.Cert = "cert.pem"
+	newConfig.Server.SSL.Key = "key.pem"
+	newConfig.Server.SSL.MinVersion = "TLS1.3"
+	newConfig.Server.SSL.LetsEncrypt.Enabled = true
+	newConfig.Server.SSL.LetsEncrypt.Email = "admin@example.com"
+	newConfig.Server.Database.URL = "file:new.db"
+	newConfig.Server.Database.Driver = "other"
+	newConfig.Server.Tor.Binary = "/usr/bin/tor"
+	newConfig.Server.Tor.UseNetwork = true
+	want := []string{"server.port", "server.address", "server.daemonize", "ssl.enabled", "ssl.cert", "ssl.key", "ssl.min_version", "ssl.letsencrypt.enabled", "ssl.letsencrypt.email", "database.driver", "database.url", "tor.binary", "tor.use_network"}
+	got := restartRequiredSettings(oldConfig, newConfig)
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("restartRequiredSettings = %v, want %v", got, want)
+	}
+}
+
+func TestSmallMaintenanceAndDisplayHelpers(t *testing.T) {
+	if output := captureStdout(t, func() { printMaintenanceHelp("airports") }); !strings.Contains(output, "compliance report") {
+		t.Fatalf("maintenance help missing compliance command: %s", output)
+	}
+	if output := captureStdout(t, func() { printUpdateHelp("airports") }); !strings.Contains(output, "branch") {
+		t.Fatalf("update help missing branch command: %s", output)
+	}
+	if got := httpsPortFromBindings([]portBinding{{Port: "80"}, {Port: "443", TLS: true}}); got != "443" {
+		t.Fatalf("httpsPortFromBindings = %q", got)
+	}
+	if got := httpsPortFromBindings([]portBinding{{Port: "8080"}}); got != "" {
+		t.Fatalf("httpsPortFromBindings without TLS = %q", got)
+	}
+	done := make(chan struct{})
+	close(done)
+	watchConfigFile(filepath.Join(newMainTestDir(t), "missing.yml"), config.DefaultConfig(), nil, done, nil)
+	if _, err := promptBackupPassword("password: "); err != nil {
+		t.Fatalf("non-interactive password prompt: %v", err)
+	}
+	if err := confirmConfigurationReset(); err == nil {
+		t.Fatal("non-interactive configuration reset confirmation succeeded")
+	}
+	originalEpoch := BuildEpoch
+	BuildEpoch = "123"
+	if got := buildEpoch(); got != 123 {
+		t.Fatalf("buildEpoch = %d, want 123", got)
+	}
+	BuildEpoch = "invalid"
+	if got := buildEpoch(); got != 0 {
+		t.Fatalf("invalid buildEpoch = %d, want 0", got)
+	}
+	BuildEpoch = originalEpoch
+}
+
+func TestLoadUpdateBranchUsesConfigDirectory(t *testing.T) {
+	dir := newMainTestDir(t)
+	t.Setenv("CONFIG_DIR", dir)
+	cfg := config.DefaultConfig()
+	cfg.Server.Update.Branch = "beta"
+	if err := config.Save(filepath.Join(dir, "server.yml"), cfg); err != nil {
+		t.Fatalf("save update config: %v", err)
+	}
+	if got := loadUpdateBranch(); got != "beta" {
+		t.Fatalf("loadUpdateBranch = %q, want beta", got)
+	}
+}
+
+func TestMaintenanceAuthorizationAndModeHelpers(t *testing.T) {
+	if requiresToken, err := modeChangeAuthorization(true, false); err != nil || requiresToken {
+		t.Fatalf("root authorization = %t, %v", requiresToken, err)
+	}
+	if requiresToken, err := modeChangeAuthorization(false, true); err != nil || !requiresToken {
+		t.Fatalf("service authorization = %t, %v", requiresToken, err)
+	}
+	if _, err := modeChangeAuthorization(false, false); err == nil {
+		t.Fatal("unprivileged mode authorization succeeded")
+	}
+	if got, err := maintenanceModeValue(" Debug "); err != nil || got != "debug" {
+		t.Fatalf("maintenanceModeValue = %q, %v", got, err)
+	}
+	if _, err := maintenanceModeValue("invalid"); err == nil {
+		t.Fatal("maintenanceModeValue accepted an invalid mode")
+	}
+	for _, test := range []struct {
+		provided   string
+		configured string
+		want       bool
+	}{
+		{"secret", "secret", true},
+		{"wrong", "secret", false},
+		{"", "secret", false},
+		{"secret", "", false},
+		{"longer", "short", false},
+	} {
+		if got := maintenanceOperatorTokenMatches(test.provided, test.configured); got != test.want {
+			t.Errorf("maintenanceOperatorTokenMatches(%q, %q) = %t", test.provided, test.configured, got)
+		}
+	}
+}
+
+func TestWriteServerPID(t *testing.T) {
+	dir := newMainTestDir(t)
+	pidPath := filepath.Join(dir, "airports.pid")
+	if written, err := writeServerPID(pidPath, true, false); err != nil || written {
+		t.Fatalf("container PID handling = %t, %v", written, err)
+	}
+	written, err := writeServerPID(pidPath, false, false)
+	if err != nil || !written {
+		t.Fatalf("writeServerPID = %t, %v", written, err)
+	}
+	if data, err := os.ReadFile(pidPath); err != nil || strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("PID file = %q, %v", data, err)
+	}
+	if _, err := writeServerPID(pidPath, false, false); err == nil {
+		t.Fatal("writeServerPID accepted an already-running PID")
+	}
+	if written, err := writeServerPID(filepath.Join(dir, "missing", "server.pid"), false, false); err != nil || written {
+		t.Fatalf("PID write failure should be nonfatal, got %t, %v", written, err)
+	}
+}
+
+func TestMaintenanceSetupAndComplianceReport(t *testing.T) {
+	dir := newMainTestDir(t)
+	configDir := filepath.Join(dir, "config")
+	databaseDir := filepath.Join(dir, "database")
+	logsDir := filepath.Join(dir, "logs")
+	t.Setenv("DATABASE_DIR", databaseDir)
+	t.Setenv("CONFIG_DIR", configDir)
+	t.Setenv("LOG_DIR", logsDir)
+	if err := runMaintenanceSetup(configDir); err != nil {
+		t.Fatalf("first-run setup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, "server.yml")); err != nil {
+		t.Fatalf("setup config file: %v", err)
+	}
+	if err := runComplianceReport(configDir, logsDir); err != nil {
+		t.Fatalf("compliance report: %v", err)
+	}
+	cfg := config.DefaultConfig()
+	cfg.Server.Compliance.GDPR = true
+	if err := config.Save(filepath.Join(configDir, "server.yml"), cfg); err != nil {
+		t.Fatalf("save compliance config: %v", err)
+	}
+	if err := runComplianceReport(configDir, logsDir); err != nil {
+		t.Fatalf("enabled-standard compliance report: %v", err)
+	}
+}
+
+func TestSchedulerCLICommands(t *testing.T) {
+	dir := newMainTestDir(t)
+	configDir := filepath.Join(dir, "config")
+	if err := config.Save(filepath.Join(configDir, "server.yml"), config.DefaultConfig()); err != nil {
+		t.Fatalf("save test config: %v", err)
+	}
+	t.Setenv("CONFIG_DIR", configDir)
+	t.Setenv("DATABASE_DIR", filepath.Join(dir, "database"))
+	t.Setenv("LOG_DIR", filepath.Join(dir, "logs"))
+	for _, test := range []struct {
+		action string
+		taskID string
+		want   int
+	}{
+		{"list", "", 0},
+		{"show", "token_cleanup", 0},
+		{"show", "missing", 1},
+		{"show", "", 1},
+		{"enable", "token_cleanup", 0},
+		{"disable", "token_cleanup", 0},
+		{"history", "token_cleanup", 0},
+		{"run", "token_cleanup", 0},
+		{"unknown", "", 1},
+	} {
+		if got := handleSchedulerCLI(test.action, test.taskID); got != test.want {
+			t.Errorf("handleSchedulerCLI(%q, %q) = %d, want %d", test.action, test.taskID, got, test.want)
+		}
+	}
+}
+
 func TestFirstNonEmpty(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -106,6 +378,8 @@ func TestFirstNonEmpty(t *testing.T) {
 	}{
 		{"all empty", []string{"", "", ""}, ""},
 		{"first wins", []string{"a", "b", "c"}, "a"},
+		{"CLI env config priority", []string{"flag", "env", "config"}, "flag"},
+		{"env before config", []string{"", "env", "config"}, "env"},
 		{"skips leading empties", []string{"", "", "c"}, "c"},
 		{"no args", nil, ""},
 	}
@@ -119,6 +393,10 @@ func TestFirstNonEmpty(t *testing.T) {
 }
 
 func TestGetEmoji(t *testing.T) {
+	prev := outputEmojiSetting
+	outputEmojiSetting = nil
+	t.Cleanup(func() { outputEmojiSetting = prev })
+	t.Setenv("TERM", "xterm-256color")
 	t.Run("known name", func(t *testing.T) {
 		t.Setenv("NO_COLOR", "")
 		if got := getEmoji("check"); got != "✓" {
@@ -139,42 +417,34 @@ func TestGetEmoji(t *testing.T) {
 	})
 }
 
-// TestEmojiEnabled_ColorFlagPriority covers the AI.md PART 8 "NO_COLOR
-// Support" priority order: --color CLI flag overrides NO_COLOR/TERM=dumb in
-// both directions (forcing on when NO_COLOR is set, forcing off when it
-// isn't), and TERM=dumb is honored when no flag overrides it.
-func TestEmojiEnabled_ColorFlagPriority(t *testing.T) {
-	prev := colorSetting
-	t.Cleanup(func() { colorSetting = prev })
+// TestEmojiEnabledConfigPriority covers the PART 7 emoji override and env rules.
+func TestEmojiEnabledConfigPriority(t *testing.T) {
+	prev := outputEmojiSetting
+	t.Cleanup(func() { outputEmojiSetting = prev })
+	configured := true
 
-	t.Run("color=yes overrides NO_COLOR", func(t *testing.T) {
+	t.Run("TERM dumb disables configured emoji", func(t *testing.T) {
 		t.Setenv("NO_COLOR", "1")
-		colorSetting = "yes"
-		if !emojiEnabled() {
-			t.Error("emojiEnabled() = false, want true (--color=yes overrides NO_COLOR)")
-		}
-	})
-	t.Run("color=no overrides unset NO_COLOR", func(t *testing.T) {
-		t.Setenv("NO_COLOR", "")
-		colorSetting = "no"
+		t.Setenv("TERM", "dumb")
+		outputEmojiSetting = &configured
 		if emojiEnabled() {
-			t.Error("emojiEnabled() = true, want false (--color=no forces off)")
+			t.Error("emojiEnabled() = true, want false when TERM=dumb")
 		}
 	})
-	t.Run("auto falls back to TERM=dumb", func(t *testing.T) {
+	t.Run("NO_COLOR disables", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		t.Setenv("TERM", "xterm-256color")
+		outputEmojiSetting = nil
+		if emojiEnabled() {
+			t.Error("emojiEnabled() = true, want false when NO_COLOR is nonempty")
+		}
+	})
+	t.Run("TERM dumb disables", func(t *testing.T) {
 		t.Setenv("NO_COLOR", "")
 		t.Setenv("TERM", "dumb")
-		colorSetting = "auto"
+		outputEmojiSetting = nil
 		if emojiEnabled() {
-			t.Error("emojiEnabled() = true, want false (TERM=dumb with color=auto)")
-		}
-	})
-	t.Run("auto with normal TERM stays enabled", func(t *testing.T) {
-		t.Setenv("NO_COLOR", "")
-		t.Setenv("TERM", "xterm-256color")
-		colorSetting = "auto"
-		if !emojiEnabled() {
-			t.Error("emojiEnabled() = false, want true (color=auto, no NO_COLOR/TERM=dumb)")
+			t.Error("emojiEnabled() = true, want false for TERM=dumb")
 		}
 	})
 }
@@ -255,6 +525,104 @@ func TestGetOutboundIP(t *testing.T) {
 	t.Logf("getOutboundIP() = %q", ip)
 }
 
+func TestParsePortSpec(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      string
+		sslEnabled bool
+		want       []portBinding
+		wantErr    bool
+	}{
+		{name: "single HTTP port", value: "8080", want: []portBinding{{Port: "8080"}}},
+		{name: "OS-selected port", value: "0", want: []portBinding{{Port: "0"}}},
+		{name: "single HTTPS default port", value: "443", want: []portBinding{{Port: "443", TLS: true}}},
+		{name: "SSL forces TLS on a single port", value: "8443", sslEnabled: true, want: []portBinding{{Port: "8443", TLS: true}}},
+		{name: "dual HTTP and HTTPS ports", value: "80,443", sslEnabled: true, want: []portBinding{{Port: "80"}, {Port: "443", TLS: true}}},
+		{name: "dual custom ports with whitespace", value: " 8080 , 8443 ", sslEnabled: true, want: []portBinding{{Port: "8080"}, {Port: "8443", TLS: true}}},
+		{name: "dual ports require SSL", value: "80,443", wantErr: true},
+		{name: "dual ports require explicit ports", value: "0,443", sslEnabled: true, wantErr: true},
+		{name: "empty port", value: "", wantErr: true},
+		{name: "empty second port", value: "80,", sslEnabled: true, wantErr: true},
+		{name: "too many ports", value: "80,443,8080", sslEnabled: true, wantErr: true},
+		{name: "port below range", value: "-1", wantErr: true},
+		{name: "port above range", value: "65536", wantErr: true},
+		{name: "duplicate dual ports", value: "8080,8080", sslEnabled: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parsePortSpec(test.value, test.sslEnabled)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("parsePortSpec() error = %v, wantErr %t", err, test.wantErr)
+			}
+			if test.wantErr {
+				return
+			}
+			if len(got) != len(test.want) {
+				t.Fatalf("parsePortSpec() returned %v, want %v", got, test.want)
+			}
+			for i, binding := range got {
+				if binding != test.want[i] {
+					t.Errorf("binding[%d] = %+v, want %+v", i, binding, test.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestRedirectHTTPToHTTPS(t *testing.T) {
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	trustedPeer := func(r *http.Request) bool { return r.RemoteAddr == "10.0.0.2:1234" }
+	handler := redirectHTTPToHTTPS(next, "api.example.com", "8443", trustedPeer)
+
+	req := httptest.NewRequest(http.MethodGet, "http://api.example.com:8080/airports?q=JFK", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusMovedPermanently {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusMovedPermanently)
+	}
+	if got, want := response.Header().Get("Location"), "https://api.example.com:8443/airports?q=JFK"; got != want {
+		t.Errorf("Location = %q, want %q", got, want)
+	}
+	if called {
+		t.Error("HTTP request was passed through instead of redirected")
+	}
+
+	proxyRequest := httptest.NewRequest(http.MethodGet, "http://api.example.com/airports", nil)
+	proxyRequest.RemoteAddr = "10.0.0.2:1234"
+	proxyRequest.Header.Set("X-Forwarded-Proto", "https")
+	proxyResponse := httptest.NewRecorder()
+	handler.ServeHTTP(proxyResponse, proxyRequest)
+	if proxyResponse.Code != http.StatusNoContent || !called {
+		t.Errorf("trusted HTTPS proxy request: status=%d passedThrough=%t, want 204 and true", proxyResponse.Code, called)
+	}
+	untrustedRequest := httptest.NewRequest(http.MethodGet, "http://api.example.com/airports", nil)
+	untrustedRequest.RemoteAddr = "203.0.113.8:1234"
+	untrustedRequest.Header.Set("X-Forwarded-Proto", "https")
+	untrustedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(untrustedResponse, untrustedRequest)
+	if untrustedResponse.Code != http.StatusMovedPermanently {
+		t.Errorf("untrusted forwarded-proto status = %d, want redirect status %d", untrustedResponse.Code, http.StatusMovedPermanently)
+	}
+
+	for _, target := range []string{
+		"http://api.example.com/server/healthz",
+		"http://airportsabc.onion/",
+		"http://airportsabc.b32.i2p/",
+	} {
+		called = false
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent || !called {
+			t.Errorf("request %q: status=%d passedThrough=%t, want 204 and true", target, response.Code, called)
+		}
+	}
+}
+
 func TestGetAccessibleURL(t *testing.T) {
 	url := getAccessibleURL("64123")
 	if !strings.Contains(url, "64123") {
@@ -263,37 +631,216 @@ func TestGetAccessibleURL(t *testing.T) {
 	if !strings.HasPrefix(url, "http://") {
 		t.Errorf("getAccessibleURL(64123) = %q, want http:// prefix", url)
 	}
+	tests := []struct {
+		name, port string
+		secure     bool
+		want       string
+	}{
+		{name: "standard HTTP port", port: "80", want: "http://example.org"},
+		{name: "standard HTTPS port", port: "443", want: "https://example.org"},
+		{name: "secure nonstandard port", port: "8443", secure: true, want: "https://example.org:8443"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("DOMAIN", "example.org")
+			if got := getServerAccessibleURL(test.port, "example.org", test.secure); got != test.want {
+				t.Errorf("getServerAccessibleURL() = %q, want %q", got, test.want)
+			}
+		})
+	}
 }
 
 func TestResolveFQDN(t *testing.T) {
-	t.Run("DOMAIN env wins over configured value", func(t *testing.T) {
-		t.Setenv("DOMAIN", "env.example.com,other.example.com")
-		if got := resolveFQDN("configured.example.com"); got != "env.example.com" {
-			t.Errorf("resolveFQDN() = %q, want %q", got, "env.example.com")
-		}
-	})
+	tests := []struct {
+		name                    string
+		domain, system, hostEnv string
+		ipv6, ipv4              string
+		devMode                 bool
+		want                    string
+	}{
+		{
+			name:   "DOMAIN has highest static priority and uses its first entry",
+			domain: "  env.example.com , other.example.com", system: "system.example.com",
+			hostEnv: "host.example.com", ipv6: "2001:db8::1", ipv4: "203.0.113.1",
+			want: "env.example.com",
+		},
+		{
+			name:   "system hostname precedes HOSTNAME and addresses",
+			system: "system.example.com", hostEnv: "host.example.com",
+			ipv6: "2001:db8::1", ipv4: "203.0.113.1", want: "system.example.com",
+		},
+		{
+			name:    "HOSTNAME precedes public addresses",
+			hostEnv: "host.example.com", ipv6: "2001:db8::1", ipv4: "203.0.113.1",
+			want: "host.example.com",
+		},
+		{
+			name: "public interface address is the final pre-localhost fallback",
+			ipv6: "2001:db8::1", ipv4: "203.0.113.1", want: "2001:db8::1",
+		},
+		{
+			name:   "invalid DOMAIN is skipped for a valid system hostname",
+			domain: "192.168.1.1", system: "system.example.com", want: "system.example.com",
+		},
+		{
+			name:   "internal hostname is accepted in development",
+			domain: "dev.local", devMode: true, want: "dev.local",
+		},
+		{
+			name:   "internal hostname is rejected in production",
+			domain: "dev.local", want: "localhost",
+		},
+		{
+			name:   "DOMAIN overlay address is skipped",
+			domain: "node.onion", system: "valid.example.com", want: "valid.example.com",
+		},
+		{
+			name:   "loopback hostname is skipped",
+			system: "localhost", hostEnv: "host.example.com", want: "host.example.com",
+		},
+		{
+			name: "localhost is the final fallback",
+			want: "localhost",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := resolveFQDNFromSources(test.domain, test.system, test.hostEnv, test.ipv6, test.ipv4, test.devMode)
+			if got != test.want {
+				t.Errorf("resolveFQDNFromSources() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
 
-	t.Run("DOMAIN env trims whitespace around first entry", func(t *testing.T) {
-		t.Setenv("DOMAIN", "  spaced.example.com , other.example.com")
-		if got := resolveFQDN(""); got != "spaced.example.com" {
-			t.Errorf("resolveFQDN() = %q, want %q", got, "spaced.example.com")
+func TestRunDiskPressureCleanupPrunesOnlyExpiredLogsAndOldBackups(t *testing.T) {
+	root := newMainTestDir(t)
+	dataDir := filepath.Join(root, "data")
+	logDir := filepath.Join(root, "logs")
+	backupDir := filepath.Join(root, "backup")
+	for _, dir := range []string{dataDir, logDir, backupDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", dir, err)
 		}
-	})
+	}
+	logManager := logging.NewManager(logDir, toLoggingConfig(config.DefaultConfig().Server.Logging))
+	activeLog := logManager.Server().Path()
+	if err := os.WriteFile(activeLog, []byte("active"), 0o600); err != nil {
+		t.Fatalf("write active log: %v", err)
+	}
+	oldLog := activeLog + ".2020-01-01T00-00-00"
+	if err := os.WriteFile(oldLog, []byte("rotated"), 0o600); err != nil {
+		t.Fatalf("write rotated log: %v", err)
+	}
+	oldBackup := filepath.Join(backupDir, "airports_backup_2020-01-01.tar.gz")
+	newBackup := filepath.Join(backupDir, "airports_backup_2021-01-01.tar.gz")
+	for _, backupPath := range []string{oldBackup, newBackup} {
+		if err := os.WriteFile(backupPath, []byte("backup"), 0o600); err != nil {
+			t.Fatalf("write backup fixture: %v", err)
+		}
+	}
+	oldTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldLog, oldTime, oldTime); err != nil {
+		t.Fatalf("age rotated log: %v", err)
+	}
+	usedSamples := 0
+	diskUsage := func(string) (uint64, uint64, error) {
+		usedSamples++
+		if usedSamples == 1 {
+			return 1000, 50, nil
+		}
+		return 1000, 200, nil
+	}
+	triggered, err := runDiskPressureCleanup(config.CleanupConfig{DiskThreshold: 90, LogRetentionDays: 7, BackupKeepCount: 1}, dataDir, backupDir, logManager, time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC), diskUsage)
+	if err != nil || !triggered {
+		t.Fatalf("runDiskPressureCleanup() = (%t,%v), want (true,nil)", triggered, err)
+	}
+	for _, path := range []string{oldLog, oldBackup} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("expired item %q remains: %v", path, err)
+		}
+	}
+	for _, path := range []string{activeLog, newBackup} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("retained item %q missing: %v", path, err)
+		}
+	}
+}
 
-	t.Run("configured value used when DOMAIN unset", func(t *testing.T) {
-		t.Setenv("DOMAIN", "")
-		if got := resolveFQDN("configured.example.com"); got != "configured.example.com" {
-			t.Errorf("resolveFQDN() = %q, want %q", got, "configured.example.com")
+func TestPruneProjectTempFiles(t *testing.T) {
+	tempRoot := filepath.Join(newMainTestDir(t), "os-temp")
+	orgRoot := filepath.Join(tempRoot, paths.OrgName)
+	projectDir := filepath.Join(orgRoot, ProjectName+"-stale")
+	otherProjectDir := filepath.Join(orgRoot, "other-project-stale")
+	if err := os.MkdirAll(projectDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(otherProjectDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	oldFile := filepath.Join(projectDir, "old")
+	newFile := filepath.Join(projectDir, "new")
+	otherFile := filepath.Join(otherProjectDir, "old")
+	for _, file := range []string{oldFile, newFile, otherFile} {
+		if err := os.WriteFile(file, []byte("temp"), 0600); err != nil {
+			t.Fatal(err)
 		}
-	})
+	}
+	cutoff := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oldFile, cutoff.Add(-25*time.Hour), cutoff.Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(otherFile, cutoff.Add(-25*time.Hour), cutoff.Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	linkTarget := filepath.Join(tempRoot, "outside")
+	if err := os.WriteFile(linkTarget, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(linkTarget, filepath.Join(projectDir, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 
-	t.Run("falls back to hostname/IP/localhost when nothing configured", func(t *testing.T) {
-		t.Setenv("DOMAIN", "")
-		got := resolveFQDN("")
-		if got == "" {
-			t.Error("resolveFQDN() returned empty string, want a non-empty fallback")
+	removed, err := pruneProjectTempFiles(cutoff, tempRoot)
+	if err != nil {
+		t.Fatalf("pruneProjectTempFiles() error = %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("pruneProjectTempFiles() removed %d files, want 1", removed)
+	}
+	for _, check := range []struct {
+		file string
+		want bool
+	}{{oldFile, false}, {newFile, true}, {otherFile, true}, {linkTarget, true}} {
+		_, statErr := os.Stat(check.file)
+		if got := statErr == nil; got != check.want {
+			t.Errorf("exists(%q) = %t, want %t (err=%v)", check.file, got, check.want, statErr)
 		}
-	})
+	}
+}
+
+func TestHostValidation(t *testing.T) {
+	tests := []struct {
+		host, project string
+		dev, want     bool
+	}{
+		{host: "api.example.co.uk", want: true},
+		{host: "co.uk", want: false},
+		{host: "192.168.1.1", dev: true, want: false},
+		{host: "localhost", dev: true, want: true},
+		{host: "app.test", dev: true, want: true},
+		{host: "app.test", want: false},
+		{host: "app.airports", project: "airports", dev: true, want: true},
+		{host: "app.airports", project: "airports", want: false},
+	}
+	for _, test := range tests {
+		if got := urlvars.IsValidHost(test.host, test.dev, test.project); got != test.want {
+			t.Errorf("IsValidHost(%q, %t, %q) = %t, want %t", test.host, test.dev, test.project, got, test.want)
+		}
+	}
+	if urlvars.IsValidSSLHost("node.onion") || urlvars.IsValidSSLHost("app.test") || !urlvars.IsValidSSLHost("api.example.com") {
+		t.Error("IsValidSSLHost did not enforce public hostname rules")
+	}
 }
 
 func TestApplyTZEnv(t *testing.T) {
@@ -355,13 +902,29 @@ func TestPrintHelp(t *testing.T) {
 			t.Errorf("printHelp() output missing %q; got:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "--restore") {
+		t.Errorf("printHelp() advertises unsupported top-level --restore flag; got:\n%s", out)
+	}
+	if !strings.Contains(out, "--maintenance restore <path>") {
+		t.Errorf("printHelp() is missing canonical maintenance restore command; got:\n%s", out)
+	}
+	for _, path := range []string{"/etc/apimgr/airports/server.yml", "~/.config/apimgr/airports/server.yml"} {
+		if !strings.Contains(out, path) {
+			t.Errorf("printHelp() is missing config path %q; got:\n%s", path, out)
+		}
+	}
 }
 
 func TestPrintServiceHelp(t *testing.T) {
 	out := captureStdout(t, printServiceHelp)
-	for _, want := range []string{"Service Commands:", "install", "uninstall", "start", "stop", "restart", "reload", "status", "enable", "disable", "logs", "Supported service managers:"} {
+	for _, want := range []string{"Service Commands:", "--install", "--uninstall", "start", "stop", "restart", "reload", "--disable", "--help", "Supported service managers:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("printServiceHelp() output missing %q; got:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"status", "enable", "logs"} {
+		if strings.Contains(out, "  "+unwanted+" ") {
+			t.Errorf("printServiceHelp() output contains unsupported command %q; got:\n%s", unwanted, out)
 		}
 	}
 }
@@ -377,11 +940,43 @@ func TestHandleServiceCommandUnknown(t *testing.T) {
 	}
 }
 
+func TestHandleServiceCommandCanonicalHelpAndRejectsAliases(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := handleServiceCommand("--help"); err != nil {
+			t.Fatalf("handleServiceCommand(--help): %v", err)
+		}
+	})
+	if !strings.Contains(out, "--install") || !strings.Contains(out, "--disable") {
+		t.Errorf("service help is missing canonical command forms: %s", out)
+	}
+	for _, alias := range []string{"install", "uninstall", "disable", "status", "enable", "logs"} {
+		if err := handleServiceCommand(alias); err == nil {
+			t.Errorf("handleServiceCommand(%q) = nil, want unsupported-command error", alias)
+		}
+	}
+}
+
+func TestServiceFlagParsesCanonicalFlagSubcommands(t *testing.T) {
+	for _, command := range []string{"--install", "--uninstall", "--disable", "--help"} {
+		t.Run(command, func(t *testing.T) {
+			flags := flag.NewFlagSet("test", flag.ContinueOnError)
+			flags.SetOutput(io.Discard)
+			serviceCommand := flags.String("service", "", "")
+			if err := flags.Parse([]string{"--service", command}); err != nil {
+				t.Fatalf("Parse(--service %s): %v", command, err)
+			}
+			if *serviceCommand != command {
+				t.Errorf("--service value = %q, want %q", *serviceCommand, command)
+			}
+		})
+	}
+}
+
 // run() validates --color before touching any directories/config, so an
 // invalid value returns an error deterministically without side effects
 // beyond setting server.Version/Commit/BuildDate package vars.
 func TestRunInvalidColor(t *testing.T) {
-	err := run("", "", "", "", "", "", "", "", false, "bogus", "", false, false)
+	err := run("", "", "", "", "", "", "", "", "", false, "bogus", "", false, false, false)
 	if err == nil {
 		t.Fatal("run() with invalid --color: expected error, got nil")
 	}
@@ -414,22 +1009,9 @@ func TestSetUpdateBranchInvalid(t *testing.T) {
 	if err == nil {
 		t.Fatal("setUpdateBranch(invalid): expected error, got nil")
 	}
-	want := `invalid update branch: "not-a-real-branch" (expected stable, beta, or daily)`
+	want := `invalid update branch: "not-a-real-branch" (expected stable, beta, or devel)`
 	if err.Error() != want {
 		t.Errorf("setUpdateBranch(invalid) error = %q, want %q", err.Error(), want)
-	}
-}
-
-// setApplicationMode validates the mode via mode.ParseMode before touching
-// config, so an invalid value returns an error deterministically without
-// side effects.
-func TestSetApplicationModeInvalid(t *testing.T) {
-	err := setApplicationMode("not-a-real-mode")
-	if err == nil {
-		t.Fatal("setApplicationMode(invalid): expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "invalid mode") {
-		t.Errorf("setApplicationMode(invalid) error = %q, want it to mention invalid mode", err.Error())
 	}
 }
 
@@ -464,7 +1046,7 @@ func (rt redirectingTransport) RoundTrip(req *http.Request) (*http.Response, err
 func TestFetchLatestReleaseSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name":"v9.9.9","assets":[{"name":"airports-linux-amd64","browser_download_url":"https://example.invalid/airports-linux-amd64"}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","assets":[{"name":"airports-linux-amd64","browser_download_url":"https://example.invalid/airports-linux-amd64"}]}`))
 	}))
 	defer srv.Close()
 
@@ -502,7 +1084,7 @@ func TestFetchLatestReleaseNotFound(t *testing.T) {
 
 func TestFetchLatestReleaseBadJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer srv.Close()
 
@@ -514,8 +1096,7 @@ func TestFetchLatestReleaseBadJSON(t *testing.T) {
 }
 
 // TestMatchesBranch covers PART 22 "Channel Semantics": channels are
-// cumulative, so a stable release always matches, beta additionally matches
-// "-beta" tags, and daily additionally matches 14-digit timestamp tags.
+// cumulative, and rolling-channel aliases normalize to devel.
 func TestMatchesBranch(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -525,13 +1106,13 @@ func TestMatchesBranch(t *testing.T) {
 	}{
 		{"stable release matches stable", releaseInfo{TagName: "v1.2.3", Prerelease: false}, "stable", true},
 		{"stable release matches beta", releaseInfo{TagName: "v1.2.3", Prerelease: false}, "beta", true},
-		{"stable release matches daily", releaseInfo{TagName: "v1.2.3", Prerelease: false}, "daily", true},
+		{"stable release matches devel", releaseInfo{TagName: "v1.2.3", Prerelease: false}, "devel", true},
 		{"beta tag matches beta", releaseInfo{TagName: "202512051430-beta", Prerelease: true}, "beta", true},
-		{"beta tag matches daily", releaseInfo{TagName: "202512051430-beta", Prerelease: true}, "daily", true},
+		{"beta tag matches devel alias", releaseInfo{TagName: "202512051430-beta", Prerelease: true}, "daily", true},
 		{"beta tag does not match stable", releaseInfo{TagName: "202512051430-beta", Prerelease: true}, "stable", false},
-		{"daily timestamp matches daily", releaseInfo{TagName: "20251205143022", Prerelease: true}, "daily", true},
-		{"daily timestamp does not match beta", releaseInfo{TagName: "20251205143022", Prerelease: true}, "beta", false},
-		{"daily timestamp does not match stable", releaseInfo{TagName: "20251205143022", Prerelease: true}, "stable", false},
+		{"devel rolling tag matches devel", releaseInfo{TagName: "devel", Prerelease: true}, "devel", true},
+		{"devel rolling tag matches rolling alias", releaseInfo{TagName: "devel", Prerelease: true}, "rolling", true},
+		{"devel tag does not match beta", releaseInfo{TagName: "devel", Prerelease: true}, "beta", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -547,7 +1128,7 @@ func TestMatchesBranch(t *testing.T) {
 func TestFetchReleaseForBranchStable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name":"v9.9.9","prerelease":false,"assets":[]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","prerelease":false,"assets":[]}`))
 	}))
 	defer srv.Close()
 
@@ -569,17 +1150,21 @@ func TestFetchReleaseForBranchStable(t *testing.T) {
 	}
 }
 
-// TestFetchReleaseForBranchDaily exercises the beta/daily list-and-filter
-// path: it must return the newest release matching the channel, skipping
-// entries that don't match and entries equal to the running version.
-func TestFetchReleaseForBranchDaily(t *testing.T) {
+// TestFetchReleaseForBranchDevel compares rolling-release publish times with
+// the current binary's embedded BUILD_EPOCH and accepts daily as an alias.
+func TestFetchReleaseForBranchDevel(t *testing.T) {
+	originalBuildEpoch := BuildEpoch
+	BuildEpoch = strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	t.Cleanup(func() { BuildEpoch = originalBuildEpoch })
+	develPublished := time.Now().UTC().Format(time.RFC3339)
+	stablePublished := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[
-			{"tag_name":"20260101000000","prerelease":true,"assets":[]},
-			{"tag_name":"202512051430-beta","prerelease":true,"assets":[]},
-			{"tag_name":"v1.2.3","prerelease":false,"assets":[]}
-		]`))
+		_, _ = fmt.Fprintf(w, `[
+			{"tag_name":"devel","prerelease":true,"published_at":%q,"assets":[]},
+			{"tag_name":"202512051430-beta","prerelease":true,"published_at":%q,"assets":[]},
+			{"tag_name":"v1.2.3","prerelease":false,"published_at":%q,"assets":[]}
+		]`, develPublished, stablePublished, stablePublished)
 	}))
 	defer srv.Close()
 
@@ -588,16 +1173,17 @@ func TestFetchReleaseForBranchDaily(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchReleaseForBranch: %v", err)
 	}
-	if release == nil || release.TagName != "20260101000000" {
-		t.Fatalf("fetchReleaseForBranch(daily) = %+v, want newest daily entry", release)
+	if release == nil || release.TagName != "devel" {
+		t.Fatalf("fetchReleaseForBranch(daily alias) = %+v, want newer rolling entry", release)
 	}
 
-	release, err = fetchReleaseForBranch(client, "daily", "20260101000000")
+	BuildEpoch = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	release, err = fetchReleaseForBranch(client, "devel", "devel")
 	if err != nil {
-		t.Fatalf("fetchReleaseForBranch (skip current): %v", err)
+		t.Fatalf("fetchReleaseForBranch (skip older releases): %v", err)
 	}
-	if release == nil || release.TagName != "202512051430-beta" {
-		t.Fatalf("fetchReleaseForBranch(daily) skipping current = %+v, want beta entry", release)
+	if release != nil {
+		t.Fatalf("fetchReleaseForBranch(devel) = %+v, want nil for older releases", release)
 	}
 }
 
@@ -607,8 +1193,7 @@ func TestFetchReleaseForBranchDaily(t *testing.T) {
 func TestRunScheduledUpdateCheckDeferDays(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(fmt.Sprintf(`{"tag_name":"v9.9.9","prerelease":false,"published_at":%q,"assets":[]}`,
-			time.Now().Add(-1*24*time.Hour).Format(time.RFC3339))))
+		_, _ = fmt.Fprintf(w, `{"tag_name":"v9.9.9","prerelease":false,"published_at":%q,"assets":[]}`, time.Now().Add(-1*24*time.Hour).Format(time.RFC3339))
 	}))
 	defer srv.Close()
 
@@ -634,13 +1219,34 @@ func TestRunScheduledUpdateCheckDeferDays(t *testing.T) {
 	}
 }
 
+func TestRunScheduledUpdateCheckDevelIgnoresDeferDays(t *testing.T) {
+	originalBuildEpoch := BuildEpoch
+	BuildEpoch = strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	t.Cleanup(func() { BuildEpoch = originalBuildEpoch })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `[{"tag_name":"devel","prerelease":true,"published_at":%q,"assets":[]}]`, time.Now().UTC().Format(time.RFC3339))
+	}))
+	defer srv.Close()
+	cfg := config.DefaultConfig()
+	cfg.Server.Update.Branch = "daily"
+	cfg.Server.Update.DeferDays = 365
+	cfg.Server.Update.AutoInstall = true
+	cfg.Server.Update.LastNotifiedVersion = "devel"
+	client := &http.Client{Transport: redirectingTransport{targetURL: srv.URL}}
+	err := runScheduledUpdateCheckWithClient(cfg, newMainTestDir(t), client)
+	if err == nil || !strings.Contains(err.Error(), "not supported inside a Docker container") {
+		t.Fatalf("runScheduledUpdateCheckWithClient(devel) error = %v, want updater reached despite defer_days", err)
+	}
+}
+
 // TestRunScheduledUpdateCheckNotifiesOncePerVersion covers PART 22's "fires
 // once per version" rule: an eligible release updates LastNotifiedVersion on
 // first sight, and a second run for the same version is a no-op.
 func TestRunScheduledUpdateCheckNotifiesOncePerVersion(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tag_name":"v9.9.9","prerelease":false,"assets":[]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","prerelease":false,"assets":[]}`))
 	}))
 	defer srv.Close()
 
@@ -676,26 +1282,22 @@ func TestRunScheduledUpdateCheckNotifiesOncePerVersion(t *testing.T) {
 	}
 }
 
-// setUpdateBranch's valid-input path writes to the real OS-resolved config
-// path (/etc/apimgr/airports/server.yml under the root-owned, --rm'd
-// make test Docker container). That container is disposed of immediately
-// after the test run, so this write is fully contained.
+// TestSetUpdateBranchValid confirms accepted aliases persist canonically in
+// an isolated config directory.
 func TestSetUpdateBranchValid(t *testing.T) {
-	for _, branch := range []string{"stable", "beta", "daily"} {
+	dir := newMainTestDir(t)
+	t.Setenv("CONFIG_DIR", dir)
+	for _, branch := range []string{"stable", "beta", "devel", "daily", "rolling", "dev", "development"} {
 		if err := setUpdateBranch(branch); err != nil {
 			t.Errorf("setUpdateBranch(%q) = %v, want nil", branch, err)
 		}
 	}
-}
-
-// setApplicationMode's valid-input path likewise writes to the real
-// OS-resolved config path - same disposable-container justification as
-// TestSetUpdateBranchValid.
-func TestSetApplicationModeValid(t *testing.T) {
-	for _, m := range []string{"production", "development"} {
-		if err := setApplicationMode(m); err != nil {
-			t.Errorf("setApplicationMode(%q) = %v, want nil", m, err)
-		}
+	cfg, err := config.Load(filepath.Join(dir, "server.yml"))
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if cfg.Server.Update.Branch != "devel" {
+		t.Errorf("final update branch = %q, want canonical devel", cfg.Server.Update.Branch)
 	}
 }
 
@@ -709,9 +1311,9 @@ func TestCheckStatusNotRunning(t *testing.T) {
 }
 
 // TestCheckStatusRunning exercises the success-path branches of checkStatus
-// (HTTP 200, JSON decode, "data.status" field print) by standing up a real
+// (HTTP 200, JSON decode, top-level status field print) by standing up a real
 // HTTP listener on the exact configured port and serving a synthetic
-// /healthz response - without ever starting the full application server.
+// /server/healthz response - without ever starting the full application server.
 func TestCheckStatusRunning(t *testing.T) {
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
@@ -739,15 +1341,15 @@ func TestCheckStatusRunning(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/server/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"data":{"status":"ok"}}`))
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() {
-		srv.Close()
+		_ = srv.Close()
 	})
 
 	if got := checkStatus(); got != 0 {
@@ -755,8 +1357,45 @@ func TestCheckStatusRunning(t *testing.T) {
 	}
 }
 
+func TestCheckStatusUsesEnvironmentPortWhenConfigPortIsEmpty(t *testing.T) {
+	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", configDir, err)
+	}
+	configPath := filepath.Join(configDir, "server.yml")
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("config.Load(%q): %v", configPath, err)
+	}
+	cfg.Server.Port = ""
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatalf("config.Save(%q): %v", configPath, err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("could not bind an ephemeral listener: %v", err)
+	}
+	t.Setenv("PORT", strconv.Itoa(ln.Addr().(*net.TCPAddr).Port))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/server/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		_ = srv.Close()
+	})
+
+	if got := checkStatus(); got != 0 {
+		t.Errorf("checkStatus() with an empty configured port and PORT env = %d, want 0", got)
+	}
+}
+
 // TestCheckStatusUnhealthy exercises the "Unhealthy (HTTP %d)" branch of
-// checkStatus - a live server that responds on /healthz with a non-200
+// checkStatus - a live server that responds on /server/healthz with a non-200
 // status must produce a checkStatus() return value of 1.
 func TestCheckStatusUnhealthy(t *testing.T) {
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
@@ -783,13 +1422,15 @@ func TestCheckStatusUnhealthy(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/server/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"status":"unhealthy"}`))
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() {
-		srv.Close()
+		_ = srv.Close()
 	})
 
 	if got := checkStatus(); got != 1 {

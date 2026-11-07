@@ -40,11 +40,12 @@ detect_arch() {
 
 # Download latest release
 download_binary() {
-    local arch=$(detect_arch)
+    local arch
+    arch=$(detect_arch)
     local url="${REPO}/releases/latest/download/${PROJECT}-macos-${arch}"
 
     log_info "Downloading ${PROJECT} for macos/${arch}..."
-    curl -fsSL -o "/tmp/${BINARY_NAME}" "${url}"
+    curl -q -LSsf -o "/tmp/${BINARY_NAME}" "${url}"
     chmod +x "/tmp/${BINARY_NAME}"
 }
 

@@ -217,7 +217,7 @@ func TestRobotsDirective(t *testing.T) {
 		{"/api/v1/airports", "noindex,nofollow"},
 		{"/server/healthz", "noindex,nofollow"},
 		{"/debug/pprof/", "noindex,nofollow"},
-		{"/search", "noindex,nofollow"},
+		{"/api/metrics", "noindex,nofollow"},
 	}
 	for _, c := range cases {
 		got := robotsDirective(httptest.NewRequest(http.MethodGet, c.path, nil))

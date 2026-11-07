@@ -348,6 +348,11 @@ dialog.modal::backdrop {
   box-shadow: var(--shadow-lg);
 }
 
+.cookie-banner[data-position="top"] {
+  bottom: auto;
+  top: 0;
+}
+
 .cookie-banner-content {
   display: flex;
   flex-direction: column;

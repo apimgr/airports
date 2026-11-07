@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/apimgr/airports/src/common/urlvars"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -116,6 +117,11 @@ func (m *Manager) GetTLSConfig(domains []string) (*tls.Config, error) {
 // so it is obtained directly via lego (see dns01.go) using the configured
 // DNSProvider/DNSCredentials, per AI.md PART 15 "Supported Challenge Types".
 func (m *Manager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, error) {
+	for _, domain := range domains {
+		if !urlvars.IsValidSSLHost(domain) {
+			return nil, fmt.Errorf("let's Encrypt requires a publicly valid hostname; refusing certificate request for %q", domain)
+		}
+	}
 	if m.config.LetsEncrypt.Challenge == "dns-01" {
 		return m.getDNS01TLSConfig(domains)
 	}

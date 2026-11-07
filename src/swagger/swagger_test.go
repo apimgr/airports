@@ -73,7 +73,7 @@ func TestSpecHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := SpecHandler(tt.version, "v1")
-			req := httptest.NewRequest(http.MethodGet, "/api/swagger.json", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/swagger", nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 
@@ -108,11 +108,11 @@ func TestSpecHandler(t *testing.T) {
 func TestSpecHandler_Idempotent(t *testing.T) {
 	h := SpecHandler("9.9.9", "v1")
 
-	req1 := httptest.NewRequest(http.MethodGet, "/api/swagger.json", nil)
+	req1 := httptest.NewRequest(http.MethodGet, "/api/swagger", nil)
 	rec1 := httptest.NewRecorder()
 	h.ServeHTTP(rec1, req1)
 
-	req2 := httptest.NewRequest(http.MethodGet, "/api/swagger.json", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/swagger", nil)
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 

@@ -4,12 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/airports/src/client/tui"
+	"github.com/apimgr/airports/src/common/display"
+	"github.com/google/uuid"
 )
 
 // testTempDir creates an isolated temp dir under /tmp/apimgr/airports-XXXXXX
@@ -23,8 +30,132 @@ func testTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove test temp directory: %v", err)
+		}
+	})
 	return dir
+}
+
+func assertRequestID(t *testing.T, r *http.Request) {
+	t.Helper()
+	requestID := r.Header.Get("X-Request-ID")
+	parsed, err := uuid.Parse(requestID)
+	if err != nil || parsed.Version() != uuid.Version(4) || parsed.Variant() != uuid.RFC4122 {
+		t.Errorf("X-Request-ID = %q, want UUID v4", requestID)
+	}
+}
+
+func TestExecuteRawRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertRequestID(t, r)
+		if r.URL.Path != "/prefix/api/v1/airports" || r.URL.Query().Get("q") != "JFK" {
+			t.Errorf("unexpected request URL: %s", r.URL.String())
+		}
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer secret" {
+			t.Errorf("unexpected request method/auth: %s %q", r.Method, r.Header.Get("Authorization"))
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("missing JSON content type: %q", r.Header.Get("Content-Type"))
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"created":true}`))
+	}))
+	defer server.Close()
+	c := &client{baseURL: server.URL + "/prefix", apiVersion: "v1", token: "secret", http: server.Client()}
+	got, err := executeRawRequest(context.Background(), c, http.MethodPost, "/api/v1/airports", url.Values{"q": {"JFK"}}, `{"name":"JFK"}`)
+	if err != nil {
+		t.Fatalf("executeRawRequest: %v", err)
+	}
+	if got != `{"created":true}` {
+		t.Fatalf("response = %q", got)
+	}
+}
+
+func TestClientRetriesTransientHTTPFailures(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	c := newClient(server.URL, "", "en")
+	c.http = server.Client()
+	c.retryCount = 1
+	c.retryDelay = 0
+	body, err := c.get(context.Background(), server.URL, nil)
+	if err != nil || string(body) != `{"ok":true}` || attempts != 2 {
+		t.Fatalf("retry GET = (%q, %v), attempts=%d; want successful second attempt", body, err, attempts)
+	}
+}
+
+func TestExecuteRawRequestRejectsExternalPathsAndHTTPFailures(t *testing.T) {
+	c := &client{baseURL: "https://example.test", apiVersion: "v1", http: http.DefaultClient}
+	for _, path := range []string{"https://other.test/api", "//other.test/api", "/api#fragment", "/api\\other"} {
+		if _, err := executeRawRequest(context.Background(), c, http.MethodGet, path, nil, ""); err == nil {
+			t.Errorf("path %q unexpectedly accepted", path)
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "denied", http.StatusForbidden)
+	}))
+	defer server.Close()
+	c.baseURL = server.URL
+	got, err := executeRawRequest(context.Background(), c, http.MethodGet, "/airports", nil, "")
+	if err == nil || !strings.Contains(err.Error(), "403") || got == "" {
+		t.Fatalf("error response = %q, %v", got, err)
+	}
+}
+
+func TestTestClientConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertRequestID(t, r)
+		if r.URL.Path != "/server/healthz" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+	body, err := testClientConnection(context.Background(), server.URL, "token")
+	if err != nil || body != `{"status":"ok"}` {
+		t.Fatalf("testClientConnection = %q, %v", body, err)
+	}
+	if _, err := testClientConnection(context.Background(), "ftp://example.test", ""); err == nil {
+		t.Fatal("invalid URL accepted")
+	}
+}
+
+func TestExecuteTUIRequestOperations(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"path":"` + r.URL.Path + `","query":"` + r.URL.Query().Encode() + `"}`))
+	}))
+	defer server.Close()
+	for _, operation := range []tui.Request{
+		{Operation: "search", Query: "JFK"},
+		{Operation: "get", Code: "KJFK"},
+		{Operation: "nearby", Latitude: "40", Longitude: "-73", Limit: "5"},
+		{Operation: "health"},
+		{Operation: "version"},
+	} {
+		if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", operation); err != nil {
+			t.Errorf("%s request: %v", operation.Operation, err)
+		}
+	}
+	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.Request{Operation: "unknown"}); err == nil {
+		t.Fatal("unknown operation accepted")
+	}
+	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.Request{Operation: "api", Method: "GET", Path: "/airports", Query: "%zz"}); err == nil {
+		t.Fatal("invalid API query accepted")
+	}
 }
 
 // Covers validColor: the three accepted values plus rejection of anything else,
@@ -49,24 +180,129 @@ func TestValidColor(t *testing.T) {
 	}
 }
 
+func TestSelectDisplayMode(t *testing.T) {
+	tests := []struct {
+		name string
+		env  display.DisplayEnv
+		args []string
+		want display.DisplayMode
+	}{
+		{name: "auto GUI", env: display.DisplayEnv{Mode: display.DisplayModeGUI}, want: display.DisplayModeGUI},
+		{name: "auto TUI", env: display.DisplayEnv{Mode: display.DisplayModeTUI}, want: display.DisplayModeTUI},
+		{name: "auto CLI", env: display.DisplayEnv{Mode: display.DisplayModeCLI}, want: display.DisplayModeCLI},
+		{name: "headless requires interaction", env: display.DisplayEnv{Mode: display.DisplayModeHeadless}, want: display.DisplayModeHeadless},
+		{name: "command selects CLI from GUI", env: display.DisplayEnv{Mode: display.DisplayModeGUI}, args: []string{"search", "JFK"}, want: display.DisplayModeCLI},
+		{name: "command remains scriptable when headless", env: display.DisplayEnv{Mode: display.DisplayModeHeadless}, args: []string{"health"}, want: display.DisplayModeCLI},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := selectDisplayMode(tt.env, tt.args); got != tt.want {
+				t.Errorf("selectDisplayMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyDisplayConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        display.DisplayEnv
+		detected   display.DisplayMode
+		configured string
+		want       display.DisplayMode
+		wantErr    bool
+	}{
+		{name: "auto", detected: display.DisplayModeTUI, configured: "auto", want: display.DisplayModeTUI},
+		{name: "force gui", env: display.DisplayEnv{HasDisplay: true}, configured: "gui", want: display.DisplayModeGUI},
+		{name: "gui unavailable", configured: "gui", want: display.DisplayModeHeadless, wantErr: true},
+		{name: "force tui", env: display.DisplayEnv{IsTerminal: true}, configured: "tui", want: display.DisplayModeTUI},
+		{name: "dumb terminal forces cli over configured tui", env: display.DisplayEnv{IsTerminal: true, TerminalType: "dumb"}, configured: "tui", want: display.DisplayModeCLI},
+		{name: "dumb terminal forces cli over configured gui", env: display.DisplayEnv{HasDisplay: true, TerminalType: "dumb"}, configured: "gui", want: display.DisplayModeCLI},
+		{name: "tui unavailable", configured: "tui", want: display.DisplayModeHeadless, wantErr: true},
+		{name: "invalid", configured: "cli", want: display.DisplayModeHeadless, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := applyDisplayConfig(test.env, test.detected, test.configured)
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("applyDisplayConfig() = (%v, %v), want (%v, wantErr=%v)", got, err, test.want, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsNewerCLIVersion(t *testing.T) {
+	for _, test := range []struct {
+		current, available string
+		wantNewer          bool
+		wantErr            bool
+	}{
+		{current: "1.2.0", available: "1.3.0", wantNewer: true},
+		{current: "1.3.0", available: "1.2.0"},
+		{current: "dev", available: "1.0.0", wantNewer: true},
+		{current: "not-a-version", available: "1.0.0", wantErr: true},
+	} {
+		got, err := isNewerCLIVersion(test.current, test.available)
+		if (err != nil) != test.wantErr || got != test.wantNewer {
+			t.Errorf("isNewerCLIVersion(%q, %q) = (%t, %v), want (%t, wantErr=%v)", test.current, test.available, got, err, test.wantNewer, test.wantErr)
+		}
+	}
+}
+
+func TestCheckCLIRelease(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/prefix/api/autodiscover" {
+			t.Errorf("autodiscover path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Errorf("Authorization = %q, want Bearer token", r.Header.Get("Authorization"))
+		}
+		_, _ = fmt.Fprintf(w, `{"cli_versions":{"%s-%s":{"version":"1.2.0","sha256":"%s"}},"cli_min_version":"1.0.0"}`, runtime.GOOS, runtime.GOARCH, strings.Repeat("a", 64))
+	}))
+	defer server.Close()
+	c := &client{baseURL: server.URL + "/prefix", token: "token", http: server.Client()}
+	metadata, release, err := checkCLIRelease(context.Background(), c)
+	if err != nil {
+		t.Fatalf("checkCLIRelease() error = %v", err)
+	}
+	if metadata.MinVersion != "1.0.0" || release.Version != "1.2.0" || len(release.SHA256) != 64 {
+		t.Errorf("metadata/release = %+v / %+v, want minimum 1.0.0, release 1.2.0 with SHA-256", metadata, release)
+	}
+}
+
+func TestExtractLangFlag(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--lang", "fr", "search"}, "fr"},
+		{[]string{"--lang=es"}, "es"},
+		{[]string{"-lang=de"}, "de"},
+		{[]string{"search", "--", "--lang", "ja"}, ""},
+		{[]string{"--lang"}, ""},
+	} {
+		if got := extractLangFlag(test.args); got != test.want {
+			t.Errorf("extractLangFlag(%v) = %q, want %q", test.args, got, test.want)
+		}
+	}
+}
+
 // Covers honorNoColor: env-var-set vs unset per the NO_COLOR convention.
 func TestHonorNoColor(t *testing.T) {
 	t.Run("unset", func(t *testing.T) {
-		os.Unsetenv("NO_COLOR")
+		t.Setenv("NO_COLOR", "")
 		if honorNoColor() {
 			t.Error("honorNoColor() = true when NO_COLOR unset")
 		}
 	})
 	t.Run("set-empty", func(t *testing.T) {
-		os.Setenv("NO_COLOR", "")
-		defer os.Unsetenv("NO_COLOR")
+		t.Setenv("NO_COLOR", "")
 		if honorNoColor() {
 			t.Error("honorNoColor() = true when NO_COLOR set to empty string")
 		}
 	})
 	t.Run("set", func(t *testing.T) {
-		os.Setenv("NO_COLOR", "1")
-		defer os.Unsetenv("NO_COLOR")
+		t.Setenv("NO_COLOR", "1")
 		if !honorNoColor() {
 			t.Error("honorNoColor() = false when NO_COLOR set")
 		}
@@ -77,21 +313,19 @@ func TestHonorNoColor(t *testing.T) {
 func TestEnvOr(t *testing.T) {
 	const key = "AIRPORTS_TEST_ENVOR"
 	t.Run("unset", func(t *testing.T) {
-		os.Unsetenv(key)
+		t.Setenv(key, "")
 		if got := envOr(key, "fallback"); got != "fallback" {
 			t.Errorf("envOr = %q, want fallback", got)
 		}
 	})
 	t.Run("set", func(t *testing.T) {
-		os.Setenv(key, "value")
-		defer os.Unsetenv(key)
+		t.Setenv(key, "value")
 		if got := envOr(key, "fallback"); got != "value" {
 			t.Errorf("envOr = %q, want value", got)
 		}
 	})
 	t.Run("set-empty-falls-back", func(t *testing.T) {
-		os.Setenv(key, "")
-		defer os.Unsetenv(key)
+		t.Setenv(key, "")
 		if got := envOr(key, "fallback"); got != "fallback" {
 			t.Errorf("envOr = %q, want fallback for empty env value", got)
 		}
@@ -127,8 +361,7 @@ func TestExtractConfigFlag(t *testing.T) {
 // $HOME/.config otherwise.
 func TestCliConfigDir(t *testing.T) {
 	t.Run("xdg-set", func(t *testing.T) {
-		os.Setenv("XDG_CONFIG_HOME", "/xdg/base")
-		defer os.Unsetenv("XDG_CONFIG_HOME")
+		t.Setenv("XDG_CONFIG_HOME", "/xdg/base")
 		dir, err := cliConfigDir()
 		if err != nil {
 			t.Fatalf("cliConfigDir: %v", err)
@@ -139,7 +372,7 @@ func TestCliConfigDir(t *testing.T) {
 		}
 	})
 	t.Run("xdg-unset-uses-home", func(t *testing.T) {
-		os.Unsetenv("XDG_CONFIG_HOME")
+		t.Setenv("XDG_CONFIG_HOME", "")
 		home := os.Getenv("HOME")
 		dir, err := cliConfigDir()
 		if err != nil {
@@ -157,8 +390,7 @@ func TestCliConfigDir(t *testing.T) {
 // of one extension already exists on disk.
 func TestCliConfigPath(t *testing.T) {
 	dir := testTempDir(t)
-	os.Setenv("XDG_CONFIG_HOME", dir)
-	defer os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	t.Run("absolute", func(t *testing.T) {
 		abs := filepath.Join(dir, "explicit.yml")
@@ -249,8 +481,7 @@ func TestCliConfigPath(t *testing.T) {
 // non-error path and the "invalid YAML" error path.
 func TestLoadSaveCLIConfig(t *testing.T) {
 	dir := testTempDir(t)
-	os.Setenv("XDG_CONFIG_HOME", dir)
-	defer os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	t.Run("absent-file-returns-empty-no-error", func(t *testing.T) {
 		cfg, err := loadCLIConfig("doesnotexist")
@@ -263,7 +494,7 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 	})
 
 	t.Run("round-trip", func(t *testing.T) {
-		cfg := &cliConfig{Token: "tok_abc", Color: "auto", Lang: "en"}
+		cfg := &cliConfig{Token: "tok_abc", Output: cliOutputConfig{Color: "no"}, Lang: "en"}
 		cfg.Server.Primary = "https://example.com"
 		if err := saveCLIConfig(cfg, "roundtrip"); err != nil {
 			t.Fatalf("saveCLIConfig: %v", err)
@@ -284,8 +515,87 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("loadCLIConfig: %v", err)
 		}
-		if got.Server.Primary != cfg.Server.Primary || got.Token != cfg.Token || got.Color != cfg.Color || got.Lang != cfg.Lang {
+		if got.Server.Primary != cfg.Server.Primary || got.Token != cfg.Token || got.Output.Color != "no" || got.Color != "" || got.Lang != cfg.Lang {
 			t.Errorf("loadCLIConfig round-trip = %+v, want %+v", got, cfg)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read saved config: %v", err)
+		}
+		if strings.Contains(string(data), "\ncolor:") || !strings.Contains(string(data), "output:") || !strings.Contains(string(data), "auth:") || strings.Contains(string(data), "\ntoken:") {
+			t.Errorf("saved config does not use canonical output.color shape:\n%s", data)
+		}
+	})
+
+	t.Run("legacy-color-is-read-and-canonicalized-on-save", func(t *testing.T) {
+		confDir := filepath.Join(dir, "apimgr", "airports")
+		if err := os.MkdirAll(confDir, 0700); err != nil {
+			t.Fatalf("create config directory: %v", err)
+		}
+		legacyPath := filepath.Join(confDir, "legacy.yml")
+		if err := os.WriteFile(legacyPath, []byte("color: no\n"), 0600); err != nil {
+			t.Fatalf("write legacy config: %v", err)
+		}
+		cfg, err := loadCLIConfig("legacy")
+		if err != nil {
+			t.Fatalf("load legacy config: %v", err)
+		}
+		if cfg.Output.Color != "no" {
+			t.Fatalf("legacy output color = %v, want false", cfg.Output.Color)
+		}
+		if err := saveCLIConfig(cfg, "legacy"); err != nil {
+			t.Fatalf("save migrated config: %v", err)
+		}
+		data, err := os.ReadFile(legacyPath)
+		if err != nil {
+			t.Fatalf("read migrated config: %v", err)
+		}
+		if strings.Contains(string(data), "\ncolor:") || !strings.Contains(string(data), "output:") {
+			t.Errorf("legacy config was not saved in canonical shape:\n%s", data)
+		}
+		migrated, err := loadCLIConfig("legacy")
+		if err != nil || migrated.Output.Color != "no" || migrated.Color != "" {
+			t.Errorf("migrated config color = %q/%q, err=%v; want canonical output.color no", migrated.Output.Color, migrated.Color, err)
+		}
+	})
+
+	t.Run("legacy-root-token-migrates-to-auth-section", func(t *testing.T) {
+		confDir := filepath.Join(dir, "apimgr", "airports")
+		if err := os.MkdirAll(confDir, 0700); err != nil {
+			t.Fatalf("create config directory: %v", err)
+		}
+		legacyPath := filepath.Join(confDir, "legacy-token.yml")
+		if err := os.WriteFile(legacyPath, []byte("token: old-token\n"), 0600); err != nil {
+			t.Fatalf("write legacy token config: %v", err)
+		}
+		cfg, err := loadCLIConfig("legacy-token")
+		if err != nil || cfg.Token != "old-token" {
+			t.Fatalf("load legacy token = %q, %v", cfg.Token, err)
+		}
+		if err := saveCLIConfig(cfg, "legacy-token"); err != nil {
+			t.Fatalf("save migrated config: %v", err)
+		}
+		data, err := os.ReadFile(legacyPath)
+		if err != nil {
+			t.Fatalf("read migrated config: %v", err)
+		}
+		if !strings.Contains(string(data), "auth:\n  token: old-token") || strings.Contains(string(data), "\ntoken:") {
+			t.Errorf("legacy token was not saved canonically:\n%s", data)
+		}
+	})
+
+	t.Run("boolean-output-color-is-accepted", func(t *testing.T) {
+		confDir := filepath.Join(dir, "apimgr", "airports")
+		if err := os.MkdirAll(confDir, 0700); err != nil {
+			t.Fatalf("create config directory: %v", err)
+		}
+		path := filepath.Join(confDir, "boolean.yml")
+		if err := os.WriteFile(path, []byte("output:\n  color: false\n"), 0600); err != nil {
+			t.Fatalf("write boolean config: %v", err)
+		}
+		cfg, err := loadCLIConfig("boolean")
+		if err != nil || cfg.Output.Color != "no" {
+			t.Fatalf("boolean output.color = %q, err=%v; want no", cfg.Output.Color, err)
 		}
 	})
 
@@ -305,6 +615,35 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 	})
 }
 
+func TestLoadCLIConfigCanonicalizesUpdateChannel(t *testing.T) {
+	dir := testTempDir(t)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	path, err := cliConfigPath("channel-alias")
+	if err != nil {
+		t.Fatalf("cliConfigPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("update:\n  channel: daily\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := loadCLIConfig("channel-alias")
+	if err != nil {
+		t.Fatalf("loadCLIConfig: %v", err)
+	}
+	if cfg.Update.Channel != "devel" {
+		t.Fatalf("Update.Channel = %q, want devel", cfg.Update.Channel)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(saved), "channel: devel") {
+		t.Errorf("cli.yml did not persist canonical devel channel: %s", saved)
+	}
+}
+
 // Covers isTTY against a regular file (never a char device) and a
 // already-closed file handle (Stat error path).
 func TestIsTTY(t *testing.T) {
@@ -318,7 +657,7 @@ func TestIsTTY(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if isTTY(f) {
 			t.Error("isTTY(regular file) = true, want false")
 		}
@@ -333,7 +672,7 @@ func TestIsTTY(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		f.Close()
+		_ = f.Close()
 		if isTTY(f) {
 			t.Error("isTTY(closed file) = true, want false")
 		}
@@ -342,11 +681,10 @@ func TestIsTTY(t *testing.T) {
 
 // Covers runFirstRunWizard's non-interactive short-circuits: an existing
 // saved server URL is returned as-is, and when stdin/stderr aren't TTYs the
-// default URL is returned without prompting (always true under `go test`).
+// empty fallback is returned without prompting (always true under `go test`).
 func TestRunFirstRunWizard(t *testing.T) {
 	dir := testTempDir(t)
-	os.Setenv("XDG_CONFIG_HOME", dir)
-	defer os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("XDG_CONFIG_HOME", dir)
 
 	t.Run("existing-server-url-returned", func(t *testing.T) {
 		cfg := &cliConfig{}
@@ -361,9 +699,9 @@ func TestRunFirstRunWizard(t *testing.T) {
 	})
 
 	t.Run("non-interactive-returns-default", func(t *testing.T) {
-		got := runFirstRunWizard("http://localhost:80", "wizard2-nonexistent")
-		if got != "http://localhost:80" {
-			t.Errorf("runFirstRunWizard (non-tty) = %q, want default", got)
+		got := runFirstRunWizard("", "wizard2-nonexistent")
+		if got != "" {
+			t.Errorf("runFirstRunWizard (non-tty) = %q, want no implicit server", got)
 		}
 	})
 }
@@ -398,6 +736,7 @@ func TestClientAPIURL(t *testing.T) {
 func TestClientGet(t *testing.T) {
 	t.Run("success-decodes-json", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assertRequestID(t, r)
 			if r.Header.Get("Accept") != "application/json" {
 				t.Errorf("Accept header = %q, want application/json", r.Header.Get("Accept"))
 			}
@@ -405,7 +744,7 @@ func TestClientGet(t *testing.T) {
 				t.Errorf("User-Agent = %q, want airports-cli/ prefix", r.Header.Get("User-Agent"))
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"ok":true,"data":{"code":"KJFK"}}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":{"code":"KJFK"}}`))
 		}))
 		defer srv.Close()
 
@@ -432,7 +771,7 @@ func TestClientGet(t *testing.T) {
 		var gotAuth string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			gotAuth = r.Header.Get("Authorization")
-			w.Write([]byte(`{}`))
+			_, _ = w.Write([]byte(`{}`))
 		}))
 		defer srv.Close()
 
@@ -448,7 +787,7 @@ func TestClientGet(t *testing.T) {
 	t.Run("http-error-status-returns-body-and-error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"ok":false,"error":"NOT_FOUND"}`))
+			_, _ = w.Write([]byte(`{"ok":false,"error":"NOT_FOUND"}`))
 		}))
 		defer srv.Close()
 
@@ -467,7 +806,7 @@ func TestClientGet(t *testing.T) {
 
 	t.Run("malformed-json-decode-error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`not json`))
+			_, _ = w.Write([]byte(`not json`))
 		}))
 		defer srv.Close()
 
@@ -504,15 +843,15 @@ func TestDispatch(t *testing.T) {
 			if r.URL.Query().Get("q") != "kennedy airport" {
 				t.Errorf("search q = %q, want 'kennedy airport'", r.URL.Query().Get("q"))
 			}
-			w.Write([]byte(`{"ok":true,"data":[]}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":[]}`))
 		case strings.Contains(r.URL.Path, "/airports/nearby"):
-			w.Write([]byte(`{"ok":true,"data":[]}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":[]}`))
 		case strings.Contains(r.URL.Path, "/airports/KJFK"):
-			w.Write([]byte(`{"ok":true,"data":{"code":"KJFK"}}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":{"code":"KJFK"}}`))
 		case strings.Contains(r.URL.Path, "/server/healthz"):
-			w.Write([]byte(`{"ok":true,"status":"ok"}`))
+			_, _ = w.Write([]byte(`{"ok":true,"status":"ok"}`))
 		case strings.Contains(r.URL.Path, "/server/about"):
-			w.Write([]byte(`{"ok":true,"data":{"name":"airports"}}`))
+			_, _ = w.Write([]byte(`{"ok":true,"data":{"name":"airports"}}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -571,6 +910,10 @@ func TestPrintResult(t *testing.T) {
 		{"yaml-valid", []byte(`{"a":1}`), "yaml", false},
 		{"yaml-invalid-falls-back-to-raw", []byte(`not json`), "yaml", false},
 		{"text", []byte("plain text\n"), "text", false},
+		{"plain", []byte("plain text\n"), "plain", false},
+		{"table", []byte(`{"data":[{"icao":"KJFK","name":"John F Kennedy","city":"New York"}]}`), "table", false},
+		{"empty-table", []byte(`{"data":[]}`), "table", false},
+		{"csv", []byte(`{"data":[{"icao":"KJFK","name":"John F Kennedy"}]}`), "csv", false},
 		{"unsupported-format", []byte(`{}`), "xml", true},
 	}
 	for _, tt := range tests {
@@ -584,7 +927,7 @@ func TestPrintResult(t *testing.T) {
 }
 
 // Covers printUsage: ensures it writes non-empty usage text mentioning the
-// binary name and default server URL.
+// binary name and required server option.
 func TestPrintUsage(t *testing.T) {
 	var buf bytes.Buffer
 	printUsage(&buf, "airports-cli", "en")
@@ -592,8 +935,8 @@ func TestPrintUsage(t *testing.T) {
 	if !strings.Contains(out, "airports-cli") {
 		t.Error("printUsage output missing binary name")
 	}
-	if !strings.Contains(out, defaultBaseURL) {
-		t.Error("printUsage output missing default server URL")
+	if !strings.Contains(out, "--server URL") {
+		t.Error("printUsage output missing required server option")
 	}
 	if !strings.Contains(out, "search") || !strings.Contains(out, "nearby") {
 		t.Error("printUsage output missing documented commands")

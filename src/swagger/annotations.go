@@ -1,6 +1,10 @@
 package swagger
 
-import "github.com/apimgr/airports/src/common/i18n"
+import (
+	"strings"
+
+	"github.com/apimgr/airports/src/common/i18n"
+)
 
 // BuildSpec returns the hand-maintained OpenAPI 3.0 specification for the
 // Airports API. Until full auto-generation from handler annotations is
@@ -14,7 +18,7 @@ import "github.com/apimgr/airports/src/common/i18n"
 // never be hardcoded (PART 14, "NEVER hardcode v1"). lang selects the
 // translated description/summary text (PART 30) — an empty lang falls
 // back to English via i18n's own fallback chain.
-func BuildSpec(version, apiVersion string, lang string) map[string]interface{} {
+func BuildSpec(version, apiVersion string, lang string, baseURL ...string) map[string]interface{} {
 	if version == "" {
 		version = "dev"
 	}
@@ -22,6 +26,10 @@ func BuildSpec(version, apiVersion string, lang string) map[string]interface{} {
 		apiVersion = "v1"
 	}
 	t := func(key string) string { return i18n.T(lang, key) }
+	prefix := ""
+	if len(baseURL) > 0 {
+		prefix = strings.TrimSuffix(baseURL[0], "/")
+	}
 	return map[string]interface{}{
 		"openapi": "3.0.0",
 		"info": map[string]interface{}{
@@ -38,7 +46,7 @@ func BuildSpec(version, apiVersion string, lang string) map[string]interface{} {
 			},
 		},
 		"servers": []map[string]string{
-			{"url": "/api/" + apiVersion, "description": "API " + apiVersion},
+			{"url": prefix + "/api/" + apiVersion, "description": "API " + apiVersion},
 		},
 		"tags": []map[string]string{
 			{"name": "airports", "description": t("swagger.tag_airports")},

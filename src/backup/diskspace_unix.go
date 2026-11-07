@@ -12,6 +12,8 @@ func DiskUsage(path string) (total, free uint64, err error) {
 		return 0, 0, err
 	}
 	total = stat.Blocks * uint64(stat.Bsize)
-	free = stat.Bavail * uint64(stat.Bsize)
+	if stat.Bavail > 0 {
+		free = uint64(stat.Bavail) * uint64(stat.Bsize)
+	}
 	return total, free, nil
 }

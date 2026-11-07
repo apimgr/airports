@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -313,7 +312,7 @@ func (bs *BlockStore) LoadDownloadedNetset(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var prefixes []netip.Prefix
 	scanner := bufio.NewScanner(f)
@@ -361,7 +360,7 @@ func downloadNetsetFile(dest, url string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
@@ -371,7 +370,7 @@ func downloadNetsetFile(dest, url string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, resp.Body)
 	return err
@@ -395,7 +394,7 @@ func UpdateBlocklist(store *BlockStore, projectName string) error {
 	tempPath := finalPath + ".tmp"
 
 	if err := downloadNetsetFile(tempPath, fireholLevel1URL); err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		if _, statErr := os.Stat(finalPath); statErr == nil {
 			log.Printf("blocklist_update: download failed, keeping last-known list: %v", err)
 			return store.LoadDownloadedNetset(finalPath)
@@ -404,7 +403,7 @@ func UpdateBlocklist(store *BlockStore, projectName string) error {
 	}
 
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("blocklist_update: failed to install downloaded netset: %w", err)
 	}
 
@@ -503,7 +502,7 @@ func respondBlocked(w http.ResponseWriter, r *http.Request) {
 		Message: i18n.T(lang, "errors.forbidden"),
 		Details: map[string]interface{}{},
 	}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := encodeJSON(w, resp); err != nil {
 		log.Printf("respondBlocked: encode failed: %v", err)
 	}
 }

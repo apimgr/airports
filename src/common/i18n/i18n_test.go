@@ -250,6 +250,65 @@ func TestLanguageMiddleware(t *testing.T) {
 	}
 }
 
+func TestConfigureAppliesLanguageSettings(t *testing.T) {
+	Configure(Config{
+		Enabled: true, DefaultLanguage: "fr", AvailableLanguages: []string{"en", "fr"},
+		FallbackLanguage: "en", CookieName: "site-language", CookieMaxAge: "10d",
+	})
+	t.Cleanup(func() {
+		Configure(Config{
+			Enabled: true, DefaultLanguage: "en", AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
+			FallbackLanguage: "en", CookieName: "lang", CookieMaxAge: "365d",
+		})
+	})
+
+	if got := ResolveLanguage(httptest.NewRequest(http.MethodGet, "/", nil)); got != "fr" {
+		t.Fatalf("ResolveLanguage(default) = %q, want fr", got)
+	}
+	if got := ResolveLanguage(httptest.NewRequest(http.MethodGet, "/?lang=FR", nil)); got != "fr" {
+		t.Fatalf("ResolveLanguage(query) = %q, want normalized fr", got)
+	}
+	if IsSupported("es") || !IsSupported("fr") {
+		t.Fatal("configured available languages were not applied")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/?lang=en", nil)
+	response := httptest.NewRecorder()
+	LanguageMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+	cookie := response.Result().Cookies()
+	if len(cookie) != 1 || cookie[0].Name != "site-language" || cookie[0].MaxAge != 10*24*60*60 {
+		t.Fatalf("language cookie = %#v, want configured name and 10-day age", cookie)
+	}
+}
+
+func TestResolveOutputLanguage(t *testing.T) {
+	tests := []struct {
+		name       string
+		flagLang   string
+		configLang string
+		lcAll      string
+		lang       string
+		want       string
+	}{
+		{name: "flag first", flagLang: "fr", configLang: "de", lcAll: "es_ES.UTF-8", lang: "ja", want: "fr"},
+		{name: "config before environment", configLang: "de", lcAll: "es_ES.UTF-8", lang: "ja", want: "de"},
+		{name: "LC_ALL before LANG", lcAll: "es_ES.UTF-8", lang: "ja", want: "es"},
+		{name: "LANG fallback", lang: "zh_CN.UTF-8", want: "zh"},
+		{name: "unsupported falls back to English", flagLang: "xx", configLang: "fr", lang: "de", want: "en"},
+		{name: "auto detects environment", configLang: "auto", lang: "ja_JP.UTF-8", want: "ja"},
+		{name: "default English", configLang: "auto", want: "en"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LC_ALL", tt.lcAll)
+			t.Setenv("LANG", tt.lang)
+			if got := ResolveOutputLanguage(tt.flagLang, tt.configLang); got != tt.want {
+				t.Errorf("ResolveOutputLanguage(%q, %q) = %q, want %q", tt.flagLang, tt.configLang, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFromContextDefault(t *testing.T) {
 	if got := FromContext(context.Background()); got != DefaultLanguage {
 		t.Errorf("FromContext(empty) = %q, want %q", got, DefaultLanguage)

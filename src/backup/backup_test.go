@@ -35,11 +35,11 @@ func newFakeSourceTree(t *testing.T) (configDir, dataDir string) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if _, err := db.Exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)"); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatalf("create table: %v", err)
 	}
 	if _, err := db.Exec("INSERT INTO settings (key, value) VALUES ('foo', 'bar')"); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Fatalf("insert: %v", err)
 	}
 	if err := db.Close(); err != nil {

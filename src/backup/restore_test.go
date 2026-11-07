@@ -209,14 +209,18 @@ func buildMaliciousContainer(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("create container: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	f.Write(containerMagic[:])
+	if _, err := f.Write(containerMagic[:]); err != nil {
+		t.Fatalf("write container magic: %v", err)
+	}
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(manifestJSON)))
-	f.Write(lenBuf[:])
-	f.Write(manifestJSON)
-	f.Write(payload)
+	for _, data := range [][]byte{lenBuf[:], manifestJSON, payload} {
+		if _, err := f.Write(data); err != nil {
+			t.Fatalf("write container data: %v", err)
+		}
+	}
 }
 
 func TestRestore_RejectsZipSlip(t *testing.T) {

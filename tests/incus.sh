@@ -103,11 +103,18 @@ if [[ -z "$LIVE_PORT" ]]; then
 fi
 echo ">> Server listening on port $LIVE_PORT"
 
+API_VERSION="$(incus exec "$INSTANCE" -- curl -q -LSsf "http://127.0.0.1:${LIVE_PORT}/api/autodiscover" | sed -n 's/.*"current_version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+if [[ -z "$API_VERSION" ]]; then
+    echo "ERROR: could not discover the current API version" >&2
+    exit 1
+fi
+API_BASE="/api/${API_VERSION}"
+
 echo ">> Probing endpoints from inside the VM"
 __expect_2xx() {
     local path="$1"
     local code
-    code=$(incus exec "$INSTANCE" -- curl -q -o /dev/null -s -w "%{http_code}" "http://127.0.0.1:${LIVE_PORT}${path}" || true)
+    code=$(incus exec "$INSTANCE" -- curl -q -LSs -o /dev/null -w "%{http_code}" "http://127.0.0.1:${LIVE_PORT}${path}" || true)
     if [[ "$code" != 2* ]]; then
         echo "FAIL  $path  HTTP $code"
         return 1
@@ -123,9 +130,9 @@ __expect_content_type() {
     local path="$1" accept="$2" want_substr="$3"
     local ct
     if [[ -n "$accept" ]]; then
-        ct=$(incus exec "$INSTANCE" -- curl -q -s -o /dev/null -D - -H "Accept: ${accept}" "http://127.0.0.1:${LIVE_PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
+        ct=$(incus exec "$INSTANCE" -- curl -q -LSs -o /dev/null -D - -H "Accept: ${accept}" "http://127.0.0.1:${LIVE_PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
     else
-        ct=$(incus exec "$INSTANCE" -- curl -q -s -o /dev/null -D - "http://127.0.0.1:${LIVE_PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
+        ct=$(incus exec "$INSTANCE" -- curl -q -LSs -o /dev/null -D - "http://127.0.0.1:${LIVE_PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')
     fi
     if [[ "$ct" != *"$want_substr"* ]]; then
         echo "FAIL  $path  Accept:${accept:-<none>}  Content-Type '$ct' does not contain '$want_substr'"
@@ -138,9 +145,9 @@ __failed=0
 for path in \
     "/server/healthz" \
     "/server/about" \
-    "/api/v1/server/healthz" \
-    "/api/v1/server/about" \
-    "/api/v1/airports/search?q=Tokyo&limit=1"
+    "${API_BASE}/server/healthz" \
+    "${API_BASE}/server/about" \
+    "${API_BASE}/airports/search?q=Tokyo&limit=1"
 do
     __expect_2xx "$path" || __failed=1
 done
@@ -149,18 +156,18 @@ echo ">> Content negotiation matrix"
 while IFS='|' read -r path accept want; do
     [[ -z "$path" ]] && continue
     __expect_content_type "$path" "$accept" "$want" || __failed=1
-done <<'MATRIX'
+done <<MATRIX
 /server/about|text/html|text/html
 /server/about|text/plain|text/plain
-/api/v1/server/healthz|application/json|application/json
-/api/v1/server/healthz|text/plain|text/plain
+${API_BASE}/server/healthz|application/json|application/json
+${API_BASE}/server/healthz|text/plain|text/plain
 MATRIX
 
 echo ">> .txt endpoint coverage"
 for path in \
     "/robots.txt" \
-    "/health.txt" \
-    "/api/v1/airports/search.txt?q=Tokyo&limit=1"
+    "/server/healthz.txt" \
+    "${API_BASE}/airports/search.txt?q=Tokyo&limit=1"
 do
     __expect_2xx "$path" || __failed=1
     __expect_content_type "$path" "" "text/plain" || __failed=1

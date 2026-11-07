@@ -8,7 +8,7 @@ import (
 
 // resetState restores the package-level mode/debug singletons to their
 // zero-value equivalents before and after each test so tests never leak
-// state into one another (Get/Set/SetDebug are backed by shared globals).
+// state into one another (Get/Set/SetDebugEnabled are backed by shared globals).
 func resetState(t *testing.T) {
 	t.Helper()
 	currentMode = Production
@@ -23,37 +23,37 @@ func TestParseMode(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		want    Mode
+		want    AppMode
 		wantErr bool
 	}{
 		{"development", "development", Development, false},
 		{"dev", "dev", Development, false},
 		{"devel", "devel", Development, false},
-		{"debug", "debug", Development, false},
+		{"debug", "debug", Debug, false},
 		{"production", "production", Production, false},
 		{"prod", "prod", Production, false},
 		{"uppercase", "PRODUCTION", Production, false},
 		{"mixed-case", "DeVeLoPmEnT", Development, false},
 		{"whitespace", "  production  ", Production, false},
-		{"empty", "", "", true},
-		{"invalid", "bogus", "", true},
-		{"invalid-with-spaces", "  bogus  ", "", true},
+		{"empty", "", Production, true},
+		{"invalid", "bogus", Production, true},
+		{"invalid-with-spaces", "  bogus  ", Production, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseMode(tt.input)
+			got, err := ParseAppMode(tt.input)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("ParseMode(%q): expected error, got nil", tt.input)
+					t.Fatalf("ParseAppMode(%q): expected error, got nil", tt.input)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ParseMode(%q): unexpected error: %v", tt.input, err)
+				t.Fatalf("ParseAppMode(%q): unexpected error: %v", tt.input, err)
 			}
 			if got != tt.want {
-				t.Errorf("ParseMode(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("ParseAppMode(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -88,42 +88,42 @@ func TestSet(t *testing.T) {
 func TestSetFromValue(t *testing.T) {
 	t.Run("debug-alias-enables-debug", func(t *testing.T) {
 		resetState(t)
-		if err := SetFromValue("debug"); err != nil {
-			t.Fatalf("SetFromValue(debug): unexpected error: %v", err)
+		if err := SetAppModeFromValue("debug"); err != nil {
+			t.Fatalf("SetAppModeFromValue(debug): unexpected error: %v", err)
 		}
-		if GetAppMode() != Development {
-			t.Errorf("GetAppMode() = %q, want %q", GetAppMode(), Development)
+		if GetAppMode() != Debug {
+			t.Errorf("GetAppMode() = %v, want %v", GetAppMode(), Debug)
 		}
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true after SetFromValue(\"debug\")")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true after SetAppModeFromValue(\"debug\")")
 		}
 	})
 
 	t.Run("debug-alias-case-insensitive-and-trimmed", func(t *testing.T) {
 		resetState(t)
-		if err := SetFromValue("  DEBUG  "); err != nil {
-			t.Fatalf("SetFromValue: unexpected error: %v", err)
+		if err := SetAppModeFromValue("  DEBUG  "); err != nil {
+			t.Fatalf("SetAppModeFromValue: unexpected error: %v", err)
 		}
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true")
 		}
 	})
 
 	t.Run("non-debug-value-does-not-touch-debug-flag", func(t *testing.T) {
 		resetState(t)
-		SetDebug(true)
-		if err := SetFromValue("production"); err != nil {
-			t.Fatalf("SetFromValue(production): unexpected error: %v", err)
+		SetDebugEnabled(true)
+		if err := SetAppModeFromValue("production"); err != nil {
+			t.Fatalf("SetAppModeFromValue(production): unexpected error: %v", err)
 		}
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true (SetFromValue must not clear debug for non-debug values)")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true (SetAppModeFromValue must not clear debug for non-debug values)")
 		}
 	})
 
 	t.Run("invalid-value-returns-error", func(t *testing.T) {
 		resetState(t)
-		if err := SetFromValue("bogus"); err == nil {
-			t.Fatal("SetFromValue(bogus): expected error, got nil")
+		if err := SetAppModeFromValue("bogus"); err == nil {
+			t.Fatal("SetAppModeFromValue(bogus): expected error, got nil")
 		}
 	})
 }
@@ -131,16 +131,16 @@ func TestSetFromValue(t *testing.T) {
 func TestSetDebugAndIsDebug(t *testing.T) {
 	resetState(t)
 
-	if IsDebug() {
-		t.Fatal("IsDebug() = true before any SetDebug call, want false")
+	if IsDebugEnabled() {
+		t.Fatal("IsDebugEnabled() = true before any SetDebugEnabled call, want false")
 	}
-	SetDebug(true)
-	if !IsDebug() {
-		t.Error("IsDebug() = false after SetDebug(true), want true")
+	SetDebugEnabled(true)
+	if !IsDebugEnabled() {
+		t.Error("IsDebugEnabled() = false after SetDebugEnabled(true), want true")
 	}
-	SetDebug(false)
-	if IsDebug() {
-		t.Error("IsDebug() = true after SetDebug(false), want false")
+	SetDebugEnabled(false)
+	if IsDebugEnabled() {
+		t.Error("IsDebugEnabled() = true after SetDebugEnabled(false), want false")
 	}
 }
 
@@ -150,21 +150,21 @@ func TestIsDevelopmentIsProduction(t *testing.T) {
 	if err := SetAppMode("production"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if !IsProduction() {
-		t.Error("IsProduction() = false, want true")
+	if !IsAppModeProd() {
+		t.Error("IsAppModeProd() = false, want true")
 	}
-	if IsDevelopment() {
-		t.Error("IsDevelopment() = true, want false")
+	if IsAppModeDev() {
+		t.Error("IsAppModeDev() = true, want false")
 	}
 
 	if err := SetAppMode("development"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if !IsDevelopment() {
-		t.Error("IsDevelopment() = false, want true")
+	if !IsAppModeDev() {
+		t.Error("IsAppModeDev() = false, want true")
 	}
-	if IsProduction() {
-		t.Error("IsProduction() = true, want false")
+	if IsAppModeProd() {
+		t.Error("IsAppModeProd() = true, want false")
 	}
 }
 
@@ -187,7 +187,7 @@ func TestInitialize(t *testing.T) {
 			t.Fatalf("Initialize: unexpected error: %v", err)
 		}
 		if GetAppMode() != Development {
-			t.Errorf("GetAppMode() = %q, want %q", GetAppMode(), Development)
+			t.Errorf("GetAppMode() = %v, want %v", GetAppMode(), Development)
 		}
 	})
 
@@ -223,11 +223,11 @@ func TestInitialize(t *testing.T) {
 		if err := Initialize(""); err != nil {
 			t.Fatalf("Initialize: unexpected error: %v", err)
 		}
-		if GetAppMode() != Development {
-			t.Errorf("GetAppMode() = %q, want %q", GetAppMode(), Development)
+		if GetAppMode() != Debug {
+			t.Errorf("GetAppMode() = %v, want %v", GetAppMode(), Debug)
 		}
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true (MODE=debug alias)")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true (MODE=debug alias)")
 		}
 	})
 }
@@ -237,8 +237,8 @@ func TestInitializeDebug(t *testing.T) {
 		resetState(t)
 		t.Setenv("DEBUG", "false")
 		InitializeDebug(true)
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true (CLI flag must win)")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true (CLI flag must win)")
 		}
 	})
 
@@ -246,28 +246,28 @@ func TestInitializeDebug(t *testing.T) {
 		resetState(t)
 		t.Setenv("DEBUG", "true")
 		InitializeDebug(false)
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true")
 		}
 	})
 
 	t.Run("env-var-falsy-overrides-alias", func(t *testing.T) {
 		resetState(t)
-		SetDebug(true) // simulate MODE=debug alias already applied
+		SetDebugEnabled(true) // simulate MODE=debug alias already applied
 		t.Setenv("DEBUG", "false")
 		InitializeDebug(false)
-		if IsDebug() {
-			t.Error("IsDebug() = true, want false (DEBUG=false must win over alias)")
+		if IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = true, want false (DEBUG=false must win over alias)")
 		}
 	})
 
 	t.Run("env-var-unset-leaves-alias-untouched", func(t *testing.T) {
 		resetState(t)
-		SetDebug(true) // simulate MODE=debug alias already applied
+		SetDebugEnabled(true) // simulate MODE=debug alias already applied
 		unsetEnv(t, "DEBUG")
 		InitializeDebug(false)
-		if !IsDebug() {
-			t.Error("IsDebug() = false, want true (unset DEBUG must leave alias in place)")
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true (unset DEBUG must leave alias in place)")
 		}
 	})
 
@@ -275,8 +275,8 @@ func TestInitializeDebug(t *testing.T) {
 		resetState(t)
 		unsetEnv(t, "DEBUG")
 		InitializeDebug(false)
-		if IsDebug() {
-			t.Error("IsDebug() = true, want false (default)")
+		if IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = true, want false (default)")
 		}
 	})
 }
@@ -332,7 +332,7 @@ func TestShouldShowDebugEndpoints(t *testing.T) {
 	if err := SetAppMode("production"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	SetDebug(false)
+	SetDebugEnabled(false)
 	if ShouldShowDebugEndpoints() {
 		t.Error("ShouldShowDebugEndpoints() = true with debug off, want false")
 	}
@@ -344,7 +344,7 @@ func TestShouldShowDebugEndpoints(t *testing.T) {
 		t.Error("ShouldShowDebugEndpoints() = true in development with debug off, want false")
 	}
 
-	SetDebug(true)
+	SetDebugEnabled(true)
 	if !ShouldShowDebugEndpoints() {
 		t.Error("ShouldShowDebugEndpoints() = false with debug on, want true")
 	}
@@ -355,7 +355,7 @@ func TestShouldShowDebugEndpoints(t *testing.T) {
 	if !ShouldShowDebugEndpoints() {
 		t.Error("ShouldShowDebugEndpoints() = false in production with debug on, want true (Production+Debug must be reachable)")
 	}
-	SetDebug(false)
+	SetDebugEnabled(false)
 }
 
 func TestGetCacheHeaders(t *testing.T) {
@@ -450,12 +450,12 @@ func TestShouldEnableProfiling(t *testing.T) {
 	if err := SetAppMode("development"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	SetDebug(false)
+	SetDebugEnabled(false)
 	if ShouldEnableProfiling() {
 		t.Error("ShouldEnableProfiling() = true in development with debug off, want false")
 	}
 
-	SetDebug(true)
+	SetDebugEnabled(true)
 	if !ShouldEnableProfiling() {
 		t.Error("ShouldEnableProfiling() = false with debug on, want true")
 	}
@@ -466,20 +466,20 @@ func TestShouldEnableProfiling(t *testing.T) {
 	if !ShouldEnableProfiling() {
 		t.Error("ShouldEnableProfiling() = false in production with debug on, want true (Production+Debug must be reachable)")
 	}
-	SetDebug(false)
+	SetDebugEnabled(false)
 }
 
 func TestSetDebugTogglesRuntimeProfiling(t *testing.T) {
 	resetState(t)
 
-	SetDebug(true)
-	if !IsDebug() {
-		t.Error("IsDebug() = false after SetDebug(true)")
+	SetDebugEnabled(true)
+	if !IsDebugEnabled() {
+		t.Error("IsDebugEnabled() = false after SetDebugEnabled(true)")
 	}
 
-	SetDebug(false)
-	if IsDebug() {
-		t.Error("IsDebug() = true after SetDebug(false)")
+	SetDebugEnabled(false)
+	if IsDebugEnabled() {
+		t.Error("IsDebugEnabled() = true after SetDebugEnabled(false)")
 	}
 }
 
@@ -508,16 +508,33 @@ func TestModeString(t *testing.T) {
 	if Production.String() != "production" {
 		t.Errorf("Production.String() = %q, want production", Production.String())
 	}
+	if Debug.String() != "debug" {
+		t.Errorf("Debug.String() = %q, want debug", Debug.String())
+	}
+}
+
+func TestGetAppModeString(t *testing.T) {
+	resetState(t)
+	if got := GetAppModeString(); got != "production" {
+		t.Errorf("GetAppModeString() = %q, want production", got)
+	}
+	if err := SetAppMode("development"); err != nil {
+		t.Fatal(err)
+	}
+	SetDebugEnabled(true)
+	if got := GetAppModeString(); got != "development [debugging]" {
+		t.Errorf("GetAppModeString() = %q, want development [debugging]", got)
+	}
 }
 
 func TestModeValidate(t *testing.T) {
-	if err := Production.Validate(); err != nil {
-		t.Errorf("Production.Validate() = %v, want nil", err)
+	if err := Production.ValidateAppMode(); err != nil {
+		t.Errorf("Production.ValidateAppMode() = %v, want nil", err)
 	}
-	if err := Development.Validate(); err != nil {
-		t.Errorf("Development.Validate() = %v, want nil", err)
+	if err := Development.ValidateAppMode(); err != nil {
+		t.Errorf("Development.ValidateAppMode() = %v, want nil", err)
 	}
-	if err := Mode("bogus").Validate(); err == nil {
-		t.Error("Mode(\"bogus\").Validate(): expected error, got nil")
+	if err := AppMode(-1).ValidateAppMode(); err == nil {
+		t.Error("AppMode(-1).ValidateAppMode(): expected error, got nil")
 	}
 }

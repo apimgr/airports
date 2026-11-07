@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // newTestDir creates an isolated temp dir under /tmp/apimgr/airports-XXXXXX
@@ -19,7 +22,9 @@ func newTestDir(t *testing.T) string {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
 	t.Cleanup(func() {
-		os.RemoveAll(dir)
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove test temp directory: %v", err)
+		}
 	})
 	return dir
 }
@@ -44,11 +49,39 @@ func resetGlobalState(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
+	if cfg.Server.Limits != (LimitsConfig{MaxBodySize: "10MB", ReadTimeout: "30s", WriteTimeout: "30s", IdleTimeout: "120s"}) {
+		t.Errorf("Server.Limits = %+v, want PART 12 defaults", cfg.Server.Limits)
+	}
+	if !cfg.Server.Compression.Enabled || cfg.Server.Compression.Level != 5 || strings.Join(cfg.Server.Compression.Types, ",") != strings.Join(defaultCompressionTypes, ",") {
+		t.Errorf("Server.Compression = %+v, want enabled level 5 and default MIME types", cfg.Server.Compression)
+	}
+	if cfg.Server.Lang != "auto" {
+		t.Errorf("Lang = %q, want auto", cfg.Server.Lang)
+	}
+	if cfg.Server.BaseURL != "/" {
+		t.Errorf("BaseURL = %q, want /", cfg.Server.BaseURL)
+	}
+	if cfg.Server.URLDetection != (URLDetectionConfig{Learning: true, MinSamples: 3, SampleWindow: "5m", LogChanges: true, LiveReload: true}) {
+		t.Errorf("URLDetection = %+v, want the AI.md defaults", cfg.Server.URLDetection)
+	}
 	if cfg.Server.Address != "[::]" {
 		t.Errorf("Address = %q, want [::]", cfg.Server.Address)
 	}
 	if cfg.Server.Mode != "production" {
 		t.Errorf("Mode = %q, want production", cfg.Server.Mode)
+	}
+	if cfg.Server.I18n.DefaultLanguage != "en" {
+		t.Errorf("I18n.DefaultLanguage = %q, want en", cfg.Server.I18n.DefaultLanguage)
+	}
+	if !cfg.Server.I18n.Enabled || cfg.Server.I18n.FallbackLanguage != "en" || cfg.Server.I18n.CookieName != "lang" || cfg.Server.I18n.CookieMaxAge != "365d" {
+		t.Errorf("I18n defaults = %+v, want enabled English fallback with one-year lang cookie", cfg.Server.I18n)
+	}
+	wantLanguages := []string{"en", "es", "zh", "fr", "ar", "de", "ja"}
+	if strings.Join(cfg.Server.I18n.Supported, ",") != strings.Join(wantLanguages, ",") {
+		t.Errorf("I18n.Supported = %v, want %v", cfg.Server.I18n.Supported, wantLanguages)
+	}
+	if !cfg.Server.Privacy.Data.StoredOnServer {
+		t.Error("Privacy.Data.StoredOnServer = false, want true")
 	}
 	if cfg.Server.Update.Branch != "stable" {
 		t.Errorf("Update.Branch = %q, want stable", cfg.Server.Update.Branch)
@@ -133,6 +166,60 @@ func TestLoadCreatesDefaultWhenMissing(t *testing.T) {
 	}
 	if Get().Server.Mode != "production" {
 		t.Errorf("Get().Server.Mode = %q, want production", Get().Server.Mode)
+	}
+}
+
+func TestInitOnlyApplicationEnvironment(t *testing.T) {
+	resetGlobalState(t)
+	dir := newTestDir(t)
+	path := filepath.Join(dir, "server.yml")
+	t.Setenv("APPLICATION_NAME", "Configured Airports")
+	t.Setenv("APPLICATION_TAGLINE", "Airport data at a glance")
+
+	first, err := Load(path)
+	if err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	if first.Server.Branding.Title != "Configured Airports" || first.Server.Branding.Tagline != "Airport data at a glance" {
+		t.Fatalf("first-run branding = %+v", first.Server.Branding)
+	}
+
+	resetGlobalState(t)
+	t.Setenv("APPLICATION_NAME", "Ignored Name")
+	t.Setenv("APPLICATION_TAGLINE", "Ignored Tagline")
+	second, err := Load(path)
+	if err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if second.Server.Branding.Title != "Configured Airports" || second.Server.Branding.Tagline != "Airport data at a glance" {
+		t.Fatalf("existing config was overridden by init-only environment: %+v", second.Server.Branding)
+	}
+}
+
+func TestDatabaseEnvironmentOverridesAreRuntimeOnly(t *testing.T) {
+	resetGlobalState(t)
+	dir := newTestDir(t)
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  database:\n    driver: sqlite\n    url: ''\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv("DATABASE_DRIVER", "SQLite3")
+	t.Setenv("DATABASE_URL", "file:runtime.db")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Server.Database.Driver != "sqlite" || cfg.Server.Database.URL != "file:runtime.db" {
+		t.Errorf("database config = %+v, want runtime SQLite URL", cfg.Server.Database)
+	}
+
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(persisted), "runtime.db") || strings.Contains(string(persisted), "driver: sqlite3") {
+		t.Errorf("runtime database override was persisted to server.yml: %s", persisted)
 	}
 }
 
@@ -268,6 +355,8 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.FQDN = "roundtrip.example.com"
 	cfg.Server.Port = "64500"
+	cfg.Server.BaseURL = "/myproject"
+	cfg.Server.URLDetection = URLDetectionConfig{Learning: false, MinSamples: 5, SampleWindow: "10m", LogChanges: false, LiveReload: false}
 	cfg.Server.GeoIP.AllowCountries = []string{"US", "CA"}
 
 	if err := Save(path, cfg); err != nil {
@@ -284,6 +373,12 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.Server.Port != "64500" {
 		t.Errorf("Port = %q, want 64500", loaded.Server.Port)
+	}
+	if loaded.Server.BaseURL != "/myproject" {
+		t.Errorf("BaseURL = %q, want /myproject", loaded.Server.BaseURL)
+	}
+	if loaded.Server.URLDetection != cfg.Server.URLDetection {
+		t.Errorf("URLDetection = %+v, want %+v", loaded.Server.URLDetection, cfg.Server.URLDetection)
 	}
 	if len(loaded.Server.GeoIP.AllowCountries) != 2 {
 		t.Errorf("AllowCountries = %v, want 2 entries", loaded.Server.GeoIP.AllowCountries)
@@ -441,6 +536,65 @@ func TestSetUpdateBranch(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "beta") {
 		t.Error("expected SetUpdateBranch to persist branch to disk")
+	}
+}
+
+func TestUpdateBranchAliasesNormalizeToDevel(t *testing.T) {
+	for _, alias := range []string{"devel", "daily", "rolling", "dev", "development"} {
+		t.Run(alias, func(t *testing.T) {
+			got, ok := NormalizeUpdateBranch(alias)
+			if !ok || got != "devel" {
+				t.Fatalf("NormalizeUpdateBranch(%q) = %q, %v; want devel, true", alias, got, ok)
+			}
+		})
+	}
+	if got, ok := NormalizeUpdateBranch("unknown"); ok || got != "" {
+		t.Errorf("NormalizeUpdateBranch(unknown) = %q, %v; want empty, false", got, ok)
+	}
+}
+
+func TestSetUpdateBranchPersistsCanonicalAlias(t *testing.T) {
+	resetGlobalState(t)
+	dir := newTestDir(t)
+	path := filepath.Join(dir, "server.yml")
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := SetUpdateBranch("daily"); err != nil {
+		t.Fatalf("SetUpdateBranch(daily): %v", err)
+	}
+	if got := Get().Server.Update.Branch; got != "devel" {
+		t.Fatalf("Update.Branch = %q, want devel", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "branch: \"devel\"") {
+		t.Errorf("server.yml did not persist canonical devel branch")
+	}
+}
+
+func TestLoadCanonicalizesStoredUpdateBranchAlias(t *testing.T) {
+	resetGlobalState(t)
+	dir := newTestDir(t)
+	path := filepath.Join(dir, "server.yml")
+	if err := os.WriteFile(path, []byte("server:\n  update:\n    branch: rolling\n"), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Server.Update.Branch != "devel" {
+		t.Fatalf("Update.Branch = %q, want devel", cfg.Server.Update.Branch)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(saved), "branch: \"devel\"") {
+		t.Errorf("server.yml did not persist canonical devel branch")
 	}
 }
 
@@ -839,6 +993,98 @@ func TestValidateConfigReplacesInvalidValuesWithDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateConfigReplacesInvalidServerValues(t *testing.T) {
+	defaults := DefaultConfig()
+	cfg := DefaultConfig()
+	cfg.Server.Port = "80,443"
+	cfg.Server.Mode = "invalid"
+	cfg.Server.Address = "bad address"
+	cfg.Server.APIVersion = "v1/../v2"
+	cfg.Server.SSL.MinVersion = "TLS1.0"
+	cfg.Web.UI.Theme = "blue"
+	cfg.Server.Cache.Type = "memcached"
+	cfg.Server.Compression.Level = 10
+	cfg.Server.Compression.Types = []string{"application/json; invalid"}
+	cfg.Server.Limits = LimitsConfig{MaxBodySize: "0MB", ReadTimeout: "never", WriteTimeout: "0s", IdleTimeout: "-1s"}
+	cfg.Server.Scheduler.Tasks.SSLRenewal.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.GeoIPUpdate.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.BlocklistUpdate.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.CVEUpdate.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.UpdateCheck.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.TokenCleanup.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.LogRotation.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.Backup.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.BackupHourly.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.HealthCheck.Schedule = "invalid"
+	cfg.Server.Scheduler.Tasks.TorHealth.Schedule = "invalid"
+
+	validateConfig(cfg)
+
+	if cfg.Server.Port != defaults.Server.Port {
+		t.Errorf("Server.Port = %q, want default %q", cfg.Server.Port, defaults.Server.Port)
+	}
+	if cfg.Server.Mode != defaults.Server.Mode {
+		t.Errorf("Server.Mode = %q, want default %q", cfg.Server.Mode, defaults.Server.Mode)
+	}
+	if cfg.Server.Address != defaults.Server.Address {
+		t.Errorf("Server.Address = %q, want default %q", cfg.Server.Address, defaults.Server.Address)
+	}
+	if cfg.Server.APIVersion != defaults.Server.APIVersion {
+		t.Errorf("Server.APIVersion = %q, want default %q", cfg.Server.APIVersion, defaults.Server.APIVersion)
+	}
+	if cfg.Server.SSL.MinVersion != defaults.Server.SSL.MinVersion {
+		t.Errorf("SSL.MinVersion = %q, want default %q", cfg.Server.SSL.MinVersion, defaults.Server.SSL.MinVersion)
+	}
+	if cfg.Web.UI.Theme != defaults.Web.UI.Theme {
+		t.Errorf("Web.UI.Theme = %q, want default %q", cfg.Web.UI.Theme, defaults.Web.UI.Theme)
+	}
+	if cfg.Server.Cache.Type != defaults.Server.Cache.Type {
+		t.Errorf("Cache.Type = %q, want default %q", cfg.Server.Cache.Type, defaults.Server.Cache.Type)
+	}
+	if cfg.Server.Compression.Level != defaults.Server.Compression.Level || strings.Join(cfg.Server.Compression.Types, ",") != strings.Join(defaults.Server.Compression.Types, ",") {
+		t.Errorf("Compression = %+v, want defaults %+v", cfg.Server.Compression, defaults.Server.Compression)
+	}
+	if got, want := cfg.Server.Scheduler.Tasks, defaults.Server.Scheduler.Tasks; got != want {
+		t.Errorf("Scheduler.Tasks schedules were not restored to defaults: got %+v, want %+v", got, want)
+	}
+	if cfg.Server.Limits != defaults.Server.Limits {
+		t.Errorf("Server.Limits = %+v, want defaults %+v", cfg.Server.Limits, defaults.Server.Limits)
+	}
+}
+
+func TestValidateConfigPreservesValidServerValues(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Port = "8090,8443"
+	cfg.Server.SSL.Enabled = true
+	cfg.Server.Mode = "dev"
+	cfg.Server.Address = "[::1]"
+	cfg.Server.APIVersion = "v2"
+	cfg.Server.SSL.MinVersion = "TLS1.3"
+	cfg.Web.UI.Theme = "light"
+	cfg.Server.Cache.Type = "valkey"
+	cfg.Server.Compression = CompressionConfig{Enabled: true, Level: 3, Types: []string{"text/plain", "application/*"}}
+	cfg.Server.Limits = LimitsConfig{MaxBodySize: "2MB", ReadTimeout: "4s", WriteTimeout: "5s", IdleTimeout: "90s"}
+	cfg.Server.Scheduler.Tasks.TokenCleanup.Schedule = "@every 15m"
+
+	validateConfig(cfg)
+
+	if cfg.Server.Port != "8090,8443" || cfg.Server.Mode != "dev" || cfg.Server.Address != "[::1]" || cfg.Server.APIVersion != "v2" {
+		t.Errorf("valid server values changed: port=%q mode=%q address=%q api_version=%q", cfg.Server.Port, cfg.Server.Mode, cfg.Server.Address, cfg.Server.APIVersion)
+	}
+	if cfg.Server.SSL.MinVersion != "TLS1.3" || cfg.Web.UI.Theme != "light" || cfg.Server.Cache.Type != "valkey" {
+		t.Errorf("valid option changed: min_version=%q theme=%q cache.type=%q", cfg.Server.SSL.MinVersion, cfg.Web.UI.Theme, cfg.Server.Cache.Type)
+	}
+	if cfg.Server.Compression.Level != 3 || strings.Join(cfg.Server.Compression.Types, ",") != "text/plain,application/*" {
+		t.Errorf("valid compression settings changed: %+v", cfg.Server.Compression)
+	}
+	if cfg.Server.Scheduler.Tasks.TokenCleanup.Schedule != "@every 15m" {
+		t.Errorf("TokenCleanup.Schedule = %q, want valid descriptor unchanged", cfg.Server.Scheduler.Tasks.TokenCleanup.Schedule)
+	}
+	if cfg.Server.Limits.MaxBodyBytes() != 2*1024*1024 || cfg.Server.Limits.ReadTimeoutDuration() != 4*time.Second || cfg.Server.Limits.WriteTimeoutDuration() != 5*time.Second || cfg.Server.Limits.IdleTimeoutDuration() != 90*time.Second {
+		t.Errorf("valid server limits parsed incorrectly: %+v", cfg.Server.Limits)
+	}
+}
+
 func TestValidateConfigLeavesValidValuesUntouched(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.RateLimit.GlobalBurst = 500
@@ -872,6 +1118,8 @@ func TestSanitizedRedactsSMTPPassword(t *testing.T) {
 	resetGlobalState(t)
 	cfg := DefaultConfig()
 	cfg.Server.Notifications.Email.SMTP.Password = "s3cret"
+	cfg.Server.Token = "operator-token"
+	cfg.Server.Metrics.Auth.Tokens = MetricsTokensConfig{Prometheus: "prom-token", Grafana: "graf-token", Loki: "loki-token"}
 	mu.Lock()
 	current = cfg
 	mu.Unlock()
@@ -881,7 +1129,136 @@ func TestSanitizedRedactsSMTPPassword(t *testing.T) {
 	if sanitized.Server.Notifications.Email.SMTP.Password != redactedValue {
 		t.Errorf("Sanitized SMTP.Password = %q, want %q", sanitized.Server.Notifications.Email.SMTP.Password, redactedValue)
 	}
+	if sanitized.Server.Token != redactedValue ||
+		sanitized.Server.Metrics.Auth.Tokens.Prometheus != redactedValue ||
+		sanitized.Server.Metrics.Auth.Tokens.Grafana != redactedValue ||
+		sanitized.Server.Metrics.Auth.Tokens.Loki != redactedValue {
+		t.Errorf("Sanitized() leaked an operator or metrics token: %+v", sanitized.Server.Metrics.Auth.Tokens)
+	}
 	if cfg.Server.Notifications.Email.SMTP.Password != "s3cret" {
 		t.Error("Sanitized() must not mutate the original config's password")
+	}
+	if cfg.Server.Token != "operator-token" || cfg.Server.Metrics.Auth.Tokens.Prometheus != "prom-token" {
+		t.Error("Sanitized() must not mutate the original config's tokens")
+	}
+}
+
+func TestGenerateConfigYAMLPreservesMetricsSettings(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.CLI.BinaryDownload.RequireAuth = true
+	cfg.Server.Update.CLIMinVersion = "1.2.3"
+	cfg.Server.Metrics.Root.Enabled = false
+	cfg.Server.Metrics.Auth.AllowUnauthenticated = true
+	cfg.Server.Metrics.Auth.Tokens = MetricsTokensConfig{Prometheus: "prom-token", Grafana: "graf-token", Loki: "loki-token"}
+	cfg.Server.Metrics.IncludeRuntime = false
+	cfg.Server.Metrics.Loki = MetricsLokiConfig{MaxEntries: 47, MaxAge: "15m"}
+
+	yaml := generateConfigYAML(cfg)
+	for _, expected := range []string{
+		"baseurl: \"/\"",
+		"i18n:\n    enabled: true\n    default_language: \"en\"\n    available_languages: [\"en\", \"es\", \"zh\", \"fr\", \"ar\", \"de\", \"ja\"]\n    fallback_language: \"en\"\n    cookie_name: \"lang\"\n    cookie_max_age: \"365d\"",
+		"session:\n    cookie_name: \"session\"\n    max_age: \"0s\"\n    secure: \"auto\"\n    http_only: true\n    same_site: \"lax\"",
+		"root:\n      enabled: false",
+		"allow_unauthenticated: true",
+		"prometheus: \"prom-token\"",
+		"grafana: \"graf-token\"",
+		"loki: \"loki-token\"",
+		"include_runtime: false",
+		"max_entries: 47",
+		"max_age: \"15m\"",
+		"cli_min_version: \"1.2.3\"",
+		"cli:\n  binary_download:\n    # Require the server operator token to download CLI release assets\n    require_auth: true",
+		"limits:\n    max_body_size: \"10MB\"\n    read_timeout: \"30s\"\n    write_timeout: \"30s\"\n    idle_timeout: \"120s\"",
+	} {
+		if !strings.Contains(yaml, expected) {
+			t.Errorf("generated YAML missing configured metrics value %q", expected)
+		}
+	}
+}
+
+func TestSessionConfigDefaultsAndValidation(t *testing.T) {
+	defaults := DefaultConfig().Server.Session
+	if defaults.CookieName != "session" || defaults.MaxAge != "0s" || defaults.Secure != "auto" || !defaults.HTTPOnly || defaults.SameSite != "lax" {
+		t.Fatalf("session defaults = %+v, want secure browser-session defaults", defaults)
+	}
+	cfg := DefaultConfig()
+	cfg.Server.Session.MaxAge = "invalid"
+	cfg.Server.Session.Secure = "sometimes"
+	cfg.Server.Session.SameSite = "cross-site"
+	validateConfig(cfg)
+	if cfg.Server.Session.MaxAge != defaults.MaxAge || cfg.Server.Session.Secure != defaults.Secure || cfg.Server.Session.SameSite != defaults.SameSite {
+		t.Fatalf("invalid session settings were not reset to defaults: %+v", cfg.Server.Session)
+	}
+}
+
+func TestNormalizeBaseURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+		valid bool
+	}{
+		{input: "", want: "/", valid: true},
+		{input: "/", want: "/", valid: true},
+		{input: "/myproject/", want: "/myproject", valid: true},
+		{input: "/my//project", want: "/my/project", valid: true},
+		{input: "myproject", valid: false},
+		{input: "//example.com/path", valid: false},
+		{input: "/myproject?x=1", valid: false},
+		{input: "/my/../project", valid: false},
+		{input: "/my/%2e%2e/project", valid: false},
+	}
+	for _, test := range tests {
+		got, valid := NormalizeBaseURL(test.input)
+		if got != test.want || valid != test.valid {
+			t.Errorf("NormalizeBaseURL(%q) = (%q, %t), want (%q, %t)", test.input, got, valid, test.want, test.valid)
+		}
+	}
+}
+
+func TestValidateConfigReplacesInvalidBaseURL(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.BaseURL = "https://example.com/path"
+	validateConfig(cfg)
+	if cfg.Server.BaseURL != "/" {
+		t.Errorf("BaseURL = %q, want default /", cfg.Server.BaseURL)
+	}
+}
+
+func TestGenerateConfigYAMLDoesNotExposeTorEnableToggle(t *testing.T) {
+	generated := generateConfigYAML(DefaultConfig())
+	var document map[string]any
+	if err := yaml.Unmarshal([]byte(generated), &document); err != nil {
+		t.Fatalf("generated YAML is invalid: %v", err)
+	}
+	serverConfig, ok := document["server"].(map[string]any)
+	if !ok {
+		t.Fatal("generated YAML is missing the server configuration section")
+	}
+	torConfig, ok := serverConfig["tor"].(map[string]any)
+	if !ok {
+		t.Fatal("generated YAML is missing the Tor configuration section")
+	}
+	if _, ok := torConfig["enabled"]; ok {
+		t.Error("generated Tor configuration exposes an enable/disable toggle")
+	}
+	if _, ok := torConfig["binary"]; !ok {
+		t.Error("generated Tor configuration is missing the auto-detected binary setting")
+	}
+}
+
+func TestOutputConfigLoadsAndPersists(t *testing.T) {
+	var cfg Config
+	if err := yaml.Unmarshal([]byte("output:\n  color: false\n  emoji: true\n"), &cfg); err != nil {
+		t.Fatalf("unmarshal output settings: %v", err)
+	}
+	if cfg.Output.Color == nil || *cfg.Output.Color {
+		t.Fatalf("output.color = %v, want explicit false", cfg.Output.Color)
+	}
+	if cfg.Output.Emoji == nil || !*cfg.Output.Emoji {
+		t.Fatalf("output.emoji = %v, want explicit true", cfg.Output.Emoji)
+	}
+	generated := generateConfigYAML(&cfg)
+	if !strings.Contains(generated, "  color: false") || !strings.Contains(generated, "  emoji: true") {
+		t.Fatal("generated config did not preserve output.color and output.emoji")
 	}
 }

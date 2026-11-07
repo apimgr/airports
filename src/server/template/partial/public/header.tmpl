@@ -2,7 +2,7 @@
 <div class="header-container">
     <div class="header-left">
         <button class="mobile-menu-toggle" data-action="toggle-mobile-menu">☰</button>
-        <a class="logo" href="/">✈️ Airports API</a>
+        <a class="logo" href="{{.BaseURL}}/">✈️ Airports API</a>
     </div>
     {{template "nav" .}}
     <div class="header-right">
@@ -18,7 +18,7 @@
             <span class="theme-icon">🌙</span>
         </button>
         <noscript>
-            <form method="post" action="/theme" class="theme-form-noscript">
+            <form method="post" action="{{.BaseURL}}/theme" class="theme-form-noscript">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <select name="theme" aria-label="{{t "theme.toggle"}}">
                     <option value="light" {{if eq .ThemeClass "theme-light"}}selected{{end}}>{{t "theme.light"}}</option>

@@ -17,11 +17,11 @@
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="{{.Title}} - Airports API">
     <meta name="twitter:description" content="{{.Description}}">
-    <link rel="stylesheet" href="/static/css/common.css">
-    <link rel="stylesheet" href="/static/css/components.css">
-    <link rel="stylesheet" href="/static/css/public.css">
-    <link rel="icon" type="image/png" href="/static/favicon.png">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/common.css">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/components.css">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/public.css">
+    <link rel="icon" type="image/png" href="{{.BaseURL}}/static/favicon.png">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.webmanifest">
     <meta name="theme-color" content="#bd93f9">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -35,5 +35,9 @@
       "url": "{{.CanonicalURL}}"
     }
     </script>
+    {{if .TrackingEnabled}}
+    <script defer src="{{.BaseURL}}/static/js/analytics.js" data-provider="{{.TrackingType}}" data-id="{{.TrackingID}}" data-url="{{.TrackingURL}}"></script>
+    {{if .TrackingSimple}}<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade"></noscript>{{end}}
+    {{end}}
 </head>
 {{end}}

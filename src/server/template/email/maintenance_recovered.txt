@@ -1,0 +1,7 @@
+Subject: Service Recovered - {app_name}
+---
+{app_name} recovered from maintenance mode.
+
+Cause: {reason}
+Maintenance duration: {duration}
+Recovered at: {timestamp}

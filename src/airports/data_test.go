@@ -169,7 +169,8 @@ func BenchmarkGetByCode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		svc.GetByCode("KJFK")
+		if _, err := svc.GetByCode("KJFK"); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
-

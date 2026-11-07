@@ -240,6 +240,15 @@ var isRootOrAdminFunc = func() bool {
 	return os.Geteuid() == 0
 }
 
+var startedElevated = isRootOrAdmin()
+
+// SetStartedElevated records the startup privilege state before privilege drop.
+func SetStartedElevated(elevated bool) {
+	startedElevated = elevated
+}
+
+const defaultProjectName = "airports"
+
 // GetCacheDir returns the OS/privilege-appropriate cache directory per
 // AI.md PART 4. Container paths take priority, matching GetDefaultDirs.
 func GetCacheDir(projectName string) string {
@@ -327,56 +336,82 @@ func GetPIDFile(projectName string) string {
 	}
 }
 
-// GetBackupDir returns the OS/privilege-appropriate backup directory per
-// AI.md PART 4. Container paths take priority, matching GetDefaultDirs.
-func GetBackupDir(projectName string) string {
-	if IsRunningInContainer() {
-		return filepath.Join("/data", "backups", projectName)
+// GetBackupDir resolves --backup, BACKUP_DIR, and the system or user default.
+func GetBackupDir(flagValue, dataDir string) string {
+	if flagValue != "" {
+		return flagValue
 	}
+	if envValue := os.Getenv("BACKUP_DIR"); envValue != "" {
+		return envValue
+	}
+	if IsRunningInContainer() {
+		return filepath.Join("/data", "backups", defaultProjectName)
+	}
+	if isWritableFunc(systemBackupDir()) {
+		return systemBackupDir()
+	}
+	if startedElevated {
+		return filepath.Join(dataDir, "backup")
+	}
+	return userBackupDir()
+}
 
-	isRoot := isRootOrAdmin()
-
-	switch {
-	case goosFunc() == "windows":
-		if isRoot {
-			programData := os.Getenv("ProgramData")
-			if programData == "" {
-				programData = "C:\\ProgramData"
-			}
-			return filepath.Join(programData, "Backups", OrgName, projectName)
+func systemBackupDir() string {
+	switch goosFunc() {
+	case "darwin":
+		return filepath.Join("/Library/Backups", OrgName, defaultProjectName)
+	case "windows":
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = `C:\ProgramData`
 		}
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if localAppData == "" {
-			localAppData = filepath.Join(currentHomeDir(), "AppData", "Local")
-		}
-		return filepath.Join(localAppData, "Backups", OrgName, projectName)
-	case goosFunc() == "darwin":
-		if isRoot {
-			return filepath.Join("/Library/Backups", OrgName, projectName)
-		}
-		return filepath.Join(currentHomeDir(), "Library", "Backups", OrgName, projectName)
-	case isBSD():
-		if isRoot {
-			return filepath.Join("/var/backups", OrgName, projectName)
-		}
-		xdgData := os.Getenv("XDG_DATA_HOME")
-		if xdgData == "" {
-			xdgData = filepath.Join(currentHomeDir(), ".local", "share")
-		}
-		return filepath.Join(xdgData, "Backups", OrgName, projectName)
-	case goosFunc() == "linux":
-		if isRoot {
-			return filepath.Join("/mnt/Backups", OrgName, projectName)
-		}
-		xdgData := os.Getenv("XDG_DATA_HOME")
-		if xdgData == "" {
-			xdgData = filepath.Join(currentHomeDir(), ".local", "share")
-		}
-		return filepath.Join(xdgData, "Backups", OrgName, projectName)
+		return filepath.Join(programData, "Backups", OrgName, defaultProjectName)
+	case "freebsd", "openbsd", "netbsd", "dragonfly":
+		return filepath.Join("/var/backups", OrgName, defaultProjectName)
 	default:
-		return filepath.Join("/mnt/Backups", OrgName, projectName)
+		return filepath.Join("/mnt/Backups", OrgName, defaultProjectName)
 	}
 }
+
+func userBackupDir() string {
+	home := currentHomeDir()
+	switch goosFunc() {
+	case "darwin":
+		return filepath.Join(home, "Library", "Backups", OrgName, defaultProjectName)
+	case "windows":
+		localAppData := os.Getenv("LOCALAPPDATA")
+		if localAppData == "" {
+			localAppData = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(localAppData, "Backups", OrgName, defaultProjectName)
+	default:
+		xdgData := os.Getenv("XDG_DATA_HOME")
+		if xdgData == "" {
+			xdgData = filepath.Join(home, ".local", "share")
+		}
+		return filepath.Join(xdgData, "Backups", OrgName, defaultProjectName)
+	}
+}
+
+func isWritable(path string) bool {
+	parent := filepath.Dir(path)
+	info, err := os.Stat(parent)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	testFile, err := os.CreateTemp(parent, ".airports-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := testFile.Name()
+	if err := testFile.Close(); err != nil {
+		_ = os.Remove(name)
+		return false
+	}
+	return os.Remove(name) == nil
+}
+
+var isWritableFunc = isWritable
 
 // GetSSLDir returns the OS/privilege-appropriate SSL certificate directory
 // per AI.md PART 4 (contains letsencrypt/ and local/ subdirectories).

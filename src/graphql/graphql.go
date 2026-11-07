@@ -56,11 +56,15 @@ func AssetsHandler(prefix string) http.Handler {
 
 // UIHandler serves the GraphiQL page that loads the embedded assets and
 // points at the GraphQL endpoint at endpointPath.
-func UIHandler(endpointPath, assetsPrefix string) http.HandlerFunc {
-	page := renderGraphiQLHTML(endpointPath, assetsPrefix)
+func UIHandler(endpointPath, assetsPrefix string, baseURLResolver ...func(*http.Request) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		baseURL := ""
+		if len(baseURLResolver) > 0 {
+			baseURL = baseURLResolver[0](r)
+		}
+		page := renderGraphiQLHTML(baseURL+endpointPath, baseURL+assetsPrefix, baseURL)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}
 }
 

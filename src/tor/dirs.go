@@ -20,9 +20,8 @@ type Dirs struct {
 	SiteDir string
 	// TorrcPath is {config_dir}/tor/torrc.
 	TorrcPath string
-	// KeyPath is {data_dir}/tor/site/hs_ed25519_secret_key — the
-	// persisted key file this package writes/reads (stored as a
-	// "type:base64blob" string produced by bine's control.Key).
+	// KeyPath is {data_dir}/tor/site/hs_ed25519_secret_key in Tor's native
+	// 32-byte header + 64-byte expanded-key format.
 	KeyPath string
 	// LogFile is {log_dir}/tor.log.
 	LogFile string

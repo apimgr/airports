@@ -56,11 +56,11 @@ func TestAirportEndpoints(t *testing.T) {
 	}{
 		{"Get JFK by ICAO", "/api/v1/airports/KJFK", http.StatusOK},
 		{"Get JFK by IATA", "/api/v1/airports/JFK", http.StatusOK},
-		{"Search airports", "/api/v1/search?q=New+York", http.StatusOK},
+		{"Search airports", "/api/v1/airports/search?q=New+York", http.StatusOK},
 		{"List airports", "/api/v1/airports?limit=10", http.StatusOK},
-		{"Nearby airports", "/api/v1/nearby?lat=40.6398&lon=-73.7789&radius=50", http.StatusOK},
-		{"Bounding box", "/api/v1/bbox?minLat=40&maxLat=41&minLon=-74&maxLon=-73", http.StatusOK},
-		{"Autocomplete", "/api/v1/autocomplete?q=JFK", http.StatusOK},
+		{"Nearby airports", "/api/v1/airports/nearby?lat=40.6398&lon=-73.7789&radius=50", http.StatusOK},
+		{"Bounding box", "/api/v1/airports/within?minLat=40&maxLat=41&minLon=-74&maxLon=-73", http.StatusOK},
+		{"Autocomplete", "/api/v1/airports/autocomplete?q=JFK", http.StatusOK},
 		{"Get countries", "/api/v1/countries", http.StatusOK},
 		{"Get states", "/api/v1/states/US", http.StatusOK},
 		{"Airport stats", "/api/v1/stats", http.StatusOK},
@@ -69,11 +69,16 @@ func TestAirportEndpoints(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := http.Get(ts.URL + tt.endpoint)
+			req, err := http.NewRequest(http.MethodGet, ts.URL+tt.endpoint, nil)
+			if err != nil {
+				t.Fatalf("Create request failed: %v", err)
+			}
+			req.Header.Set("Accept", "application/json")
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tt.wantStatus {
 				t.Errorf("Expected status %d, got %d", tt.wantStatus, resp.StatusCode)
@@ -108,7 +113,7 @@ func TestGeoIPEndpoints(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tt.wantStatus {
 				t.Errorf("Expected status %d, got %d", tt.wantStatus, resp.StatusCode)
@@ -124,14 +129,20 @@ func TestHealthEndpoint(t *testing.T) {
 	// /healthz is an opt-in root alias (server.healthz.root.enabled,
 	// AI.md PART 13) that setupTestServer's zero-value config leaves
 	// disabled; /server/healthz is the always-on canonical endpoint.
-	resp, err := http.Get(ts.URL + "/server/healthz")
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/server/healthz", nil)
+	if err != nil {
+		t.Fatalf("Create request: %v", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "airports-cli/integration-test")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("Expected status 503 for unhealthy dependencies, got %d", resp.StatusCode)
 	}
 
 	// setupTestServer wires no db/scheduler, so checks.database and
@@ -161,7 +172,7 @@ func TestFullDatabaseExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)

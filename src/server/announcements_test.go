@@ -108,7 +108,7 @@ func TestHandleAnnouncementDismissSetsCookieAndRedirects(t *testing.T) {
 	form := url.Values{"id": {"maintenance-1"}}
 	r := httptest.NewRequest(http.MethodPost, "/announcements/dismiss", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.Header.Set("Referer", "/search")
+	r.Header.Set("Referer", "/airports/search")
 	w := httptest.NewRecorder()
 
 	s.handleAnnouncementDismiss(w, r)

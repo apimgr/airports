@@ -2,15 +2,14 @@ package tor
 
 // Config holds all Tor-related settings sourced from the operator's
 // server.yml `server.tor` section per AI.md PART 31 "Configuration".
-// Enabled is a tri-state pointer: nil means "not set in server.yml", which
-// resolves to auto-detect (enabled only if a tor binary is found on the
-// system); an explicit true/false always overrides auto-detection.
 type Config struct {
-	// Enabled overrides auto-detection when non-nil. Per PART 31, the
-	// hidden service is normally always-on when a tor binary is found, but
-	// this project's config schema still exposes an explicit override so
-	// an operator can force Tor off even when a binary is present.
-	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// OnionAddress is the configured v3 .onion hostname used for request
+	// detection and Tor-safe absolute URLs. Empty disables explicit detection.
+	OnionAddress string `yaml:"onion_address" json:"onion_address"`
+
+	// ContactEmail is shown only to Tor clients; it never falls back to the
+	// clearnet security contact.
+	ContactEmail string `yaml:"contact_email" json:"contact_email"`
 
 	// Binary is the path to the tor executable. Empty means auto-detect
 	// via PATH and common per-OS install locations.
@@ -65,7 +64,6 @@ type Config struct {
 // DefaultConfig returns the documented PART 31 defaults.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:                   nil,
 		Binary:                    "",
 		UseNetwork:                false,
 		MaxCircuits:               32,
@@ -119,13 +117,9 @@ func applyDefaults(cfg Config) Config {
 	return cfg
 }
 
-// resolveEnabled implements the PART 31 / task-defined auto-enable rule:
-// an explicit Enabled value always wins; otherwise Tor is considered
-// enabled only when a usable tor binary can be located.
+// resolveEnabled implements the PART 31 auto-enable rule: Tor is enabled
+// whenever a usable tor binary can be located.
 func resolveEnabled(cfg Config, findBinary func(configured string) (string, error)) bool {
-	if cfg.Enabled != nil {
-		return *cfg.Enabled
-	}
 	_, err := findBinary(cfg.Binary)
 	return err == nil
 }

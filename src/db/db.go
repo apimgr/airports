@@ -67,15 +67,24 @@ func Open(cfg config.DatabaseConfig, projectName string) (*sql.DB, error) {
 	sqlDB.SetConnMaxLifetime(maxLifetime)
 	sqlDB.SetConnMaxIdleTime(maxIdleTime)
 
-	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	queryStarted := time.Now()
+	result, err := sqlDB.Exec("PRAGMA journal_mode=WAL")
+	logExecQuery("PRAGMA journal_mode=WAL", 0, queryStarted, result, err)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("db: enable WAL mode: %w", err)
 	}
-	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	queryStarted = time.Now()
+	result, err = sqlDB.Exec("PRAGMA busy_timeout=5000")
+	logExecQuery("PRAGMA busy_timeout=5000", 0, queryStarted, result, err)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("db: set busy_timeout: %w", err)
 	}
-	if _, err := sqlDB.Exec("PRAGMA foreign_keys=ON"); err != nil {
+	queryStarted = time.Now()
+	result, err = sqlDB.Exec("PRAGMA foreign_keys=ON")
+	logExecQuery("PRAGMA foreign_keys=ON", 0, queryStarted, result, err)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("db: enable foreign_keys: %w", err)
 	}

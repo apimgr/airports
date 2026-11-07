@@ -46,7 +46,7 @@ func (s *fakeSMTPServer) acceptLoop() {
 }
 
 func (s *fakeSMTPServer) handle(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	reader := bufio.NewReader(conn)
 	var transcript strings.Builder
 

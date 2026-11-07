@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	dbmetrics "github.com/apimgr/airports/src/db"
+	paths "github.com/apimgr/airports/src/path"
 	_ "modernc.org/sqlite"
 )
 
@@ -133,7 +136,7 @@ func writeContainer(path string, manifestJSON, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("backup: create backup file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(containerMagic[:]); err != nil {
 		return fmt.Errorf("backup: write header: %w", err)
@@ -324,7 +327,7 @@ func addPathToTar(tw *tar.Writer, srcPath, tarName string, info os.FileInfo) err
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = io.Copy(tw, f)
 	return err
 }
@@ -364,11 +367,19 @@ func Verify(path string, password string) error {
 		return fmt.Errorf("verify: checksum valid: mismatch (want %s, got %s)", manifest.Checksum, want)
 	}
 
-	extractDir, err := os.MkdirTemp("", "airports-verify-*")
+	baseDir := filepath.Join(os.TempDir(), paths.OrgName)
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return fmt.Errorf("verify: content extraction: create temp base: %w", err)
+	}
+	extractDir, err := os.MkdirTemp(baseDir, "airports-verify-*")
 	if err != nil {
 		return fmt.Errorf("verify: content extraction: create temp dir: %w", err)
 	}
-	defer os.RemoveAll(extractDir)
+	defer func() {
+		if err := os.RemoveAll(extractDir); err != nil {
+			log.Printf("Warning: could not remove backup verification directory: %v", err)
+		}
+	}()
 
 	dbPath, err := extractTarGz(plaintext, extractDir)
 	if err != nil {
@@ -414,7 +425,7 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 	if err != nil {
 		return "", fmt.Errorf("read gzip: %w", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	tarReader := tar.NewReader(gzReader)
 
@@ -462,7 +473,7 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 				return "", err
 			}
 			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
+				_ = outFile.Close()
 				return "", err
 			}
 			if err := outFile.Close(); err != nil {
@@ -490,13 +501,21 @@ func verifySQLiteIntegrity(dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	var result string
-	if err := sqlDB.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&result); err != nil {
+	query := "PRAGMA integrity_check"
+	started := time.Now()
+	err = sqlDB.QueryRowContext(ctx, query).Scan(&result)
+	rows := int64(0)
+	if err == nil {
+		rows = 1
+	}
+	dbmetrics.LogQuery(query, 0, started, rows, err)
+	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("run integrity_check: timed out: %w", err)
 		}

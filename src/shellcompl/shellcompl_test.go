@@ -2,7 +2,6 @@ package shellcompl
 
 import (
 	"bytes"
-	"os"
 	"strings"
 	"testing"
 )
@@ -60,14 +59,13 @@ func TestExtract(t *testing.T) {
 // Covers DetectShell: $SHELL set to a full path vs unset (defaults to bash).
 func TestDetectShell(t *testing.T) {
 	t.Run("set", func(t *testing.T) {
-		os.Setenv("SHELL", "/usr/bin/zsh")
-		defer os.Unsetenv("SHELL")
+		t.Setenv("SHELL", "/usr/bin/zsh")
 		if got := DetectShell(); got != "zsh" {
 			t.Errorf("DetectShell() = %q, want zsh", got)
 		}
 	})
 	t.Run("unset-defaults-bash", func(t *testing.T) {
-		os.Unsetenv("SHELL")
+		t.Setenv("SHELL", "")
 		if got := DetectShell(); got != "bash" {
 			t.Errorf("DetectShell() = %q, want bash", got)
 		}
@@ -148,8 +146,7 @@ func TestHandle(t *testing.T) {
 	})
 
 	t.Run("empty-shell-auto-detects", func(t *testing.T) {
-		os.Setenv("SHELL", "/bin/bash")
-		defer os.Unsetenv("SHELL")
+		t.Setenv("SHELL", "/bin/bash")
 		var out, errOut bytes.Buffer
 		code := Handle(&out, &errOut, "completions", "", "airports-cli", commands, flags)
 		if code != 0 {

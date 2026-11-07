@@ -5,8 +5,8 @@ import "testing"
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Enabled != nil {
-		t.Errorf("Enabled = %v, want nil (auto-detect)", cfg.Enabled)
+	if cfg.OnionAddress != "" || cfg.ContactEmail != "" {
+		t.Errorf("OnionAddress/ContactEmail = %q/%q, want empty defaults", cfg.OnionAddress, cfg.ContactEmail)
 	}
 	if cfg.Binary != "" {
 		t.Errorf("Binary = %q, want empty (auto-detect)", cfg.Binary)
@@ -91,33 +91,7 @@ func TestApplyDefaultsPreservesExplicitValues(t *testing.T) {
 	}
 }
 
-func TestResolveEnabledExplicitTrue(t *testing.T) {
-	yes := true
-	cfg := Config{Enabled: &yes}
-
-	got := resolveEnabled(cfg, func(string) (string, error) {
-		return "", ErrBinaryNotFound
-	})
-
-	if !got {
-		t.Error("resolveEnabled() = false, want true (explicit override wins even with no binary)")
-	}
-}
-
-func TestResolveEnabledExplicitFalse(t *testing.T) {
-	no := false
-	cfg := Config{Enabled: &no}
-
-	got := resolveEnabled(cfg, func(string) (string, error) {
-		return "/usr/bin/tor", nil
-	})
-
-	if got {
-		t.Error("resolveEnabled() = true, want false (explicit override wins even with a binary present)")
-	}
-}
-
-func TestResolveEnabledAutoDetectFound(t *testing.T) {
+func TestResolveEnabledWhenBinaryFound(t *testing.T) {
 	cfg := Config{}
 
 	got := resolveEnabled(cfg, func(string) (string, error) {
@@ -125,11 +99,11 @@ func TestResolveEnabledAutoDetectFound(t *testing.T) {
 	})
 
 	if !got {
-		t.Error("resolveEnabled() = false, want true (auto-detect found a binary)")
+		t.Error("resolveEnabled() = false, want true when a Tor binary is found")
 	}
 }
 
-func TestResolveEnabledAutoDetectNotFound(t *testing.T) {
+func TestResolveEnabledWhenBinaryMissing(t *testing.T) {
 	cfg := Config{}
 
 	got := resolveEnabled(cfg, func(string) (string, error) {
@@ -137,6 +111,6 @@ func TestResolveEnabledAutoDetectNotFound(t *testing.T) {
 	})
 
 	if got {
-		t.Error("resolveEnabled() = true, want false (auto-detect found no binary)")
+		t.Error("resolveEnabled() = true, want false when no Tor binary is found")
 	}
 }

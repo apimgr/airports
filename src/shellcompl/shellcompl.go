@@ -79,27 +79,27 @@ func Handle(w io.Writer, errW io.Writer, subcmd, shell, binaryName string, comma
 	case "completions":
 		script, err := GenerateCompletions(shell, binaryName, commands, flags)
 		if err != nil {
-			fmt.Fprintln(errW, err.Error())
+			_, _ = fmt.Fprintln(errW, err.Error())
 			return 1
 		}
-		fmt.Fprint(w, script)
+		_, _ = fmt.Fprint(w, script)
 		return 0
 	case "init":
 		script, err := GenerateInit(shell, binaryName)
 		if err != nil {
-			fmt.Fprintln(errW, err.Error())
+			_, _ = fmt.Fprintln(errW, err.Error())
 			return 1
 		}
-		fmt.Fprint(w, script)
+		_, _ = fmt.Fprint(w, script)
 		return 0
 	case "help":
-		fmt.Fprintf(w, "Shell integration for %s:\n", binaryName)
-		fmt.Fprintln(w, "  --shell completions [SHELL]  Print shell completions")
-		fmt.Fprintln(w, "  --shell init [SHELL]         Print shell init command")
-		fmt.Fprintln(w, "  SHELL: bash, zsh, fish, sh, dash, ksh, powershell, pwsh (auto-detect if omitted)")
+		_, _ = fmt.Fprintf(w, "Shell integration for %s:\n", binaryName)
+		_, _ = fmt.Fprintln(w, "  --shell completions [SHELL]  Print shell completions")
+		_, _ = fmt.Fprintln(w, "  --shell init [SHELL]         Print shell init command")
+		_, _ = fmt.Fprintln(w, "  SHELL: bash, zsh, fish, sh, dash, ksh, powershell, pwsh (auto-detect if omitted)")
 		return 0
 	default:
-		fmt.Fprintln(errW, "Usage: --shell [completions|init|help] [SHELL]")
+		_, _ = fmt.Fprintln(errW, "Usage: --shell [completions|init|help] [SHELL]")
 		return 1
 	}
 }

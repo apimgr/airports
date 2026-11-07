@@ -25,6 +25,37 @@
   gap: var(--space-md);
 }
 
+@media (max-width: 767px) {
+  .header-container {
+    position: relative;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .header-left,
+  .header-right {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .header-left {
+    justify-content: space-between;
+  }
+
+  .header-right {
+    justify-content: flex-end;
+  }
+
+  .header-center {
+    top: 100%;
+    z-index: 10;
+  }
+
+  .logo {
+    font-size: 1.25rem;
+  }
+}
+
 .logo {
   font-size: 1.5rem;
   font-weight: bold;
@@ -228,6 +259,7 @@
    than components.css (AI.md PART 16: components.css is for widgets shared
    across 2+ pages). */
 .feature-card {
+  display: block;
   background: var(--color-bg-secondary);
   padding: var(--space-xl);
   border-radius: 12px;
@@ -235,6 +267,10 @@
   cursor: pointer;
   transition: all var(--transition-normal);
   border: 2px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  width: 100%;
 }
 
 .feature-card:hover {
@@ -307,6 +343,20 @@
 .endpoint-desc {
   color: var(--color-muted);
   font-size: 0.9rem;
+}
+
+@media (max-width: 767px) {
+  .endpoint-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .endpoint-item code,
+  .endpoint-desc {
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Page Headers */
@@ -829,3 +879,26 @@
   color: var(--color-muted);
   margin-bottom: var(--space-lg);
 }
+
+
+/* Interactive OpenStreetMap enhancement; coordinate links remain available without JS. */
+.airport-map {
+  margin: var(--space-xl) 0;
+  padding: var(--space-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.airport-map[hidden] { display: none; }
+.map-toolbar { display: flex; justify-content: space-between; align-items: center; gap: var(--space-md); margin-bottom: var(--space-sm); }
+.map-toolbar h3 { margin: 0; color: var(--color-primary); }
+.map-zoom-controls { display: flex; gap: var(--space-sm); }
+.map-zoom-controls button { min-width: 44px; min-height: 44px; color: var(--color-text); background: var(--color-bg-hover); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; }
+.map-canvas { position: relative; height: 360px; overflow: hidden; background: var(--color-bg-hover); border-radius: 8px; touch-action: none; cursor: grab; }
+.map-canvas:active { cursor: grabbing; }
+.map-canvas canvas { display: block; width: 100%; height: 100%; }
+.map-marker-layer { position: absolute; inset: 0; pointer-events: none; }
+.map-marker { position: absolute; transform: translate(-50%, -100%); pointer-events: auto; border: 2px solid white; border-radius: 999px; background: var(--color-primary); color: var(--color-text-on-primary); min-width: 32px; min-height: 32px; font-weight: bold; cursor: pointer; box-shadow: var(--shadow-md); }
+.map-attribution { margin-top: var(--space-xs); text-align: end; font-size: .8rem; color: var(--color-muted); }
+.map-error { margin: var(--space-sm) 0 0; color: var(--color-muted); }
+@media (max-width: 600px) { .map-canvas { height: 280px; } .airport-map { padding: var(--space-md); } }

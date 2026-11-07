@@ -1,11 +1,13 @@
 package tor
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -100,24 +102,16 @@ func (m *Manager) Regenerate(ctx context.Context) error {
 		m.mu.Unlock()
 		return ErrNotEnabled
 	}
-	keyPath := m.dirs.KeyPath
 	running := m.t != nil
-	oldServiceID := m.serviceID
-	t := m.t
+	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
-
-	if running && t != nil {
-		if err := t.Control.DelOnion(oldServiceID); err != nil {
-			return fmt.Errorf("tor: regenerate: delete old onion: %w", err)
+	if running {
+		if err := m.Stop(); err != nil {
+			return fmt.Errorf("tor: regenerate: stop: %w", err)
 		}
 	}
-
-	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(siteDir); err != nil {
 		return fmt.Errorf("tor: regenerate: remove old key: %w", err)
-	}
-
-	if running {
-		return m.Restart(ctx)
 	}
 	return m.Start(ctx)
 }
@@ -269,23 +263,25 @@ func (m *Manager) ApplyVanity(ctx context.Context) error {
 		return fmt.Errorf("tor: no completed vanity search result to apply")
 	}
 	keyBlob := m.vanity.keyBlob
-	keyPath := m.dirs.KeyPath
 	running := m.t != nil
-	oldServiceID := m.serviceID
-	t := m.t
+	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
+	if running {
+		if err := m.Stop(); err != nil {
+			return fmt.Errorf("tor: apply vanity: stop: %w", err)
+		}
+	}
 
 	key, err := control.KeyFromString(keyBlob)
 	if err != nil {
 		return fmt.Errorf("tor: apply vanity: parse generated key: %w", err)
 	}
 
-	if running && t != nil {
-		if err := t.Control.DelOnion(oldServiceID); err != nil {
-			return fmt.Errorf("tor: apply vanity: delete old onion: %w", err)
-		}
+	if err := os.RemoveAll(siteDir); err != nil {
+		return fmt.Errorf("tor: apply vanity: remove old identity: %w", err)
 	}
 
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
 	if err := saveKey(keyPath, key); err != nil {
 		return fmt.Errorf("tor: apply vanity: save key: %w", err)
 	}
@@ -294,19 +290,12 @@ func (m *Manager) ApplyVanity(ctx context.Context) error {
 	m.vanity = nil
 	m.mu.Unlock()
 
-	if running {
-		return m.Restart(ctx)
-	}
 	return m.Start(ctx)
 }
 
-// parseImportedKey parses raw key material supplied to ImportKeys. It first
-// tries this project's own persisted "type:base64blob" format (the same
-// format saveKey writes and control.KeyFromString reads); if that fails, it
-// falls back to detecting Tor's native 96-byte hs_ed25519_secret_key file
-// format (a 32-byte magic header followed by the 64-byte expanded private
-// key), so a key exported from a real Tor hidden service can be migrated in
-// directly.
+// parseImportedKey accepts the legacy project control-key string or Tor's
+// native 96-byte hs_ed25519_secret_key file format. The installed key is
+// always written in Tor's native format.
 func parseImportedKey(data []byte) (control.Key, error) {
 	if key, err := control.KeyFromString(strings.TrimSpace(string(data))); err == nil {
 		return key, nil
@@ -314,7 +303,7 @@ func parseImportedKey(data []byte) (control.Key, error) {
 
 	const nativeHeaderLen = 32
 	const nativeKeyLen = nativeHeaderLen + 64
-	if len(data) == nativeKeyLen {
+	if len(data) == nativeKeyLen && bytes.HasPrefix(data[:nativeHeaderLen], []byte(nativeSecretKeyHeader)) {
 		return control.ED25519KeyFromBlob(base64.StdEncoding.EncodeToString(data[nativeHeaderLen:]))
 	}
 
@@ -332,29 +321,27 @@ func (m *Manager) ImportKeys(ctx context.Context, data []byte) error {
 		m.mu.Unlock()
 		return ErrNotEnabled
 	}
-	keyPath := m.dirs.KeyPath
 	running := m.t != nil
-	oldServiceID := m.serviceID
-	t := m.t
+	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
+	if running {
+		if err := m.Stop(); err != nil {
+			return fmt.Errorf("tor: import keys: stop: %w", err)
+		}
+	}
 
 	key, err := parseImportedKey(data)
 	if err != nil {
 		return err
 	}
 
-	if running && t != nil {
-		if err := t.Control.DelOnion(oldServiceID); err != nil {
-			return fmt.Errorf("tor: import keys: delete old onion: %w", err)
-		}
+	if err := os.RemoveAll(siteDir); err != nil {
+		return fmt.Errorf("tor: import keys: remove old identity: %w", err)
 	}
 
-	if err := saveKey(keyPath, key); err != nil {
+	if err := saveKey(filepath.Join(siteDir, "hs_ed25519_secret_key"), key); err != nil {
 		return fmt.Errorf("tor: import keys: save key: %w", err)
 	}
 
-	if running {
-		return m.Restart(ctx)
-	}
 	return m.Start(ctx)
 }

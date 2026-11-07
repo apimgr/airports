@@ -26,7 +26,7 @@ func startFakeSMTPListener(t *testing.T) (host string, port int) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = c.Write([]byte("220 fake.smtp ESMTP ready\r\n"))
 				reader := bufio.NewReader(c)
 				for {

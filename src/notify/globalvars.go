@@ -14,11 +14,9 @@ import (
 const defaultAppName = "airports"
 
 // GlobalVars returns the template variables available in every email per
-// AI.md PART 17 "Global Variables (Available in All Templates)". Onion/I2P
-// variables are always empty: onion address resolution requires a live
-// *tor.Manager instance not reachable from a bare *config.Config, and this
-// project has no I2P subsystem at all (confirmed: no I2P code anywhere in
-// src/), so fabricating those values would be a spec violation.
+// AI.md PART 17 "Global Variables (Available in All Templates)". Overlay
+// network addresses require live Tor/I2P manager state, so callers must
+// supply those values as Send overrides when the services are running.
 func GlobalVars(cfg *config.Config) map[string]string {
 	appName := cfg.Server.Branding.Title
 	if appName == "" {

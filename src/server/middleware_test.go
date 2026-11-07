@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,7 +44,12 @@ func TestSecurityHeaders(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			s.securityHeaders(next).ServeHTTP(w, r)
+			trustedHeaders := TrustedClientIPFromHeaders(defaultTrustedProxyCIDRs...)
+			if tt.forwardedTo != "" {
+				r.RemoteAddr = "10.0.0.5:443"
+				r.Header.Set("X-Forwarded-For", "203.0.113.5")
+			}
+			trustedHeaders(s.securityHeaders(next)).ServeHTTP(w, r)
 
 			if !called {
 				t.Fatal("next handler was not called")
@@ -66,6 +73,56 @@ func TestSecurityHeaders(t *testing.T) {
 				t.Error("expected Content-Security-Policy header to be set")
 			}
 		})
+	}
+}
+
+func TestSecurityHeadersTorHTTPSemantics(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"
+	r := httptest.NewRequest(http.MethodGet, "http://exampleexampleexampleexampleexampleexampleexampleexample.onion/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), torCircuitContextKey{}, "fc00::1234"))
+	r.TLS = &tls.ConnectionState{}
+	r.RemoteAddr = "10.0.0.5:443"
+	r.Header.Set("X-Forwarded-For", "203.0.113.5")
+	r.Header.Set("X-Forwarded-Host", "clearnet.example.com")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	TrustedClientIPFromHeaders(defaultTrustedProxyCIDRs...)(s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))).ServeHTTP(w, r)
+
+	if got := w.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Errorf("HSTS = %q, want omitted for Tor", got)
+	}
+	if got := w.Header().Get("Content-Security-Policy"); strings.Contains(got, "upgrade-insecure-requests") {
+		t.Errorf("CSP = %q, want no insecure-request upgrade for Tor", got)
+	}
+	if got := w.Header().Get("Reporting-Endpoints"); !strings.Contains(got, "http://exampleexample") {
+		t.Errorf("Reporting-Endpoints = %q, want the HTTP onion origin", got)
+	}
+}
+
+func TestOnionLocationOnlyOnClearnetHTMLPages(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"
+	request := httptest.NewRequest(http.MethodGet, "http://airports.example/?q=Tokyo", nil)
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.Set("Accept", "text/html")
+	response := httptest.NewRecorder()
+	s.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("HTML page status = %d, want %d", response.Code, http.StatusOK)
+	}
+	want := "http://exampleexampleexampleexampleexampleexampleexampleexample.onion/?q=Tokyo"
+	if got := response.Header().Get("Onion-Location"); got != want {
+		t.Errorf("Onion-Location = %q, want %q", got, want)
+	}
+
+	apiRequest := httptest.NewRequest(http.MethodGet, "http://airports.example/api/v1/server/healthz", nil)
+	apiResponse := httptest.NewRecorder()
+	s.Router().ServeHTTP(apiResponse, apiRequest)
+	if got := apiResponse.Header().Get("Onion-Location"); got != "" {
+		t.Errorf("API Onion-Location = %q, want omitted", got)
 	}
 }
 

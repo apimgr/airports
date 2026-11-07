@@ -52,6 +52,31 @@ func TestWriteDisabledIsNoop(t *testing.T) {
 	}
 }
 
+func TestPruneRotatedBeforePreservesActiveLog(t *testing.T) {
+	writer, _ := newTestWriter(t, FileConfig{Enabled: true, Filename: "server.log", Rotate: "never", Keep: "forever"})
+	if err := os.WriteFile(writer.Path(), []byte("active"), 0o600); err != nil {
+		t.Fatalf("create active log: %v", err)
+	}
+	rotated := writer.Path() + ".2020-01-01T00-00-00"
+	if err := os.WriteFile(rotated, []byte("old"), 0o600); err != nil {
+		t.Fatalf("create rotated log: %v", err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(rotated, old, old); err != nil {
+		t.Fatalf("age rotated log: %v", err)
+	}
+	deleted, err := writer.pruneRotatedBefore(time.Now().Add(-7 * 24 * time.Hour))
+	if err != nil || deleted != 1 {
+		t.Fatalf("pruneRotatedBefore() = (%d,%v), want (1,nil)", deleted, err)
+	}
+	if _, err := os.Stat(rotated); !os.IsNotExist(err) {
+		t.Errorf("expired rotated log still exists: %v", err)
+	}
+	if data, err := os.ReadFile(writer.Path()); err != nil || string(data) != "active" {
+		t.Errorf("active log = %q, %v; want preserved contents", data, err)
+	}
+}
+
 func TestRotateIfDueSizeThreshold(t *testing.T) {
 	cfg := FileConfig{Enabled: true, Filename: "access.log", Rotate: "never,1KB", Keep: "none"}
 	w, dir := newTestWriter(t, cfg)
@@ -247,12 +272,12 @@ func TestRotateCompressesWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open gz file: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("gzip.NewReader: %v", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 	got, err := io.ReadAll(gr)
 	if err != nil {
 		t.Fatalf("read gz contents: %v", err)
@@ -265,7 +290,7 @@ func TestRotateCompressesWhenConfigured(t *testing.T) {
 func TestConcurrentWrites(t *testing.T) {
 	cfg := FileConfig{Enabled: true, Filename: "server.log", Rotate: "never", Keep: "none"}
 	w, _ := newTestWriter(t, cfg)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	done := make(chan struct{})
 	for i := 0; i < 10; i++ {

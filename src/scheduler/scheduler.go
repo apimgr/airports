@@ -3,7 +3,7 @@
 // server.db, automatic catch-up of missed tasks after downtime, retry with
 // exponential backoff, and graceful shutdown. External schedulers (cron,
 // systemd timers, Task Scheduler, launchd, Kubernetes CronJob) are never
-// used; robfig/cron/v3 only supplies in-process schedule parsing/ticking.
+// used; Go's time.Ticker drives the in-process schedule loop.
 package scheduler
 
 import (
@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // TaskState is a scheduled task's persisted status, matching the
@@ -45,8 +45,10 @@ type HistoryEntry struct {
 type task struct {
 	id, name, schedule string
 	handler            func() error
-	entryID            cron.EntryID
-	hasEntry           bool
+	parsedSchedule     *taskSchedule
+	enabled            bool
+	nextRun            time.Time
+	running            bool
 
 	retryOnFail bool
 	retryDelay  time.Duration
@@ -54,6 +56,8 @@ type task struct {
 	mu            sync.Mutex
 	retryAttempts int
 	retryTimer    *time.Timer
+	retryPending  bool
+	retryRunning  bool
 }
 
 // maxRetries and the exponential backoff multiplier per AI.md PART 18
@@ -62,10 +66,16 @@ const maxRetries = 3
 
 // Scheduler is the always-running, database-backed task scheduler.
 type Scheduler struct {
-	c  *cron.Cron
-	db *sql.DB
+	db           *sql.DB
+	location     *time.Location
+	tickInterval time.Duration
+	started      bool
+	stopped      bool
+	stopCh       chan struct{}
+	loopDone     chan struct{}
 
 	catchUpWindow time.Duration
+	metrics       *PrometheusMetrics
 
 	tasksMu sync.RWMutex
 	tasks   map[string]*task
@@ -75,6 +85,7 @@ type Scheduler struct {
 	// execute() so Stop() can wait for any already-fired retry to finish
 	// instead of returning while one is still in flight.
 	retryWG sync.WaitGroup
+	runWG   sync.WaitGroup
 }
 
 // New creates a Scheduler backed by db (server.db) using the standard
@@ -96,25 +107,20 @@ func NewWithLocation(db *sql.DB, catchUpWindow time.Duration, loc *time.Location
 	if loc == nil {
 		loc = time.Local
 	}
-	c := cron.New(
-		cron.WithLocation(loc),
-		cron.WithLogger(cron.DiscardLogger),
-		cron.WithChain(
-			cron.Recover(cron.DefaultLogger), // panic -> log, continue
-		),
-	)
 	return &Scheduler{
-		c:             c,
 		db:            db,
+		location:      loc,
+		tickInterval:  100 * time.Millisecond,
 		catchUpWindow: catchUpWindow,
+		metrics:       NewPrometheusMetrics(),
 		tasks:         make(map[string]*task),
 	}
 }
 
-// RegisterTask registers a named, persisted cron job. schedule is a 5-field
-// cron expression or a robfig/cron descriptor (e.g. "@every 15m"). The
+// RegisterTask registers a named, persisted task. schedule is a five-field
+// cron expression or a supported descriptor (e.g. "@every 15m"). The
 // persisted `enabled` flag (loaded from server.db, defaulting to
-// enabledDefault on first sight) governs whether the cron entry is armed —
+// enabledDefault on first sight) governs whether the task is armed —
 // operator-driven Enable/Disable calls survive restarts.
 func (s *Scheduler) RegisterTask(id, name, schedule string, enabledDefault, retryOnFail bool, retryDelay time.Duration, handler func() error) error {
 	if s.db != nil {
@@ -149,6 +155,11 @@ func (s *Scheduler) RegisterTask(id, name, schedule string, enabledDefault, retr
 	if enabled {
 		if err := s.arm(t); err != nil {
 			log.Printf("scheduler: invalid schedule for %q (%q): %v — task skipped", id, schedule, err)
+			if s.db != nil {
+				if _, persistErr := setEnabled(s.db, id, false); persistErr != nil {
+					log.Printf("scheduler: failed to disable invalid task %q: %v", id, persistErr)
+				}
+			}
 			return nil
 		}
 	}
@@ -156,23 +167,30 @@ func (s *Scheduler) RegisterTask(id, name, schedule string, enabledDefault, retr
 	return nil
 }
 
-// arm adds (or re-adds) the cron entry for a task.
+// arm parses and arms a task schedule from the current time.
 func (s *Scheduler) arm(t *task) error {
-	id, err := s.c.AddFunc(t.schedule, func() { s.execute(t) })
+	parsed, err := parseTaskSchedule(t.schedule)
 	if err != nil {
 		return err
 	}
-	t.entryID = id
-	t.hasEntry = true
+	next := parsed.next(time.Now(), s.location)
+	if next.IsZero() {
+		return fmt.Errorf("schedule has no occurrence in the next six years")
+	}
+	t.mu.Lock()
+	t.parsedSchedule = parsed
+	t.enabled = true
+	t.nextRun = next
+	t.mu.Unlock()
 	return nil
 }
 
-// disarm removes a task's cron entry, if any.
+// disarm disables a task's schedule.
 func (s *Scheduler) disarm(t *task) {
-	if t.hasEntry {
-		s.c.Remove(t.entryID)
-		t.hasEntry = false
-	}
+	t.mu.Lock()
+	t.enabled = false
+	t.nextRun = time.Time{}
+	t.mu.Unlock()
 }
 
 // execute runs a task's handler, persists the result, records history, and
@@ -180,8 +198,10 @@ func (s *Scheduler) disarm(t *task) {
 func (s *Scheduler) execute(t *task) {
 	log.Printf("scheduler: running %q", t.id)
 	start := time.Now()
-	err := t.handler()
+	s.metrics.recordTaskStart(t.name)
+	err := runTaskSafely(t.handler)
 	duration := time.Since(start)
+	s.metrics.recordTaskEnd(t.name, duration, err)
 
 	status := "success"
 	errMsg := ""
@@ -200,10 +220,13 @@ func (s *Scheduler) execute(t *task) {
 		}
 	}
 
+	stopping := s.isStopped()
 	t.mu.Lock()
 	if err != nil && t.retryOnFail {
 		t.retryAttempts++
-		if t.retryAttempts <= maxRetries {
+		if stopping {
+			t.retryPending = true
+		} else if t.retryAttempts <= maxRetries {
 			delay := t.retryDelay
 			if delay <= 0 {
 				delay = 5 * time.Minute
@@ -214,9 +237,26 @@ func (s *Scheduler) execute(t *task) {
 			}
 			log.Printf("scheduler: scheduling retry %d/%d for %q in %s", t.retryAttempts, maxRetries, t.id, delay)
 			s.retryWG.Add(1)
+			t.retryPending = true
 			t.retryTimer = time.AfterFunc(delay, func() {
 				defer s.retryWG.Done()
+				s.tasksMu.RLock()
+				t.mu.Lock()
+				if s.stopped {
+					t.mu.Unlock()
+					s.tasksMu.RUnlock()
+					return
+				}
+				t.retryPending = false
+				t.retryRunning = true
+				s.runWG.Add(1)
+				t.mu.Unlock()
+				s.tasksMu.RUnlock()
+				defer s.runWG.Done()
 				s.execute(t)
+				t.mu.Lock()
+				t.retryRunning = false
+				t.mu.Unlock()
 			})
 		} else {
 			log.Printf("scheduler: task %q exhausted %d retries", t.id, maxRetries)
@@ -228,21 +268,42 @@ func (s *Scheduler) execute(t *task) {
 	t.mu.Unlock()
 }
 
+func (s *Scheduler) isStopped() bool {
+	s.tasksMu.RLock()
+	defer s.tasksMu.RUnlock()
+	return s.stopped
+}
+
+func runTaskSafely(handler func() error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("task panicked: %v", recovered)
+		}
+	}()
+	return handler()
+}
+
+// PrometheusCollector exposes scheduler metrics for registration by the server.
+func (s *Scheduler) PrometheusCollector() prometheus.Collector {
+	if s == nil {
+		return nil
+	}
+	return s.metrics
+}
+
 // nextRun returns a task's next scheduled invocation, or the zero time if
-// it has no armed cron entry.
+// the task is disabled.
 func (s *Scheduler) nextRun(t *task) time.Time {
-	if !t.hasEntry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.enabled {
 		return time.Time{}
 	}
-	entry := s.c.Entry(t.entryID)
-	if entry.ID == 0 {
-		return time.Time{}
-	}
-	return entry.Next
+	return t.nextRun
 }
 
 // NextRun returns id's next scheduled invocation, or the zero time if the
-// task is unknown or has no armed cron entry. Safe to call from within a
+// task is unknown or disabled. Safe to call from within a
 // task's own handler (e.g. to report the upcoming retry time in a
 // scheduler_error notification, AI.md PART 17).
 func (s *Scheduler) NextRun(id string) time.Time {
@@ -258,13 +319,21 @@ func (s *Scheduler) NextRun(id string) time.Time {
 // Start begins the scheduler: it first runs any tasks whose persisted
 // next_run fell within catchUpWindow of now (AI.md PART 18 "Startup
 // Behavior"), in ascending order of their original scheduled time, then
-// starts the live cron loop.
+// starts the live ticker loop.
 func (s *Scheduler) Start() {
+	s.tasksMu.Lock()
+	if s.started || s.stopped {
+		s.tasksMu.Unlock()
+		return
+	}
+	s.started = true
+	s.stopCh = make(chan struct{})
+	s.loopDone = make(chan struct{})
+	s.tasksMu.Unlock()
+
 	s.catchUp()
-	s.c.Start()
 
 	s.tasksMu.RLock()
-	defer s.tasksMu.RUnlock()
 	if s.db != nil {
 		for _, id := range s.order {
 			t := s.tasks[id]
@@ -274,6 +343,68 @@ func (s *Scheduler) Start() {
 				}
 			}
 		}
+	}
+	s.tasksMu.RUnlock()
+	go s.runLoop()
+}
+
+func (s *Scheduler) runLoop() {
+	defer close(s.loopDone)
+	ticker := time.NewTicker(s.tickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case now := <-ticker.C:
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+			s.runDue(now)
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+func (s *Scheduler) runDue(now time.Time) {
+	type dueTask struct {
+		task *task
+		next time.Time
+	}
+	due := make([]dueTask, 0)
+	s.tasksMu.RLock()
+	select {
+	case <-s.stopCh:
+		s.tasksMu.RUnlock()
+		return
+	default:
+	}
+	for _, id := range s.order {
+		t := s.tasks[id]
+		t.mu.Lock()
+		if t.enabled && !t.running && !t.nextRun.IsZero() && !t.nextRun.After(now) {
+			t.running = true
+			t.nextRun = t.parsedSchedule.next(now, s.location)
+			due = append(due, dueTask{task: t, next: t.nextRun})
+			s.runWG.Add(1)
+		}
+		t.mu.Unlock()
+	}
+	s.tasksMu.RUnlock()
+	for _, item := range due {
+		if s.db != nil && !item.next.IsZero() {
+			if err := updateNextRun(s.db, item.task.id, item.next); err != nil {
+				log.Printf("scheduler: failed to persist next_run for %q: %v", item.task.id, err)
+			}
+		}
+		go func(t *task) {
+			defer s.runWG.Done()
+			s.execute(t)
+			t.mu.Lock()
+			t.running = false
+			t.mu.Unlock()
+		}(item.task)
 	}
 }
 
@@ -318,14 +449,31 @@ func (s *Scheduler) catchUp() {
 	toRun := make([]dueTask, 0, len(due))
 	for _, m := range due {
 		if t, ok := s.tasks[m.id]; ok {
-			toRun = append(toRun, dueTask{t: t, due: m.due})
+			t.mu.Lock()
+			armed := t.enabled && t.parsedSchedule != nil
+			t.mu.Unlock()
+			if armed {
+				toRun = append(toRun, dueTask{t: t, due: m.due})
+			}
 		}
 	}
 	s.tasksMu.RUnlock()
 
 	for _, m := range toRun {
+		s.tasksMu.RLock()
+		stopping := s.stopped
+		if !stopping {
+			s.runWG.Add(1)
+		}
+		s.tasksMu.RUnlock()
+		if stopping {
+			continue
+		}
 		log.Printf("scheduler: catching up missed task %q (was due %s)", m.t.id, m.due.Format(time.RFC3339))
-		s.execute(m.t)
+		func() {
+			defer s.runWG.Done()
+			s.execute(m.t)
+		}()
 	}
 }
 
@@ -355,7 +503,10 @@ func (s *Scheduler) List() []TaskState {
 	out := make([]TaskState, 0, len(s.order))
 	for _, id := range s.order {
 		t := s.tasks[id]
-		out = append(out, TaskState{ID: t.id, Name: t.name, Schedule: t.schedule, Enabled: t.hasEntry})
+		t.mu.Lock()
+		enabled := t.enabled
+		t.mu.Unlock()
+		out = append(out, TaskState{ID: t.id, Name: t.name, Schedule: t.schedule, Enabled: enabled})
 	}
 	return out
 }
@@ -382,10 +533,17 @@ func (s *Scheduler) Get(id string) (TaskState, bool) {
 func (s *Scheduler) RunNow(id string) error {
 	s.tasksMu.RLock()
 	t, ok := s.tasks[id]
+	if ok && !s.stopped {
+		s.runWG.Add(1)
+	} else if s.stopped {
+		s.tasksMu.RUnlock()
+		return fmt.Errorf("scheduler: cannot run task %q after shutdown", id)
+	}
 	s.tasksMu.RUnlock()
 	if !ok {
 		return fmt.Errorf("scheduler: unknown task %q", id)
 	}
+	defer s.runWG.Done()
 	s.execute(t)
 	return nil
 }
@@ -398,20 +556,29 @@ func (s *Scheduler) Enable(id string) error {
 	if !ok {
 		return fmt.Errorf("scheduler: unknown task %q", id)
 	}
-	if s.db != nil {
-		if _, err := setEnabled(s.db, id, true); err != nil {
-			return fmt.Errorf("scheduler: persist enable %q: %w", id, err)
-		}
-	}
-	if !t.hasEntry {
+	t.mu.Lock()
+	enabled := t.enabled
+	t.mu.Unlock()
+	if !enabled {
 		if err := s.arm(t); err != nil {
 			return fmt.Errorf("scheduler: re-arm %q: %w", id, err)
+		}
+	}
+	if s.db != nil {
+		if _, err := setEnabled(s.db, id, true); err != nil {
+			s.disarm(t)
+			return fmt.Errorf("scheduler: persist enable %q: %w", id, err)
+		}
+		if err := updateNextRun(s.db, id, s.nextRun(t)); err != nil {
+			s.disarm(t)
+			_, _ = setEnabled(s.db, id, false)
+			return fmt.Errorf("scheduler: persist next run for %q: %w", id, err)
 		}
 	}
 	return nil
 }
 
-// Disable removes a task's cron entry and persists enabled=false.
+// Disable disarms a task and persists enabled=false.
 func (s *Scheduler) Disable(id string) error {
 	s.tasksMu.Lock()
 	defer s.tasksMu.Unlock()
@@ -439,24 +606,44 @@ func (s *Scheduler) History(id string, limit int) ([]HistoryEntry, error) {
 
 // Stop gracefully halts the scheduler, waiting up to 30 seconds for any
 // in-progress job to complete before returning, per AI.md PART 18
-// "Shutdown Behavior". This also covers retries scheduled via time.AfterFunc
-// in execute(): a retry timer that has not yet fired is cancelled outright,
-// but one that already fired (its retry goroutine is running or about to
-// start) is waited on via retryWG so Stop() cannot return while a retry is
-// still in flight.
+// "Shutdown Behavior". Pending and interrupted retries are persisted as
+// immediately due so the next process start catches them up.
 func (s *Scheduler) Stop() {
-	stopCtx := s.c.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	s.tasksMu.Lock()
+	if s.stopped {
+		s.tasksMu.Unlock()
+	} else if !s.started {
+		s.stopped = true
+		s.tasksMu.Unlock()
+	} else {
+		s.stopped = true
+		close(s.stopCh)
+		done := s.loopDone
+		s.tasksMu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			log.Printf("scheduler: shutdown timed out waiting for scheduler loop")
+		}
+	}
+	runDone := make(chan struct{})
+	go func() { s.runWG.Wait(); close(runDone) }()
+	runsFinished := false
 	select {
-	case <-stopCtx.Done():
+	case <-runDone:
+		runsFinished = true
 	case <-ctx.Done():
 		log.Printf("scheduler: shutdown timed out waiting for running tasks")
 	}
 
+	interrupted := make([]*task, 0)
+	now := time.Now()
 	s.tasksMu.RLock()
 	for _, t := range s.tasks {
 		t.mu.Lock()
+		wasRunning := (t.running && !runsFinished) || t.retryPending || t.retryRunning || (s.stopped && t.retryAttempts > 0)
 		if t.retryTimer != nil {
 			// Stop returns true only if it prevented the timer from firing —
 			// in that case the AfterFunc goroutine (and its retryWG.Done())
@@ -464,12 +651,25 @@ func (s *Scheduler) Stop() {
 			// here. If it returns false the timer already fired and the
 			// goroutine itself owns the Done() call.
 			if t.retryTimer.Stop() {
+				t.retryPending = false
 				s.retryWG.Done()
+				wasRunning = true
 			}
+		}
+		if wasRunning && t.enabled {
+			t.nextRun = now
+			interrupted = append(interrupted, t)
 		}
 		t.mu.Unlock()
 	}
 	s.tasksMu.RUnlock()
+	if s.db != nil {
+		for _, t := range interrupted {
+			if err := updateNextRun(s.db, t.id, now); err != nil {
+				log.Printf("scheduler: failed to persist interrupted task %q: %v", t.id, err)
+			}
+		}
+	}
 
 	waitDone := make(chan struct{})
 	go func() {
@@ -478,7 +678,7 @@ func (s *Scheduler) Stop() {
 	}()
 	select {
 	case <-waitDone:
-	case <-time.After(30 * time.Second):
+	case <-ctx.Done():
 		log.Printf("scheduler: shutdown timed out waiting for in-flight retries")
 	}
 }

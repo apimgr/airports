@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+container_name="airports-$(printf '%08x' $$)"
+exec docker run --rm --name "$container_name" -v "$PWD:/workspace" -w /workspace casjaysdev/go:latest golangci-lint "$@"

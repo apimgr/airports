@@ -6,15 +6,40 @@
 </section>
 
 <section class="page-section">
-    <div class="status-banner status-{{if eq $h.Status "healthy"}}ok{{else if eq $h.Status "degraded"}}warning{{else}}error{{end}}">
+    <div class="status-banner status-{{if eq $h.Status "healthy"}}ok{{else if or (eq $h.Status "degraded") (eq $h.Status "restart_required")}}warning{{else}}error{{end}}">
         <strong>
             {{if eq $h.Status "healthy"}}{{t "health.all_operational"}}
             {{else if eq $h.Status "degraded"}}{{t "health.degraded"}}
+            {{else if eq $h.Status "restart_required"}}Restart required
+            {{else if eq $h.Status "maintenance"}}Maintenance in progress
+            {{else if eq $h.Status "shutting_down"}}Shutting down
             {{else}}{{t "health.unhealthy"}}{{end}}
         </strong>
         <span class="badge badge-{{$h.Mode}}">{{$h.Mode}}</span>
+        {{if $h.PendingRestart}}
+        <p>Restart required for: {{range $index, $reason := $h.RestartReason}}{{if $index}}, {{end}}{{$reason}}{{end}}</p>
+        {{end}}
     </div>
 </section>
+
+{{if $h.Maintenance}}
+<section class="page-section section-card">
+    <h2>Maintenance details</h2>
+    <dl class="info-list">
+        <dt>Reason</dt><dd>{{$h.Maintenance.Reason}}</dd>
+        <dt>Message</dt><dd>{{$h.Maintenance.Message}}</dd>
+        <dt>Since</dt><dd>{{$h.Maintenance.Since}}</dd>
+        <dt>Self-healing</dt><dd>{{if $h.Maintenance.SelfHealing.Enabled}}Enabled{{else}}Disabled{{end}}</dd>
+        <dt>Attempts</dt><dd>{{$h.Maintenance.SelfHealing.Attempts}}</dd>
+        {{if $h.Maintenance.SelfHealing.LastAttempt}}
+        <dt>Last attempt</dt><dd>{{$h.Maintenance.SelfHealing.LastAttempt}}</dd>
+        {{end}}
+        {{if $h.Maintenance.SelfHealing.NextAttempt}}
+        <dt>Next attempt</dt><dd>{{$h.Maintenance.SelfHealing.NextAttempt}}</dd>
+        {{end}}
+    </dl>
+</section>
+{{end}}
 
 <section class="page-section section-card">
     <h2>{{t "health.version"}}</h2>
@@ -89,7 +114,7 @@
     <p class="muted auto-refresh">{{t "health.auto_refresh"}}</p>
     <p class="muted">
         <a href="{{.APIBase}}/server/healthz">JSON</a> &middot;
-        <a href="/server/healthz" rel="alternate" type="text/plain">text</a>
+        <a href="{{.BaseURL}}/server/healthz" rel="alternate" type="text/plain">text</a>
     </p>
 </footer>
 {{end}}

@@ -1,4 +1,9 @@
 // UI Helper Functions
+const API_BASE = document.documentElement.getAttribute('data-api-base');
+const BASE_URL = document.documentElement.getAttribute('data-base-url') || '';
+function appPath(path) {
+    return BASE_URL + path;
+}
 
 // escapeHtml escapes a string for safe interpolation into an innerHTML
 // template literal. Used wherever user-supplied input (as opposed to
@@ -18,7 +23,9 @@ function applyTheme(theme) {
     const html = document.documentElement;
     html.classList.remove('theme-dark', 'theme-light', 'theme-auto');
     html.classList.add('theme-' + theme);
-    document.cookie = 'theme=' + theme + '; path=/; max-age=31536000; SameSite=Lax';
+    if (html.getAttribute('data-preferences-enabled') === 'true') {
+        document.cookie = 'theme=' + theme + '; path=/; max-age=31536000; SameSite=Lax';
+    }
 
     const icon = document.querySelector('.theme-icon');
     if (icon) {
@@ -257,7 +264,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Service worker registration
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/sw.js').catch(function() {});
+        navigator.serviceWorker.register(appPath('/sw.js')).catch(function() {});
     });
 }
 
@@ -274,7 +281,7 @@ function quickSearch(event) {
     }
 
     searchTimeout = setTimeout(function() {
-        fetch('/api/v1/airports/search?q=' + encodeURIComponent(query) + '&limit=5')
+        fetch(API_BASE + '/airports/search?q=' + encodeURIComponent(query) + '&limit=5')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 const list = (data.data && Array.isArray(data.data)) ? data.data : [];
@@ -296,12 +303,12 @@ function quickSearch(event) {
 }
 
 function detectLocation() {
-    fetch('/api/v1/geoip/airports/nearby')
+    fetch(API_BASE + '/geoip/airports/nearby')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.ok !== false && data.data) {
                 const loc = data.data.location;
-                const nearbyHref = '/nearby?lat=' + loc.latitude + '&lon=' + loc.longitude;
+                const nearbyHref = appPath('/airports/nearby?lat=' + loc.latitude + '&lon=' + loc.longitude);
                 showModal('Your Location',
                     '<p><strong>IP:</strong> ' + loc.ip + '</p>' +
                     '<p><strong>Location:</strong> ' + (loc.city || 'Unknown') + ', ' + (loc.country_name || loc.country) + '</p>' +
@@ -321,7 +328,7 @@ function performSearch() {
     if (!input) return;
     const query = input.value.trim();
     if (query) {
-        window.location = '/search?q=' + encodeURIComponent(query);
+        window.location = appPath('/airports/search?q=' + encodeURIComponent(query));
     }
 }
 
@@ -333,7 +340,7 @@ function findNearby() {
     if (!el) return;
     const lat = el.getAttribute('data-lat');
     const lon = el.getAttribute('data-lon');
-    window.location = '/nearby?lat=' + lat + '&lon=' + lon + '&radius=100';
+    window.location = appPath('/airports/nearby?lat=' + lat + '&lon=' + lon + '&radius=100');
 }
 
 // "View on Map" is now a plain <a href target="_blank"> in airport.html
@@ -369,7 +376,7 @@ function copyValue(target) {
 
 // ── Stats page ───────────────────────────────────────────────────────────────
 function searchCountry(country) {
-    window.location = '/search?q=' + encodeURIComponent(country);
+    window.location = appPath('/airports/search?q=' + encodeURIComponent(country));
 }
 
 // ── Nearby page ───────────────────────────────────────────────────────────────
@@ -385,7 +392,7 @@ function findNearbyAirports() {
         return;
     }
 
-    let url = '/nearby?lat=' + lat + '&lon=' + lon + '&radius=' + radius;
+    let url = appPath('/airports/nearby?lat=' + lat + '&lon=' + lon + '&radius=' + radius);
     if (units) url += '&units=' + units;
     if (limit) url += '&limit=' + limit;
     window.location = url;
@@ -412,7 +419,7 @@ function useMyLocation() {
 }
 
 function viewAirport(code) {
-    window.location = '/airports/' + code;
+    window.location = appPath('/airports/' + code);
 }
 
 // ── GeoIP page ────────────────────────────────────────────────────────────────
@@ -426,7 +433,7 @@ function lookupIP(event) {
     result.classList.add('hidden');
     errBox.classList.add('hidden');
 
-    fetch('/api/v1/geoip/' + encodeURIComponent(ip))
+    fetch(API_BASE + '/geoip/' + encodeURIComponent(ip))
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.ok === false) {
@@ -448,7 +455,7 @@ function lookupIP(event) {
             result.classList.remove('hidden');
 
             if (data.lat && data.lon) {
-                fetch('/api/v1/geoip/airports/nearby?ip=' + encodeURIComponent(ip))
+                fetch(API_BASE + '/geoip/airports/nearby?ip=' + encodeURIComponent(ip))
                     .then(function(r) { return r.json(); })
                     .then(function(nearby) {
                         const airports = nearby.data || [];
@@ -580,3 +587,140 @@ document.addEventListener('submit', function(e) {
         dismissAnnouncement(target);
     }
 });
+
+
+// Client-side OpenStreetMap tile enhancement. Server-rendered coordinates and
+// external map links remain the complete fallback when JavaScript or tiles fail.
+function initAirportMaps() {
+    document.querySelectorAll('.airport-map').forEach(function(section) {
+        const canvasHost = section.querySelector('.map-canvas');
+        let points;
+        try { points = JSON.parse(section.getAttribute('data-map-points') || '[]'); } catch (_) { return; }
+        points = points.filter(function(p) { return Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)); });
+        if (!canvasHost || points.length === 0) return;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const markerLayer = document.createElement('div');
+        markerLayer.className = 'map-marker-layer';
+        canvasHost.append(canvas, markerLayer);
+        section.hidden = false;
+        const tileCache = new Map();
+        const zoomMin = 2, zoomMax = 17;
+        let zoom = points.length === 1 ? 10 : 12;
+        let center = { x: 0, y: 0 };
+        let dragging = null;
+        let failedTiles = 0, loadedTiles = 0, mapFailed = false;
+
+        function project(lat, lon, z) {
+            const scale = 256 * Math.pow(2, z);
+            const bounded = Math.max(-85.05112878, Math.min(85.05112878, lat));
+            return { x: (lon + 180) / 360 * scale, y: (1 - Math.log(Math.tan(Math.PI / 4 + bounded * Math.PI / 360)) / Math.PI) / 2 * scale };
+        }
+        function unproject(x, y, z) {
+            const scale = 256 * Math.pow(2, z);
+            return { lon: x / scale * 360 - 180, lat: Math.atan(Math.sinh(Math.PI * (1 - 2 * y / scale))) * 180 / Math.PI };
+        }
+        function sizeCanvas() {
+            const rect = canvasHost.getBoundingClientRect();
+            const ratio = window.devicePixelRatio || 1;
+            canvas.width = Math.max(1, Math.round(rect.width * ratio));
+            canvas.height = Math.max(1, Math.round(rect.height * ratio));
+            draw();
+        }
+        function getTile(x, y) {
+            const n = Math.pow(2, zoom);
+            x = ((x % n) + n) % n;
+            if (y < 0 || y >= n) return null;
+            const key = zoom + '/' + x + '/' + y;
+            if (!tileCache.has(key)) {
+                const img = new Image();
+                tileCache.set(key, img);
+                img.onload = function() { loadedTiles++; draw(); };
+                img.onerror = function() { failedTiles++; if (loadedTiles === 0 && failedTiles >= Math.min(4, tileCache.size)) showMapError(); };
+                img.src = 'https://tile.openstreetmap.org/' + key + '.png';
+            }
+            return tileCache.get(key);
+        }
+        function positionMarkers() {
+            markerLayer.replaceChildren();
+            const width = canvasHost.clientWidth, height = canvasHost.clientHeight;
+            points.forEach(function(point) {
+                const pos = project(Number(point.lat), Number(point.lon), zoom);
+                const button = document.createElement('button');
+                button.type = 'button'; button.className = 'map-marker';
+                button.textContent = String(point.code || '•');
+                button.setAttribute('aria-label', String(point.name || point.code || 'Airport'));
+                const screenX = pos.x - center.x + width / 2, screenY = pos.y - center.y + height / 2;
+                button.style.left = screenX + 'px'; button.style.top = screenY + 'px';
+                button.addEventListener('click', function() {
+                    if (point.code) window.location.href = appPath('/airports/' + encodeURIComponent(point.code));
+                });
+                markerLayer.appendChild(button);
+            });
+        }
+        function draw() {
+            if (!ctx || !canvas.width || !canvas.height) return;
+            const ratio = window.devicePixelRatio || 1;
+            const width = canvas.width / ratio, height = canvas.height / ratio;
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            ctx.fillStyle = '#e8edf0'; ctx.fillRect(0, 0, width, height);
+            const left = center.x - width / 2, top = center.y - height / 2;
+            const x0 = Math.floor(left / 256), y0 = Math.floor(top / 256);
+            const x1 = Math.floor((left + width) / 256), y1 = Math.floor((top + height) / 256);
+            for (let ty = y0; ty <= y1; ty++) {
+                for (let tx = x0; tx <= x1; tx++) {
+                    const img = getTile(tx, ty);
+                    if (img && img.complete && img.naturalWidth) {
+                        ctx.drawImage(img, tx * 256 - left, ty * 256 - top, 256, 256);
+                    }
+                }
+            }
+            positionMarkers();
+        }
+        function showMapError() {
+            if (mapFailed) return;
+            mapFailed = true;
+            section.hidden = true;
+            const fallback = document.createElement('p');
+            fallback.className = 'map-error';
+            fallback.textContent = section.getAttribute('data-map-error') || 'Map tiles could not be loaded. Use the OpenStreetMap links below.';
+            section.parentNode.insertBefore(fallback, section.nextSibling);
+        }
+        function setZoom(next, anchorX, anchorY) {
+            next = Math.max(zoomMin, Math.min(zoomMax, next));
+            if (next === zoom) return;
+            const width = canvasHost.clientWidth, height = canvasHost.clientHeight;
+            const ax = anchorX === undefined ? width / 2 : anchorX, ay = anchorY === undefined ? height / 2 : anchorY;
+            const geographic = unproject(center.x + ax - width / 2, center.y + ay - height / 2, zoom);
+            zoom = next;
+            const projected = project(geographic.lat, geographic.lon, zoom);
+            center = { x: projected.x - (ax - width / 2), y: projected.y - (ay - height / 2) };
+            draw();
+        }
+        function getExtent(level) {
+            return points.reduce(function(acc, p) {
+                const pos = project(Number(p.lat), Number(p.lon), level);
+                acc.minX = Math.min(acc.minX, pos.x); acc.maxX = Math.max(acc.maxX, pos.x);
+                acc.minY = Math.min(acc.minY, pos.y); acc.maxY = Math.max(acc.maxY, pos.y); return acc;
+            }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+        }
+        const availableWidth = Math.max(1, canvasHost.clientWidth * 0.75);
+        const availableHeight = Math.max(1, canvasHost.clientHeight * 0.75);
+        let extent = getExtent(zoom);
+        while (points.length > 1 && zoom > zoomMin &&
+            (extent.maxX - extent.minX > availableWidth || extent.maxY - extent.minY > availableHeight)) {
+            zoom--; extent = getExtent(zoom);
+        }
+        center = { x: (extent.minX + extent.maxX) / 2, y: (extent.minY + extent.maxY) / 2 };
+        const zoomButtons = section.querySelectorAll('[data-map-zoom]');
+        zoomButtons.forEach(function(button) { button.addEventListener('click', function() { setZoom(zoom + Number(button.getAttribute('data-map-zoom'))); }); });
+        canvasHost.addEventListener('wheel', function(event) { event.preventDefault(); const rect = canvasHost.getBoundingClientRect(); setZoom(zoom + (event.deltaY < 0 ? 1 : -1), event.clientX - rect.left, event.clientY - rect.top); }, { passive: false });
+        canvasHost.addEventListener('pointerdown', function(event) { dragging = { x: event.clientX, y: event.clientY, centerX: center.x, centerY: center.y }; canvasHost.setPointerCapture(event.pointerId); });
+        canvasHost.addEventListener('pointermove', function(event) { if (!dragging) return; center.x = dragging.centerX - (event.clientX - dragging.x); center.y = dragging.centerY - (event.clientY - dragging.y); draw(); });
+        canvasHost.addEventListener('pointerup', function() { dragging = null; });
+        if ('ResizeObserver' in window) new ResizeObserver(sizeCanvas).observe(canvasHost); else window.addEventListener('resize', sizeCanvas);
+        sizeCanvas();
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initAirportMaps);

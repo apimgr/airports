@@ -22,9 +22,11 @@ INTERNAL_NAME   := $(PROJECT_NAME)
 endif
 CLIENT_NAME     := airports-cli
 
-# Version precedence: release.txt (wins if present) > VERSION env var > "devel" fallback
+# Version precedence: release.txt (wins if present) > "0.1.0" fallback
 # Command-line override still works: make build VERSION=1.2.3
-VERSION         := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
+VERSION         := $(shell cat release.txt 2>/dev/null || echo "0.1.0")
+# Release tags use v only for semantic versions; text and timestamp tags stay plain.
+RELEASE_TAG     := $(shell tag='$(VERSION)'; if printf '%s' "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then printf '%s' "$$tag"; elif printf '%s' "$$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then printf 'v%s' "$$tag"; elif [ "$${tag#v}" != "$$tag" ]; then printf '%s' "$${tag#v}"; else printf '%s' "$$tag"; fi)
 COMMIT_ID       := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # Build info - BUILD_EPOCH is the single captured time source
 # Unix build timestamp (seconds, UTC) - used by the updater's daily-channel check
@@ -34,7 +36,7 @@ BUILD_DATE      := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
 OFFICIAL_SITE   ?= $(shell cat site.txt 2>/dev/null || echo "")
 
 # BuildDate is NOT embedded - it is derived from BuildEpoch at process start
-LDFLAGS         := -s -w -trimpath \
+LDFLAGS         := -s -w \
                    -X 'main.Version=$(VERSION)' \
                    -X 'main.CommitID=$(COMMIT_ID)' \
                    -X 'main.BuildEpoch=$(BUILD_EPOCH)' \
@@ -75,7 +77,7 @@ HAS_CLIENT      := $(shell test -d src/client && echo yes || echo no)
 # ----------------------------------------------------------------------------
 dev:
 	@mkdir -p $(DEV_DIR_BASE) $(GO_CACHE) $(GO_BUILD)
-	@DEV_DIR=$$(mktemp -d $(DEV_DIR_BASE)/$(INTERNAL_NAME)-XXXXXX); \
+	@set -e; DEV_DIR=$$(mktemp -d $(DEV_DIR_BASE)/$(INTERNAL_NAME)-XXXXXX); \
 	echo "Building $(PROJECT_NAME) (dev) -> $$DEV_DIR"; \
 	docker run --rm \
 		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
@@ -86,8 +88,8 @@ dev:
 		-e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
-			go build -buildvcs=false -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
-			if [ -d src/client ]; then go build -buildvcs=false -ldflags "$(LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
+			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
+			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
 		'; \
 	echo "Build dir: $$DEV_DIR"
 
@@ -105,8 +107,8 @@ local: clean
 		-e GOOS=$(HOSTOS) -e GOARCH=$(HOSTARCH) -e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
-			go build -buildvcs=false -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
-			if [ -d src/client ]; then go build -buildvcs=false -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
+			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
+			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
 		'
 	@echo "Built: binaries/$(PROJECT_NAME)"
 
@@ -129,9 +131,9 @@ build: clean
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \
 				echo "  -> $$os/$$arch"; \
-				GOOS=$$os GOARCH=$$arch go build -buildvcs=false -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
+				GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
 				if [ -d src/client ]; then \
-					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
+					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
 				fi; \
 			done \
 		'
@@ -153,14 +155,14 @@ release: build
 	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
 		--exclude='binaries' --exclude='releases' --exclude='*.tar.gz' \
 		-czf releases/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
-	@gh release delete $(VERSION) --yes 2>/dev/null || true
-	@git tag -d $(VERSION) 2>/dev/null || true
-	@git push origin :refs/tags/$(VERSION) 2>/dev/null || true
-	@gh release create $(VERSION) releases/* \
+	@gh release delete $(RELEASE_TAG) --yes 2>/dev/null || true
+	@git tag -d $(RELEASE_TAG) 2>/dev/null || true
+	@git push origin :refs/tags/$(RELEASE_TAG) 2>/dev/null || true
+	@gh release create $(RELEASE_TAG) releases/* \
 		--title "$(PROJECT_NAME) $(VERSION)" \
 		--notes "Release $(VERSION)" \
 		--latest
-	@echo "Release complete: $(VERSION)"
+	@echo "Release complete: $(RELEASE_TAG)"
 
 # ----------------------------------------------------------------------------
 # make test: unit tests in Docker

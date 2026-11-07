@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
@@ -279,4 +280,23 @@ func TestCSRFCookieSecureModes(t *testing.T) {
 			t.Errorf("csrfCookieSecure(mode=%q, tls=%v) = %v, want %v", c.mode, c.req.TLS != nil, got, c.want)
 		}
 	}
+}
+
+func TestCSRFCookieSecureOnTrustedTorRequest(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.CSRF.Secure = "false"
+	r := httptest.NewRequest(http.MethodGet, "http://service.onion/", nil)
+	r = r.WithContext(context.WithValue(r.Context(), torCircuitContextKey{}, "fc00::1234"))
+	w := httptest.NewRecorder()
+	s.csrfMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(w, r)
+
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "csrf_token" {
+			if !cookie.Secure {
+				t.Fatal("trusted Tor request CSRF cookie Secure = false, want true")
+			}
+			return
+		}
+	}
+	t.Fatal("trusted Tor request did not set the CSRF cookie")
 }

@@ -108,7 +108,7 @@ func sendMessage(host string, port int, username, password, tlsMode, from, to st
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if err := handshakeAndAuth(client, host, tlsMode, username, password); err != nil {
 		return err

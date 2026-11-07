@@ -4,7 +4,7 @@
     <h2 class="error-title">{{.StatusText}}</h2>
     <p class="error-message">{{.Message}}</p>
     <p class="error-actions">
-        <a href="/" class="btn-primary">{{t "nav.home"}}</a>
+        <a href="{{.BaseURL}}/" class="btn-primary">{{t "nav.home"}}</a>
     </p>
 </section>
 {{end}}

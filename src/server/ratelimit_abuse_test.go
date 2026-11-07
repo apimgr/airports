@@ -9,6 +9,72 @@ import (
 	"github.com/apimgr/airports/src/config"
 )
 
+func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*config.Config)
+		want  string
+	}{
+		{
+			name: "abuse recipient wins",
+			setup: func(cfg *config.Config) {
+				cfg.Server.Privacy.Contact.Abuse = "abuse@example.com"
+				cfg.Server.Privacy.Contact.General = "general@example.com"
+				cfg.Server.Notifications.Email.ReplyTo = "admin@example.com"
+			},
+			want: "abuse@example.com",
+		},
+		{
+			name: "general recipient is the abuse fallback",
+			setup: func(cfg *config.Config) {
+				cfg.Server.Privacy.Contact.General = "general@example.com"
+				cfg.Server.Notifications.Email.ReplyTo = "admin@example.com"
+			},
+			want: "general@example.com",
+		},
+		{
+			name: "admin contact is the final fallback",
+			setup: func(cfg *config.Config) {
+				cfg.Server.Notifications.Email.ReplyTo = "notification-reply@example.com"
+				cfg.Server.Notifications.Email.From.Email = "notification-from@example.com"
+				cfg.Web.Security.Admin = "admin@example.com"
+			},
+			want: "admin@example.com",
+		},
+		{
+			name: "notification sender addresses are not admin contact fallbacks",
+			setup: func(cfg *config.Config) {
+				cfg.Server.Notifications.Email.ReplyTo = "notification-reply@example.com"
+				cfg.Server.Notifications.Email.From.Email = "notification-from@example.com"
+			},
+			want: "",
+		},
+		{
+			name:  "empty config has no recipient",
+			setup: func(*config.Config) {},
+			want:  "",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.Server.Privacy.Contact.Abuse = ""
+			cfg.Server.Privacy.Contact.General = ""
+			cfg.Server.Notifications.Email.ReplyTo = ""
+			cfg.Server.Notifications.Email.From.Email = ""
+			cfg.Server.Contact.Admin.Email = ""
+			cfg.Web.Security.Admin = ""
+			test.setup(cfg)
+			if got := abuseNotifyRecipient(cfg); got != test.want {
+				t.Errorf("abuseNotifyRecipient() = %q, want %q", got, test.want)
+			}
+		})
+	}
+	if got := abuseNotifyRecipient(nil); got != "" {
+		t.Errorf("abuseNotifyRecipient(nil) = %q, want empty", got)
+	}
+}
+
 // TestRequestFloodAutoBlock exercises the AI.md PART 11 "Abuse Detection"
 // request-flood trigger: once an IP crosses request_flood.multiplier
 // rate-limit rejections within the flood window, it must be auto-blocked

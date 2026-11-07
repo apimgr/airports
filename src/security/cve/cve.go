@@ -368,7 +368,7 @@ func (s *Service) fetchPage(params url.Values, startIndex int) (*nvdAPIResponse,
 	if err != nil {
 		return nil, &retryableError{statusCode: 0, err: fmt.Errorf("CVE request failed: %w", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

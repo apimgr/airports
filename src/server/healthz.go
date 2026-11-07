@@ -10,11 +10,14 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apimgr/airports/src/backup"
 	cachepkg "github.com/apimgr/airports/src/cache"
+	commonhttp "github.com/apimgr/airports/src/common/httputil"
 	"github.com/apimgr/airports/src/common/i18n"
+	"github.com/apimgr/airports/src/i2p"
 	"github.com/apimgr/airports/src/scheduler"
 	"github.com/apimgr/airports/src/tor"
 )
@@ -44,16 +47,12 @@ type HealthResponse struct {
 	// 1. Project identification (PART 16: branding config)
 	Project ProjectInfo `json:"project"`
 
-	// 2. Overall status: "healthy", "unhealthy", "degraded"
+	// 2. Overall status includes health, restart, maintenance, and shutdown state.
 	Status string `json:"status"`
-	// PendingRestart is true when a config change requires a restart to
-	// take effect. This project has no such settings today (PART 5: all
-	// settings live-reload except listen address/port and DB driver,
-	// neither of which healthz can detect at runtime), so this always
-	// omits per its `omitempty` tag.
+	// PendingRestart is true when a loaded config change affects a setting
+	// that cannot take effect until the process restarts.
 	PendingRestart bool `json:"pending_restart,omitempty"`
-	// RestartReason lists the specific settings that changed and require
-	// a restart; always omitted alongside PendingRestart today.
+	// RestartReason lists the names of restart-required settings that changed.
 	RestartReason []string `json:"restart_reason,omitempty"`
 
 	// 3. Version & build info (PART 7: binary requirements)
@@ -65,6 +64,8 @@ type HealthResponse struct {
 	Uptime    string    `json:"uptime"`
 	Mode      string    `json:"mode"`
 	Timestamp time.Time `json:"timestamp"`
+	// Maintenance appears only while the process is in maintenance state.
+	Maintenance *MaintenanceHealthInfo `json:"maintenance,omitempty"`
 
 	// 5. Features - PUBLIC only (PARTS 19, 31)
 	Features FeaturesInfo `json:"features"`
@@ -74,6 +75,146 @@ type HealthResponse struct {
 
 	// 7. Statistics (public-safe aggregates)
 	Stats StatsInfo `json:"stats"`
+}
+
+// MaintenanceHealthInfo carries the public-safe maintenance state. The
+// message is selected from a fixed set so internal errors and paths cannot
+// be copied into the public health response.
+type MaintenanceHealthInfo struct {
+	Reason      string                  `json:"reason"`
+	Message     string                  `json:"message"`
+	Since       time.Time               `json:"since"`
+	SelfHealing SelfHealingHealthStatus `json:"self_healing"`
+}
+
+// SelfHealingHealthStatus reports only operational state, never an error or
+// a path that could expose internal details.
+type SelfHealingHealthStatus struct {
+	Enabled     bool       `json:"enabled"`
+	Attempts    int        `json:"attempts"`
+	LastAttempt *time.Time `json:"last_attempt,omitempty"`
+	NextAttempt *time.Time `json:"next_attempt,omitempty"`
+}
+
+// HealthRuntimeState holds lifecycle state that is not derivable from
+// dependency checks. Callers update it when restart, maintenance, or
+// shutdown state changes.
+type HealthRuntimeState struct {
+	ShuttingDown   bool
+	PendingRestart bool
+	RestartReason  []string
+	Maintenance    *MaintenanceHealthInfo
+}
+
+var (
+	healthRuntimeStateMu sync.RWMutex
+	healthRuntimeState   HealthRuntimeState
+)
+
+// SetHealthRuntimeState updates health lifecycle state. Maintenance messages
+// are replaced with safe fixed text and reasons are reduced to known codes.
+func SetHealthRuntimeState(state HealthRuntimeState) {
+	state.RestartReason = sanitizeRestartReasons(state.RestartReason)
+	state.PendingRestart = state.PendingRestart && len(state.RestartReason) > 0
+	if state.Maintenance != nil {
+		maintenance := *state.Maintenance
+		maintenance.Reason, maintenance.Message = safeMaintenanceMessage(maintenance.Reason)
+		if maintenance.Since.IsZero() {
+			maintenance.Since = time.Now().UTC()
+		}
+		if maintenance.SelfHealing.Attempts < 0 {
+			maintenance.SelfHealing.Attempts = 0
+		}
+		if maintenance.SelfHealing.LastAttempt != nil {
+			lastAttempt := maintenance.SelfHealing.LastAttempt.UTC()
+			maintenance.SelfHealing.LastAttempt = &lastAttempt
+		}
+		if maintenance.SelfHealing.NextAttempt != nil {
+			nextAttempt := maintenance.SelfHealing.NextAttempt.UTC()
+			maintenance.SelfHealing.NextAttempt = &nextAttempt
+		}
+		state.Maintenance = &maintenance
+	}
+	healthRuntimeStateMu.Lock()
+	healthRuntimeState = state
+	healthRuntimeStateMu.Unlock()
+}
+
+// SetHealthShuttingDown marks the process as draining while preserving other
+// reported lifecycle state.
+func SetHealthShuttingDown(shuttingDown bool) {
+	state := currentHealthRuntimeState()
+	state.ShuttingDown = shuttingDown
+	SetHealthRuntimeState(state)
+}
+
+// SetPendingRestartSettings replaces the process's accumulated restart-only
+// config differences. An empty list clears restart-required status.
+func SetPendingRestartSettings(settings []string) {
+	state := currentHealthRuntimeState()
+	state.RestartReason = sanitizeRestartReasons(settings)
+	state.PendingRestart = len(state.RestartReason) > 0
+	SetHealthRuntimeState(state)
+}
+
+// SetHealthMaintenance updates maintenance state without changing shutdown
+// or pending-restart state. Passing nil marks maintenance as recovered.
+func SetHealthMaintenance(maintenance *MaintenanceHealthInfo) {
+	state := currentHealthRuntimeState()
+	state.Maintenance = maintenance
+	SetHealthRuntimeState(state)
+}
+
+func sanitizeRestartReasons(reasons []string) []string {
+	result := make([]string, 0, len(reasons))
+	seen := make(map[string]bool, len(reasons))
+	for _, reason := range reasons {
+		reason = strings.TrimSpace(reason)
+		if reason == "" || len(reason) > 128 || seen[reason] {
+			continue
+		}
+		valid := true
+		for _, r := range reason {
+			if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '.' && r != '_' && r != '-' {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			result = append(result, reason)
+			seen[reason] = true
+		}
+	}
+	return result
+}
+
+func currentHealthRuntimeState() HealthRuntimeState {
+	healthRuntimeStateMu.RLock()
+	defer healthRuntimeStateMu.RUnlock()
+	state := healthRuntimeState
+	state.RestartReason = append([]string(nil), state.RestartReason...)
+	if state.Maintenance != nil {
+		maintenance := *state.Maintenance
+		state.Maintenance = &maintenance
+	}
+	return state
+}
+
+func safeMaintenanceMessage(reason string) (string, string) {
+	switch reason {
+	case "database_connection":
+		return reason, "Database connection failed"
+	case "database_write":
+		return reason, "Database write failed"
+	case "disk_full":
+		return reason, "Available disk space is critically low"
+	case "file_permission":
+		return reason, "Required file access failed"
+	case "operator_requested":
+		return reason, "Maintenance mode was started by an operator"
+	default:
+		return "unknown", "A critical service failure occurred"
+	}
 }
 
 // ProjectInfo carries branding config (AI.md PART 16).
@@ -93,6 +234,7 @@ type BuildInfo struct {
 // (PART 20, internal-only) is never surfaced here.
 type FeaturesInfo struct {
 	Tor   TorInfo `json:"tor"`
+	I2P   I2PInfo `json:"i2p"`
 	GeoIP bool    `json:"geoip"`
 }
 
@@ -104,6 +246,15 @@ type TorInfo struct {
 	Hostname string `json:"hostname"`
 }
 
+// I2PInfo reflects the opt-in I2P feature and current provider lifecycle.
+type I2PInfo struct {
+	Enabled  bool   `json:"enabled"`
+	Running  bool   `json:"running"`
+	Status   string `json:"status"`
+	Hostname string `json:"hostname"`
+	Provider string `json:"provider"`
+}
+
 // ChecksInfo reports component health as "ok"/"error" only — never
 // connection strings, paths, or any other implementation detail
 // (AI.md PART 13 "Security: Public Info Only").
@@ -113,6 +264,7 @@ type ChecksInfo struct {
 	Disk      string `json:"disk"`
 	Scheduler string `json:"scheduler"`
 	Tor       string `json:"tor,omitempty"`
+	I2P       string `json:"i2p,omitempty"`
 }
 
 // StatsInfo carries public-safe aggregate counters only.
@@ -182,6 +334,23 @@ func checkCache(cache cachepkg.Cache) string {
 	return "ok"
 }
 
+func (s *Server) checkCache() string {
+	if s == nil || s.cache == nil {
+		return "error"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
+	setErr := s.cache.Set(ctx, healthCacheProbeKey, []byte("1"), 5*time.Second)
+	if setErr != nil {
+		return "error"
+	}
+	_, getErr := s.cache.Get(ctx, healthCacheProbeKey)
+	if getErr != nil {
+		return "error"
+	}
+	return "ok"
+}
+
 // checkDisk reports "error" when dataDir's filesystem cannot be statted,
 // or is at/above healthDiskUsageThreshold full. Only ok/error ever
 // leaves this function — never the path, total size, or free space.
@@ -231,6 +400,29 @@ func checkTor(mgr *tor.Manager) string {
 	return "ok"
 }
 
+func checkI2P(mgr *i2p.Manager) string {
+	if mgr == nil || !mgr.Enabled() {
+		return ""
+	}
+	if !mgr.Running() {
+		return "error"
+	}
+	return "ok"
+}
+
+func i2pFeatureInfo(mgr *i2p.Manager) I2PInfo {
+	if mgr == nil || !mgr.Enabled() {
+		return I2PInfo{Status: "disabled", Provider: "none"}
+	}
+	info := I2PInfo{Enabled: true, Running: mgr.Running(), Hostname: mgr.EepsiteAddress(), Provider: string(mgr.Provider())}
+	if info.Running {
+		info.Status = "healthy"
+	} else {
+		info.Status = "error"
+	}
+	return info
+}
+
 // torFeatureInfo builds the features.tor object. Per AI.md PART 13, this
 // object is always present (unlike checks.tor) — Enabled/Running reflect
 // actual state even when Tor is fully disabled.
@@ -265,10 +457,34 @@ func overallStatus(checks ChecksInfo) string {
 	if checks.Database == "error" || checks.Cache == "error" || checks.Scheduler == "error" {
 		return "unhealthy"
 	}
-	if checks.Disk == "error" || checks.Tor == "error" {
+	if checks.Disk == "error" || checks.Tor == "error" || checks.I2P == "error" {
 		return "degraded"
 	}
 	return "healthy"
+}
+
+func statusWithRuntimeState(checks ChecksInfo, state HealthRuntimeState) string {
+	switch {
+	case state.ShuttingDown:
+		return "shutting_down"
+	case state.Maintenance != nil:
+		return "maintenance"
+	case overallStatus(checks) == "unhealthy":
+		return "unhealthy"
+	case state.PendingRestart:
+		return "restart_required"
+	default:
+		return overallStatus(checks)
+	}
+}
+
+func healthHTTPStatus(status string) int {
+	switch status {
+	case "unhealthy", "maintenance", "shutting_down":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusOK
+	}
 }
 
 // buildHealthResponse assembles the full HealthResponse from the
@@ -276,13 +492,15 @@ func overallStatus(checks ChecksInfo) string {
 // against the AI.md PART 13 "Data Sources" table.
 func buildHealthResponse(s *Server) HealthResponse {
 	branding := s.config.Server.Branding
+	runtimeState := currentHealthRuntimeState()
 
 	checks := ChecksInfo{
 		Database:  checkDatabase(s.db),
-		Cache:     checkCache(s.cache),
+		Cache:     s.checkCache(),
 		Disk:      checkDisk(s.dataDir),
 		Scheduler: checkScheduler(s.scheduler),
 		Tor:       checkTor(s.tor),
+		I2P:       checkI2P(s.i2p),
 	}
 
 	var uptime string
@@ -301,24 +519,26 @@ func buildHealthResponse(s *Server) HealthResponse {
 		activeConns = s.stats.activeConnections()
 	}
 
-	return HealthResponse{
+	response := HealthResponse{
 		Project: ProjectInfo{
 			Name:        branding.Title,
 			Tagline:     branding.Tagline,
 			Description: branding.Description,
 		},
-		Status:    overallStatus(checks),
+		Status:    statusWithRuntimeState(checks, runtimeState),
 		Version:   Version,
 		GoVersion: runtime.Version(),
 		Build: BuildInfo{
 			Commit: CommitID,
 			Date:   BuildDate,
 		},
-		Uptime:    uptime,
-		Mode:      s.config.Server.Mode,
-		Timestamp: time.Now().UTC(),
+		Uptime:      uptime,
+		Mode:        s.config.Server.Mode,
+		Timestamp:   time.Now().UTC(),
+		Maintenance: runtimeState.Maintenance,
 		Features: FeaturesInfo{
 			Tor:   torFeatureInfo(s.tor),
+			I2P:   i2pFeatureInfo(s.i2p),
 			GeoIP: s.config.Server.GeoIP.Enabled,
 		},
 		Checks: checks,
@@ -328,6 +548,11 @@ func buildHealthResponse(s *Server) HealthResponse {
 			ActiveConns:   activeConns,
 		},
 	}
+	if response.Status == "restart_required" {
+		response.PendingRestart = true
+		response.RestartReason = runtimeState.RestartReason
+	}
+	return response
 }
 
 // healthResponseText renders resp as flattened dot-notation plain text,
@@ -345,7 +570,14 @@ func healthResponseText(resp HealthResponse) string {
 	fmt.Fprintf(&b, "project.description: %s\n\n", resp.Project.Description)
 
 	b.WriteString("# 2. Status\n")
-	fmt.Fprintf(&b, "status: %s\n\n", resp.Status)
+	fmt.Fprintf(&b, "status: %s\n", resp.Status)
+	if resp.PendingRestart {
+		b.WriteString("pending_restart: true\n")
+		if len(resp.RestartReason) > 0 {
+			fmt.Fprintf(&b, "restart_reason: %s\n", strings.Join(resp.RestartReason, ","))
+		}
+	}
+	b.WriteString("\n")
 
 	b.WriteString("# 3. Version & Build (PART 7)\n")
 	fmt.Fprintf(&b, "version: %s\n", resp.Version)
@@ -356,13 +588,32 @@ func healthResponseText(resp HealthResponse) string {
 	b.WriteString("# 4. Runtime (PART 6)\n")
 	fmt.Fprintf(&b, "uptime: %s\n", resp.Uptime)
 	fmt.Fprintf(&b, "mode: %s\n", resp.Mode)
-	fmt.Fprintf(&b, "timestamp: %s\n\n", resp.Timestamp.Format(time.RFC3339))
+	fmt.Fprintf(&b, "timestamp: %s\n", resp.Timestamp.Format(time.RFC3339))
+	if resp.Maintenance != nil {
+		fmt.Fprintf(&b, "maintenance.reason: %s\n", resp.Maintenance.Reason)
+		fmt.Fprintf(&b, "maintenance.message: %s\n", resp.Maintenance.Message)
+		fmt.Fprintf(&b, "maintenance.since: %s\n", resp.Maintenance.Since.UTC().Format(time.RFC3339))
+		fmt.Fprintf(&b, "maintenance.self_healing.enabled: %t\n", resp.Maintenance.SelfHealing.Enabled)
+		fmt.Fprintf(&b, "maintenance.self_healing.attempts: %d\n", resp.Maintenance.SelfHealing.Attempts)
+		if resp.Maintenance.SelfHealing.LastAttempt != nil {
+			fmt.Fprintf(&b, "maintenance.self_healing.last_attempt: %s\n", resp.Maintenance.SelfHealing.LastAttempt.UTC().Format(time.RFC3339))
+		}
+		if resp.Maintenance.SelfHealing.NextAttempt != nil {
+			fmt.Fprintf(&b, "maintenance.self_healing.next_attempt: %s\n", resp.Maintenance.SelfHealing.NextAttempt.UTC().Format(time.RFC3339))
+		}
+	}
+	b.WriteString("\n")
 
 	b.WriteString("# 5. Features - NON-NEGOTIABLE only (show actual status)\n")
 	fmt.Fprintf(&b, "features.tor.enabled: %t\n", resp.Features.Tor.Enabled)
 	fmt.Fprintf(&b, "features.tor.running: %t\n", resp.Features.Tor.Running)
 	fmt.Fprintf(&b, "features.tor.status: %s\n", resp.Features.Tor.Status)
 	fmt.Fprintf(&b, "features.tor.hostname: %s\n", resp.Features.Tor.Hostname)
+	fmt.Fprintf(&b, "features.i2p.enabled: %t\n", resp.Features.I2P.Enabled)
+	fmt.Fprintf(&b, "features.i2p.running: %t\n", resp.Features.I2P.Running)
+	fmt.Fprintf(&b, "features.i2p.status: %s\n", resp.Features.I2P.Status)
+	fmt.Fprintf(&b, "features.i2p.hostname: %s\n", resp.Features.I2P.Hostname)
+	fmt.Fprintf(&b, "features.i2p.provider: %s\n", resp.Features.I2P.Provider)
 	fmt.Fprintf(&b, "features.geoip: %t\n", resp.Features.GeoIP)
 	b.WriteString("# 6. Checks\n")
 	fmt.Fprintf(&b, "checks.database: %s\n", resp.Checks.Database)
@@ -371,6 +622,9 @@ func healthResponseText(resp HealthResponse) string {
 	fmt.Fprintf(&b, "checks.scheduler: %s\n", resp.Checks.Scheduler)
 	if resp.Checks.Tor != "" {
 		fmt.Fprintf(&b, "checks.tor: %s\n", resp.Checks.Tor)
+	}
+	if resp.Checks.I2P != "" {
+		fmt.Fprintf(&b, "checks.i2p: %s\n", resp.Checks.I2P)
 	}
 	b.WriteString("\n")
 
@@ -388,20 +642,10 @@ func healthResponseText(resp HealthResponse) string {
 // a non-interactive client (curl/wget/httpie identify via User-Agent and
 // never send an HTML Accept header).
 func wantsHealthzText(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "text/plain") {
-		return true
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		return commonhttp.GetAPIResponseFormat(r) == "text"
 	}
-	if strings.Contains(accept, "text/html") || strings.Contains(accept, "application/json") {
-		return false
-	}
-	ua := strings.ToLower(r.Header.Get("User-Agent"))
-	for _, tool := range []string{"curl", "wget", "httpie"} {
-		if strings.Contains(ua, tool) {
-			return true
-		}
-	}
-	return false
+	return commonhttp.GetFrontendResponseFormat(r) == "text"
 }
 
 // handleServerHealthz serves /server/healthz, /healthz (optional root
@@ -413,10 +657,15 @@ func wantsHealthzText(r *http.Request) bool {
 // else (including the API's JSON default) gets 2-space indented JSON.
 func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
 	resp := buildHealthResponse(s)
-	accept := r.Header.Get("Accept")
-
+	statusCode := healthHTTPStatus(resp.Status)
+	apiRoute := strings.HasPrefix(r.URL.Path, "/api/")
+	format := commonhttp.GetFrontendResponseFormat(r)
+	if apiRoute {
+		format = commonhttp.GetAPIResponseFormat(r)
+	}
 	switch {
-	case strings.Contains(accept, "text/html"):
+	case !apiRoute && (format == "html" || format == "nojs"):
+		w.WriteHeader(statusCode)
 		lang := i18n.FromContext(r.Context())
 		s.renderTemplate(w, r, "server_healthz", map[string]interface{}{
 			"Title":    fmt.Sprintf("%s - %s", resp.Project.Name, i18n.T(lang, "health.title")),
@@ -425,10 +674,10 @@ func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
 			"Req24h":   formatWithCommas(resp.Stats.Requests24h),
 		})
 	case wantsHealthzText(r):
-		s.respondText(w, http.StatusOK, healthResponseText(resp))
+		s.respondText(w, statusCode, healthResponseText(resp))
 	default:
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(statusCode)
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(resp)

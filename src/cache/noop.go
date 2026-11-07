@@ -33,3 +33,9 @@ func (c *noopCache) GetOrSet(_ context.Context, _ string, _ time.Duration, loade
 func (c *noopCache) Close() error {
 	return nil
 }
+
+// MetricsStats reports the no-op backend as disabled so it does not emit
+// misleading zero-valued cache series.
+func (c *noopCache) MetricsStats() MetricsStats {
+	return MetricsStats{}
+}

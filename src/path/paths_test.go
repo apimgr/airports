@@ -259,23 +259,50 @@ func TestIsRunningInContainer(t *testing.T) {
 }
 
 func TestGetBackupDir(t *testing.T) {
-	tests := []struct {
-		projectName string
-		want        string
-	}{
-		{"airports", filepath.Join("/mnt/Backups", OrgName, "airports")},
-		{"", filepath.Join("/mnt/Backups", OrgName, "")},
-		{"other-app", filepath.Join("/mnt/Backups", OrgName, "other-app")},
-	}
+	t.Setenv("BACKUP_DIR", "")
+	withRunningInContainer(t, false)
+	withGOOS(t, "linux")
+	dataDir := filepath.Join(newScratchDir(t), "data")
 
-	for _, tt := range tests {
-		t.Run(tt.projectName, func(t *testing.T) {
-			got := GetBackupDir(tt.projectName)
-			if got != tt.want {
-				t.Errorf("GetBackupDir(%q) = %q, want %q", tt.projectName, got, tt.want)
-			}
-		})
-	}
+	t.Run("flag override has highest priority", func(t *testing.T) {
+		if got := GetBackupDir("/flag/backup", dataDir); got != "/flag/backup" {
+			t.Errorf("GetBackupDir() = %q, want flag path", got)
+		}
+	})
+	t.Run("environment override follows flag", func(t *testing.T) {
+		t.Setenv("BACKUP_DIR", "/env/backup")
+		if got := GetBackupDir("", dataDir); got != "/env/backup" {
+			t.Errorf("GetBackupDir() = %q, want environment path", got)
+		}
+		t.Setenv("BACKUP_DIR", "")
+	})
+	t.Run("writable system directory is preferred", func(t *testing.T) {
+		old := isWritableFunc
+		isWritableFunc = func(string) bool { return true }
+		t.Cleanup(func() { isWritableFunc = old })
+		withRootOrAdmin(t, false)
+		if got, want := GetBackupDir("", dataDir), filepath.Join("/mnt/Backups", OrgName, defaultProjectName); got != want {
+			t.Errorf("GetBackupDir() = %q, want %q", got, want)
+		}
+	})
+	t.Run("elevated process falls back under data directory", func(t *testing.T) {
+		old := isWritableFunc
+		isWritableFunc = func(string) bool { return false }
+		t.Cleanup(func() { isWritableFunc = old })
+		withRootOrAdmin(t, true)
+		if got, want := GetBackupDir("", dataDir), filepath.Join(dataDir, "backup"); got != want {
+			t.Errorf("GetBackupDir() = %q, want %q", got, want)
+		}
+	})
+	t.Run("user process falls back to user backup directory", func(t *testing.T) {
+		old := isWritableFunc
+		isWritableFunc = func(string) bool { return false }
+		t.Cleanup(func() { isWritableFunc = old })
+		withRootOrAdmin(t, false)
+		if got, want := GetBackupDir("", dataDir), filepath.Join(currentHomeDir(), ".local", "share", "Backups", OrgName, defaultProjectName); got != want {
+			t.Errorf("GetBackupDir() = %q, want %q", got, want)
+		}
+	})
 }
 
 // requireRootLinux skips the calling test unless running as root on Linux,
@@ -438,8 +465,13 @@ func withRunningInContainer(t *testing.T, want bool) {
 func withRootOrAdmin(t *testing.T, want bool) {
 	t.Helper()
 	orig := isRootOrAdminFunc
+	origStartedElevated := startedElevated
 	isRootOrAdminFunc = func() bool { return want }
-	t.Cleanup(func() { isRootOrAdminFunc = orig })
+	startedElevated = want
+	t.Cleanup(func() {
+		isRootOrAdminFunc = orig
+		startedElevated = origStartedElevated
+	})
 }
 
 // withGOOS overrides goosFunc for the duration of the test so every
@@ -538,13 +570,6 @@ func dirGetterCases(t *testing.T, scratch string) []struct {
 			container:  filepath.Join("/data", "airports", "airports.pid"),
 			root:       filepath.Join("/var/run", OrgName, "airports.pid"),
 			nonRootDir: filepath.Join(scratch, ".local", "share", OrgName, "airports", "airports.pid"),
-		},
-		{
-			name:       "GetBackupDir",
-			fn:         GetBackupDir,
-			container:  filepath.Join("/data", "backups", "airports"),
-			root:       filepath.Join("/mnt/Backups", OrgName, "airports"),
-			nonRootDir: filepath.Join(scratch, ".local", "share", "Backups", OrgName, "airports"),
 		},
 		{
 			name:       "GetSSLDir",
@@ -776,9 +801,6 @@ func TestAllOSBranches(t *testing.T) {
 				}
 				if got := GetPIDFile(projectName); got != want.pid {
 					t.Errorf("GetPIDFile = %q, want %q", got, want.pid)
-				}
-				if got := GetBackupDir(projectName); got != want.backup {
-					t.Errorf("GetBackupDir = %q, want %q", got, want.backup)
 				}
 				if got := GetSSLDir(projectName); got != want.ssl {
 					t.Errorf("GetSSLDir = %q, want %q", got, want.ssl)

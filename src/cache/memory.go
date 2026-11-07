@@ -14,6 +14,10 @@ type memoryCache struct {
 
 	mu      sync.RWMutex
 	entries map[string]memoryEntry
+	hits    uint64
+	misses  uint64
+	evicts  uint64
+	onEvict func(string)
 
 	stop chan struct{}
 }
@@ -34,6 +38,12 @@ func newMemoryCache(prefix string, defaultTTL time.Duration) *memoryCache {
 	return c
 }
 
+func (c *memoryCache) setEvictionLogger(logger func(string)) {
+	c.mu.Lock()
+	c.onEvict = logger
+	c.mu.Unlock()
+}
+
 // evictLoop periodically sweeps expired entries so a long-running process
 // does not accumulate unbounded stale keys between reads.
 func (c *memoryCache) evictLoop() {
@@ -48,6 +58,10 @@ func (c *memoryCache) evictLoop() {
 			for k, e := range c.entries {
 				if !e.expires.IsZero() && now.After(e.expires) {
 					delete(c.entries, k)
+					c.evicts++
+					if c.onEvict != nil {
+						c.onEvict(k)
+					}
 				}
 			}
 			c.mu.Unlock()
@@ -60,21 +74,53 @@ func (c *memoryCache) fullKey(key string) string {
 }
 
 func (c *memoryCache) Get(_ context.Context, key string) ([]byte, error) {
-	c.mu.RLock()
+	c.mu.Lock()
 	entry, ok := c.entries[c.fullKey(key)]
-	c.mu.RUnlock()
 	if !ok {
-		return nil, ErrNotFound
-	}
-	if !entry.expires.IsZero() && time.Now().After(entry.expires) {
-		c.mu.Lock()
-		delete(c.entries, c.fullKey(key))
+		c.misses++
 		c.mu.Unlock()
 		return nil, ErrNotFound
 	}
+	if !entry.expires.IsZero() && time.Now().After(entry.expires) {
+		delete(c.entries, c.fullKey(key))
+		c.misses++
+		c.evicts++
+		if c.onEvict != nil {
+			c.onEvict(c.fullKey(key))
+		}
+		c.mu.Unlock()
+		return nil, ErrNotFound
+	}
+	c.hits++
 	out := make([]byte, len(entry.value))
 	copy(out, entry.value)
+	c.mu.Unlock()
 	return out, nil
+}
+
+// MetricsStats returns exact logical entry and value-byte counts, excluding
+// entries whose TTL has elapsed even if the periodic sweeper has not removed
+// them yet.
+func (c *memoryCache) MetricsStats() MetricsStats {
+	now := time.Now()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	stats := MetricsStats{
+		Hits:             c.hits,
+		Misses:           c.misses,
+		Evictions:        c.evicts,
+		HasEvictionCount: true,
+		HasSize:          true,
+		Enabled:          true,
+	}
+	for key, entry := range c.entries {
+		if !entry.expires.IsZero() && now.After(entry.expires) {
+			continue
+		}
+		stats.Items++
+		stats.Bytes += uint64(len(key) + len(entry.value))
+	}
+	return stats
 }
 
 func (c *memoryCache) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
@@ -89,7 +135,14 @@ func (c *memoryCache) Set(_ context.Context, key string, value []byte, ttl time.
 	}
 
 	c.mu.Lock()
-	c.entries[c.fullKey(key)] = entry
+	fullKey := c.fullKey(key)
+	if previous, ok := c.entries[fullKey]; ok && !previous.expires.IsZero() && time.Now().After(previous.expires) {
+		c.evicts++
+		if c.onEvict != nil {
+			c.onEvict(fullKey)
+		}
+	}
+	c.entries[fullKey] = entry
 	c.mu.Unlock()
 	return nil
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,29 +9,46 @@ import (
 	"testing"
 )
 
-// TestHandleHealth covers the unversioned /api/v1/health handler.
-// respondItem wraps the item in the canonical {"ok":true,"data":...}
-// envelope per AI.md PART 14, so fields are asserted under body["data"].
-func TestHandleHealth(t *testing.T) {
+func TestResponseFormatting(t *testing.T) {
 	s := newTestServer(t)
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-	w := httptest.NewRecorder()
 
-	s.handleHealth(w, r)
+	jsonResponse := httptest.NewRecorder()
+	s.respondItem(jsonResponse, http.StatusOK, map[string]string{"key": "value"})
+	if got := jsonResponse.Body.String(); !strings.Contains(got, "\n  \"data\": {") || !strings.HasSuffix(got, "\n") || strings.HasSuffix(got, "\n\n") {
+		t.Errorf("respondItem body is not two-space-indented JSON with one trailing newline: %q", got)
+	}
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	textResponse := httptest.NewRecorder()
+	s.respondText(textResponse, http.StatusOK, "line1\r\nline2\n\n")
+	if got, want := textResponse.Body.String(), "line1\nline2\n"; got != want {
+		t.Errorf("respondText body = %q, want %q", got, want)
 	}
-	var body map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode body: %v", err)
+}
+
+func TestRespondErrorNegotiatesJSONAndText(t *testing.T) {
+	s := newTestServer(t)
+
+	jsonRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items", nil)
+	jsonRequest.Header.Set("Accept", "application/json")
+	jsonResponse := httptest.NewRecorder()
+	s.respondError(jsonResponse, jsonRequest, http.StatusNotFound, "NOT_FOUND", "errors.airport_not_found", "ident", "NOPE")
+	if got := jsonResponse.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Errorf("JSON Content-Type = %q", got)
 	}
-	data, ok := body["data"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("body[data] missing or wrong type: %v", body["data"])
+	var response ErrorResponse
+	if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode JSON error response: %v", err)
 	}
-	if status, _ := data["status"].(string); status != "healthy" {
-		t.Errorf("data[status] = %v, want %q", data["status"], "healthy")
+	if response.Error != "NOT_FOUND" || response.Message == "" {
+		t.Errorf("JSON error response = %#v", response)
+	}
+
+	textRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items", nil)
+	textRequest.Header.Set("Accept", "text/plain")
+	textResponse := httptest.NewRecorder()
+	s.respondError(textResponse, textRequest, http.StatusNotFound, "NOT_FOUND", "errors.airport_not_found", "ident", "NOPE")
+	if got, want := textResponse.Body.String(), "ERROR: NOT_FOUND: Airport not found: NOPE\n"; got != want {
+		t.Errorf("text error response = %q, want %q", got, want)
 	}
 }
 
@@ -106,6 +124,7 @@ func TestHandleNearbyAirports(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t)
 			r := httptest.NewRequest(http.MethodGet, "/api/v1/airports/nearby"+tt.query, nil)
+			r.Header.Set("Accept", "application/json")
 			w := httptest.NewRecorder()
 
 			s.handleNearbyAirports(w, r)
@@ -186,6 +205,7 @@ func TestHandleAutocomplete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t)
 			r := httptest.NewRequest(http.MethodGet, "/api/v1/airports/autocomplete"+tt.query, nil)
+			r.Header.Set("Accept", "application/json")
 			w := httptest.NewRecorder()
 
 			s.handleAutocomplete(w, r)
@@ -249,6 +269,7 @@ func TestHandleGeoIPLookup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t)
 			r := httptest.NewRequest(http.MethodGet, "/api/v1/geoip", nil)
+			r.Header.Set("Accept", "application/json")
 			r.RemoteAddr = tt.remoteAddr
 			w := httptest.NewRecorder()
 
@@ -386,31 +407,35 @@ func TestRouterChiParamHandlers(t *testing.T) {
 	}
 }
 
-// TestHandleAirportDetailParamBug is a regression test documenting a known
-// bug: handleAirportDetail reads chi.URLParam(r, "code") but the route is
-// registered as /airports/{ident}, so code always resolves to "" and the
-// requested airport's data is never actually loaded into the template,
-// regardless of which ident is in the URL. See web_handlers.go:83.
-func TestHandleAirportDetailParamBug(t *testing.T) {
+func TestHandleAirportDetailLoadsRequestedAirport(t *testing.T) {
 	s := newTestServer(t)
-
-	// Confirm the underlying lookup that the handler performs with the
-	// wrong (always-empty) param actually fails, proving the airport data
-	// is never populated no matter what /airports/{ident} is requested.
-	if _, err := s.airports.GetByCode(""); err == nil {
-		t.Fatal("GetByCode(\"\") unexpectedly succeeded; the param-name bug regression assumption no longer holds")
-	}
-
 	r := httptest.NewRequest(http.MethodGet, "/airports/KJFK", nil)
+	r.Header.Set("Accept", "text/html")
 	w := httptest.NewRecorder()
 
 	s.Router().ServeHTTP(w, r)
 
-	// The page still renders 200 because the handler treats the lookup
-	// failure as "no data to display" rather than a 404 - but the airport
-	// requested by the URL is silently never shown.
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "KJFK / JFK") || !strings.Contains(w.Body.String(), "John F Kennedy Intl") {
+		t.Errorf("airport detail does not render the requested KJFK record: %s", w.Body.String())
+	}
+}
+
+func TestHandleAirportDetailUnknownAirportRendersThemed404(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest(http.MethodGet, "/airports/NOTAREALCODE", nil)
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+	if !strings.Contains(w.Header().Get("Content-Type"), "text/html") || !strings.Contains(w.Body.String(), "theme-dark") {
+		t.Errorf("unknown airport response is not a themed HTML error page: headers=%v body=%s", w.Header(), w.Body.String())
 	}
 }
 
@@ -453,21 +478,6 @@ func TestHandleGetSettings(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
-}
-
-func TestHandleHealthText(t *testing.T) {
-	s := newTestServer(t)
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/health.txt", nil)
-	w := httptest.NewRecorder()
-
-	s.handleHealthText(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
-	if !strings.Contains(w.Body.String(), "status: healthy") {
-		t.Errorf("body = %q, want it to contain %q", w.Body.String(), "status: healthy")
 	}
 }
 
@@ -553,6 +563,7 @@ func TestHandleLocaleJSONUnsupportedFallsBackToEnglish(t *testing.T) {
 
 func TestHandleSecurityTxt(t *testing.T) {
 	s := newTestServer(t)
+	s.config.Server.Contact.Security.Email = "security@example.com"
 	r := httptest.NewRequest(http.MethodGet, "/security.txt", nil)
 	w := httptest.NewRecorder()
 
@@ -563,6 +574,25 @@ func TestHandleSecurityTxt(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Contact:") {
 		t.Errorf("body = %q, want it to contain %q", w.Body.String(), "Contact:")
+	}
+}
+
+func TestHandleSecurityTxtTorUsesOnlyTorContact(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"
+	s.config.Server.Tor.ContactEmail = "onion@example.onion"
+	s.config.Web.Security.Admin = "clearnet@example.com"
+	r := httptest.NewRequest(http.MethodGet, "http://exampleexampleexampleexampleexampleexampleexampleexample.onion/.well-known/security.txt", nil)
+	r = r.WithContext(context.WithValue(r.Context(), torCircuitContextKey{}, "fc00::1234"))
+	w := httptest.NewRecorder()
+	s.handleSecurityTxt(w, r)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Contact: mailto:onion@example.onion") {
+		t.Errorf("Tor security.txt missing Tor contact: %q", body)
+	}
+	if strings.Contains(body, "clearnet@example.com") || strings.Contains(body, "Preferred-Languages:") {
+		t.Errorf("Tor security.txt leaked clearnet contact or language preference: %q", body)
 	}
 }
 
@@ -620,8 +650,8 @@ func TestHandleServerHealthzContentNegotiation(t *testing.T) {
 
 			s.handleServerHealthz(w, r)
 
-			if w.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusOK, w.Body.String())
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want %d, body=%s", w.Code, http.StatusServiceUnavailable, w.Body.String())
 			}
 		})
 	}
@@ -630,6 +660,7 @@ func TestHandleServerHealthzContentNegotiation(t *testing.T) {
 // TestHandleAutodiscover covers the unversioned /api/autodiscover endpoint.
 func TestHandleAutodiscover(t *testing.T) {
 	s := newTestServer(t)
+	s.config.Server.Update.CLIMinVersion = "1.2.3"
 	r := httptest.NewRequest(http.MethodGet, "/api/autodiscover", nil)
 	r.Host = "airports.example.com"
 	w := httptest.NewRecorder()
@@ -656,6 +687,9 @@ func TestHandleAutodiscover(t *testing.T) {
 	}
 	if api["current_version"] != s.config.Server.APIVersion {
 		t.Errorf("api[current_version] = %v, want %q", api["current_version"], s.config.Server.APIVersion)
+	}
+	if data["cli_min_version"] != "1.2.3" {
+		t.Errorf("cli_min_version = %v, want %q", data["cli_min_version"], "1.2.3")
 	}
 }
 

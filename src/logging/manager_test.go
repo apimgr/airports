@@ -30,6 +30,41 @@ func TestManagerRotateAt(t *testing.T) {
 	}
 }
 
+func TestManagerReopenAfterExternalRotation(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir, DefaultConfig())
+	defer func() { _ = m.Close() }()
+	if err := m.Server().Write("before external rotation"); err != nil {
+		t.Fatalf("Write before rotation: %v", err)
+	}
+
+	rotatedPath := m.Server().Path() + ".rotated"
+	if err := os.Rename(m.Server().Path(), rotatedPath); err != nil {
+		t.Fatalf("rename active log: %v", err)
+	}
+	if err := m.Reopen(); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	if err := m.Server().Write("after external rotation"); err != nil {
+		t.Fatalf("Write after rotation: %v", err)
+	}
+
+	rotated, err := os.ReadFile(rotatedPath)
+	if err != nil {
+		t.Fatalf("read rotated log: %v", err)
+	}
+	active, err := os.ReadFile(m.Server().Path())
+	if err != nil {
+		t.Fatalf("read reopened active log: %v", err)
+	}
+	if !strings.Contains(string(rotated), "before external rotation") || strings.Contains(string(rotated), "after external rotation") {
+		t.Errorf("rotated log contents = %q, want only pre-rotation entry", rotated)
+	}
+	if !strings.Contains(string(active), "after external rotation") || strings.Contains(string(active), "before external rotation") {
+		t.Errorf("active log contents = %q, want only post-reopen entry", active)
+	}
+}
+
 func TestManagerRotateSkipsDisabledLogs(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultConfig()
@@ -125,7 +160,7 @@ func TestManagerWriteAllLogTypes(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Debug.Enabled = true
 	m := NewManager(dir, cfg)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	writers := []*LogWriter{m.Access(), m.Server(), m.Error(), m.App(), m.Auth(), m.Audit(), m.Security(), m.Debug()}
 	for _, w := range writers {
@@ -149,7 +184,7 @@ func TestWriteAuditMasksEmailsByDefault(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultConfig()
 	m := NewManager(dir, cfg)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	if err := m.WriteAudit(AuditCategorySecurity, `event=security.report_received actor=jane.doe@example.com`); err != nil {
 		t.Fatalf("WriteAudit: %v", err)
@@ -173,7 +208,7 @@ func TestWriteAuditMaskEmailsDisabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Audit.MaskEmails = false
 	m := NewManager(dir, cfg)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	if err := m.WriteAudit(AuditCategorySecurity, `actor=jane.doe@example.com`); err != nil {
 		t.Fatalf("WriteAudit: %v", err)
@@ -193,7 +228,7 @@ func TestWriteAuditSkipsDisabledCategory(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Audit.Events.Backup = false
 	m := NewManager(dir, cfg)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 
 	if err := m.WriteAudit(AuditCategoryBackup, "backup.created"); err != nil {
 		t.Fatalf("WriteAudit: %v", err)

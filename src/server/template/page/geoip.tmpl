@@ -5,7 +5,7 @@
 </div>
 
 <div class="search-box">
-    <form id="geoip-form" method="get" action="/geoip" data-action="lookup-ip">
+    <form id="geoip-form" method="get" action="{{.BaseURL}}/geoip" data-action="lookup-ip">
         <div class="search-input-group">
             <input type="text" id="ip-input" name="ip" class="search-input"
                    placeholder="{{t "geoip.ip_placeholder"}}"

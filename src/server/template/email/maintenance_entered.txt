@@ -1,0 +1,8 @@
+Subject: Maintenance Mode - {app_name}
+---
+{app_name} entered read-only maintenance mode.
+
+Cause: {reason}
+Time: {timestamp}
+
+The server is attempting recovery. Review the server health endpoint and logs for status.

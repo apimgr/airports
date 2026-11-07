@@ -44,10 +44,40 @@ type Cache interface {
 	Close() error
 }
 
+// MetricsStats contains cache measurements that a backend can report
+// without estimating or querying unrelated cache tenants. Bytes is the
+// backend's documented logical key/value byte count, not heap allocation.
+type MetricsStats struct {
+	Hits             uint64
+	Misses           uint64
+	Evictions        uint64
+	Items            uint64
+	Bytes            uint64
+	HasEvictionCount bool
+	HasSize          bool
+	Enabled          bool
+}
+
+// MetricsProvider is implemented by cache backends that can provide exact
+// measurements for some or all cache metrics.
+type MetricsProvider interface {
+	MetricsStats() MetricsStats
+}
+
 // New constructs the configured Cache backend. Type "none" or an unknown
 // type disables caching entirely by returning a no-op backend so callers
 // never need a nil check.
 func New(cfg config.CacheConfig) (Cache, error) {
+	return newCache(cfg, false)
+}
+
+// NewWithDebug constructs the configured cache and records debug-gated
+// operations when logCache is enabled.
+func NewWithDebug(cfg config.CacheConfig, logCache bool) (Cache, error) {
+	return newCache(cfg, logCache)
+}
+
+func newCache(cfg config.CacheConfig, logCache bool) (Cache, error) {
 	prefix := cfg.Prefix
 	if prefix == "" {
 		prefix = "airports:"
@@ -58,16 +88,29 @@ func New(cfg config.CacheConfig) (Cache, error) {
 		return nil, fmt.Errorf("cache: invalid ttl %q: %w", cfg.TTL, err)
 	}
 
+	var backend Cache
 	switch cfg.Type {
 	case "", "none":
-		return newNoopCache(), nil
+		backend = newNoopCache()
 	case "memory":
-		return newMemoryCache(prefix, defaultTTL), nil
+		backend = newMemoryCache(prefix, defaultTTL)
 	case "valkey", "redis":
-		return newRedisCache(cfg, prefix, defaultTTL)
+		backend, err = newRedisCache(cfg, prefix, defaultTTL)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("cache: unknown type %q (expected none, memory, valkey, or redis)", cfg.Type)
 	}
+	if _, disabled := backend.(*noopCache); disabled {
+		return backend, nil
+	}
+	logger := &debugCache{backend: backend}
+	logger.enabled.Store(logCache)
+	if memory, ok := backend.(*memoryCache); ok {
+		memory.setEvictionLogger(func(key string) { logger.log("evict", key, 0, false, nil) })
+	}
+	return logger, nil
 }
 
 // parseDurationOrDefault parses a Go duration string, falling back to def

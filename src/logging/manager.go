@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -163,6 +164,37 @@ func (m *Manager) RotateAt(now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// PruneRotatedBefore removes rotated log files older than cutoff while
+// preserving every active log. It is used only by maintenance disk-pressure
+// cleanup, independently of each writer's normal rotation retention policy.
+func (m *Manager) PruneRotatedBefore(cutoff time.Time) (int, error) {
+	if m == nil {
+		return 0, nil
+	}
+	deleted := 0
+	var firstErr error
+	for name, writer := range m.writers() {
+		count, err := writer.pruneRotatedBefore(cutoff)
+		deleted += count
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("prune %s logs: %w", name, err)
+		}
+	}
+	return deleted, firstErr
+}
+
+// Reopen refreshes the descriptors for currently open logs after an external
+// rotation. It attempts every writer and returns the first error encountered.
+func (m *Manager) Reopen() error {
+	var firstErr error
+	for name, writer := range m.writers() {
+		if err := writer.Reopen(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("reopen %s log: %w", name, err)
+		}
+	}
+	return firstErr
 }
 
 // Close closes every managed log file's open handle.

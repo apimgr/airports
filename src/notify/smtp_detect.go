@@ -71,14 +71,14 @@ func probeSMTP(host string, port int, timeout time.Duration) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return false
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if err := client.Hello(ehloName()); err != nil {
 		return false
@@ -108,7 +108,7 @@ func defaultGatewayIP() string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -156,7 +156,7 @@ func globalIPv4() string {
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok || udpAddr.IP == nil {

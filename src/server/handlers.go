@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -12,31 +11,9 @@ import (
 	"strings"
 
 	"github.com/apimgr/airports/src/airports"
-	"github.com/apimgr/airports/src/mode"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
-
-// handleHealth returns server health status
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	stats := s.airports.Stats()
-
-	health := map[string]interface{}{
-		"status":  "healthy",
-		"version": Version,
-		"checks": map[string]interface{}{
-			"airports": map[string]interface{}{
-				"status": "loaded",
-				"total":  stats["total_airports"],
-			},
-			"geoip": map[string]interface{}{
-				"status": "loaded",
-			},
-		},
-	}
-
-	s.respondItem(w, http.StatusOK, health)
-}
 
 // handleGetAirports returns paginated list of airports
 func (s *Server) handleGetAirports(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +48,7 @@ func (s *Server) handleGetAirportsJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=airports.json")
 
 	data := s.airports.GetRawData()
-	if err := json.NewEncoder(w).Encode(data); err != nil {
+	if err := encodeJSON(w, data); err != nil {
 		log.Printf("handleGetAirportsJSON: encode failed: %v", err)
 	}
 }
@@ -139,7 +116,7 @@ func (s *Server) handleGetAirportsGeoJSON(w http.ResponseWriter, r *http.Request
 		"features": features,
 	}
 
-	if err := json.NewEncoder(w).Encode(geojson); err != nil {
+	if err := encodeJSON(w, geojson); err != nil {
 		log.Printf("handleGetAirportsGeoJSON: encode failed: %v", err)
 	}
 }
@@ -167,7 +144,7 @@ func (s *Server) handleGetAirportByIdentText(w http.ResponseWriter, r *http.Requ
 
 	airport, err := s.airports.GetByCode(code)
 	if err != nil {
-		s.respondText(w, http.StatusNotFound, fmt.Sprintf("Airport not found: %s", code))
+		s.respondError(w, r, http.StatusNotFound, "NOT_FOUND", "errors.airport_not_found", "ident", code)
 		return
 	}
 
@@ -218,10 +195,10 @@ func (s *Server) handleSearchAirportsText(w http.ResponseWriter, r *http.Request
 	airports := s.airports.Search(query, limit, 0)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search: %s\nResults: %d\n\n", query, len(airports)))
+	_, _ = fmt.Fprintf(&sb, "Search: %s\nResults: %d\n\n", query, len(airports))
 
 	for _, a := range airports {
-		sb.WriteString(fmt.Sprintf("%s (%s) - %s, %s\n", a.ICAO, a.IATA, a.Name, a.City))
+		_, _ = fmt.Fprintf(&sb, "%s (%s) - %s, %s\n", a.ICAO, a.IATA, a.Name, a.City)
 	}
 
 	s.respondText(w, http.StatusOK, sb.String())
@@ -312,12 +289,12 @@ func (s *Server) handleNearbyAirportsText(w http.ResponseWriter, r *http.Request
 
 	lat, err := strconv.ParseFloat(latStr, 64)
 	if err != nil || math.IsNaN(lat) || math.IsInf(lat, 0) || lat < -90 || lat > 90 {
-		s.respondText(w, http.StatusBadRequest, "Invalid latitude: must be a number in [-90, 90]\n")
+		s.respondError(w, r, http.StatusBadRequest, "VALIDATION_FAILED", "errors.invalid_latitude")
 		return
 	}
 	lon, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil || math.IsNaN(lon) || math.IsInf(lon, 0) || lon < -180 || lon > 180 {
-		s.respondText(w, http.StatusBadRequest, "Invalid longitude: must be a number in [-180, 180]\n")
+		s.respondError(w, r, http.StatusBadRequest, "VALIDATION_FAILED", "errors.invalid_longitude")
 		return
 	}
 	radius := 50.0
@@ -336,10 +313,10 @@ func (s *Server) handleNearbyAirportsText(w http.ResponseWriter, r *http.Request
 	airportsWithDist := s.airports.GetNearbyWithDistance(lat, lon, radius, 20, "metric")
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Nearby airports (%.1f km from %.4f, %.4f)\n\n", radius, lat, lon))
+	_, _ = fmt.Fprintf(&sb, "Nearby airports (%.1f km from %.4f, %.4f)\n\n", radius, lat, lon)
 
 	for _, a := range airportsWithDist {
-		sb.WriteString(fmt.Sprintf("%s (%s) - %s (%.1f km)\n", a.ICAO, a.IATA, a.Name, a.Distance))
+		_, _ = fmt.Fprintf(&sb, "%s (%s) - %s (%.1f km)\n", a.ICAO, a.IATA, a.Name, a.Distance)
 	}
 
 	s.respondText(w, http.StatusOK, sb.String())
@@ -405,10 +382,10 @@ func (s *Server) handleGetCountriesText(w http.ResponseWriter, r *http.Request) 
 	countries := s.airports.GetCountries()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Countries with airports: %d\n\n", len(countries)))
+	_, _ = fmt.Fprintf(&sb, "Countries with airports: %d\n\n", len(countries))
 
 	for name, count := range countries {
-		sb.WriteString(fmt.Sprintf("%s\t%d\n", name, count))
+		_, _ = fmt.Fprintf(&sb, "%s\t%d\n", name, count)
 	}
 
 	s.respondText(w, http.StatusOK, sb.String())
@@ -463,7 +440,8 @@ func (s *Server) handleGeoIPLookupText(w http.ResponseWriter, r *http.Request) {
 
 	location, err := s.geoip.LookupString(ipStr)
 	if err != nil {
-		s.respondText(w, http.StatusBadRequest, fmt.Sprintf("Error: %s", mode.GetErrorDetail(err)))
+		log.Printf("handleGeoIPLookupText: lookup failed for %s: %v", ipStr, err)
+		s.respondError(w, r, http.StatusBadRequest, "BAD_REQUEST", "errors.invalid_ip")
 		return
 	}
 
@@ -494,7 +472,8 @@ func (s *Server) handleGeoIPLookupIPText(w http.ResponseWriter, r *http.Request)
 
 	location, err := s.geoip.LookupString(ipStr)
 	if err != nil {
-		s.respondText(w, http.StatusBadRequest, fmt.Sprintf("Error: %s", mode.GetErrorDetail(err)))
+		log.Printf("handleGeoIPLookupIPText: lookup failed for %s: %v", ipStr, err)
+		s.respondError(w, r, http.StatusBadRequest, "BAD_REQUEST", "errors.invalid_ip")
 		return
 	}
 
@@ -570,6 +549,9 @@ func (s *Server) handleGeoIPNearbyAirports(w http.ResponseWriter, r *http.Reques
 // IS the real client in that case. X-Forwarded-For/X-Real-IP are never
 // trusted directly here, since that would let any client spoof its IP.
 func getClientIP(r *http.Request) string {
+	if TorCircuitID(r) != "" {
+		return TorClientIdentity(r)
+	}
 	if ip := middleware.GetClientIP(r.Context()); ip != "" {
 		return ip
 	}

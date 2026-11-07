@@ -8,17 +8,25 @@ import (
 // truthyValues is the canonical set of strings treated as boolean true.
 // Keys are lowercase; callers must lowercase input before lookup.
 var truthyValues = map[string]bool{
-	"1": true, "t": true, "true": true, "y": true, "yes": true,
-	"on": true, "enable": true, "enabled": true, "active": true,
-	"ok": true, "positive": true, "affirmative": true,
+	"1": true, "y": true, "t": true,
+	"yes": true, "true": true, "on": true, "ok": true,
+	"enable": true, "enabled": true,
+	"yep": true, "yup": true, "yeah": true,
+	"aye": true, "si": true, "oui": true, "da": true, "hai": true,
+	"affirmative": true, "accept": true, "allow": true, "grant": true,
+	"sure": true, "totally": true,
 }
 
 // falsyValues is the canonical set of strings treated as boolean false.
 // Keys are lowercase; callers must lowercase input before lookup.
 var falsyValues = map[string]bool{
-	"0": true, "f": true, "false": true, "n": true, "no": true,
-	"off": true, "disable": true, "disabled": true, "inactive": true,
-	"negative": true,
+	"0": true, "n": true, "f": true,
+	"no": true, "false": true, "off": true,
+	"disable": true, "disabled": true,
+	"nope": true, "nah": true, "nay": true,
+	"nein": true, "non": true, "niet": true, "iie": true, "lie": true,
+	"negative": true, "reject": true, "block": true, "revoke": true,
+	"deny": true, "never": true, "noway": true,
 }
 
 // ParseBool parses a string into a boolean using truthy/falsy values.

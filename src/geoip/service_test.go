@@ -16,7 +16,7 @@ func TestNewService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create GeoIP service: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if svc.cityIPv4DB == nil && svc.cityIPv6DB == nil {
 		t.Error("City database (v4/v6) not loaded")
@@ -50,7 +50,7 @@ func TestLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create GeoIP service: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	tests := []struct {
 		name    string
@@ -95,7 +95,7 @@ func TestLookupString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create GeoIP service: %v", err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	location, err := svc.LookupString("8.8.8.8")
 	if err != nil {
@@ -132,10 +132,10 @@ func TestNewServiceFailOpen(t *testing.T) {
 	if svc == nil {
 		t.Fatal("NewService must return a non-nil Service even when downloads fail")
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
-	if svc.Available() {
-		t.Error("Service.Available() must be false when databases failed to download")
+	if svc.IsGeoIPAvailable() {
+		t.Error("Service.IsGeoIPAvailable() must be false when databases failed to download")
 	}
 
 	if _, err := svc.Lookup(net.ParseIP("8.8.8.8")); err == nil {
@@ -166,7 +166,7 @@ func BenchmarkLookup(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	ip := net.ParseIP("8.8.8.8")
 

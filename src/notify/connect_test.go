@@ -26,7 +26,7 @@ func startAuthCapableFakeSMTPServer(t *testing.T, advertiseAuth, advertiseStartT
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				_, _ = c.Write([]byte("220 fake.smtp ESMTP ready\r\n"))
 				reader := bufio.NewReader(c)
 				for {
@@ -118,7 +118,7 @@ func TestDialSMTPPlainConnectsSuccessfully(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dialSMTP: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 }
 
 func TestDialSMTPTLSModeFailsAgainstPlainServer(t *testing.T) {

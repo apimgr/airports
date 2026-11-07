@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,13 +45,62 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func TestParseTaskSchedule(t *testing.T) {
+	tests := []struct {
+		expression string
+		wantErr    bool
+	}{
+		{expression: "0 3 * * *"},
+		{expression: "*/15 * * * *"},
+		{expression: "0 0 * jan mon"},
+		{expression: "@hourly"},
+		{expression: "@every 15m"},
+		{expression: "not-a-schedule", wantErr: true},
+		{expression: "61 * * * *", wantErr: true},
+		{expression: "@every 0s", wantErr: true},
+	}
+	for _, test := range tests {
+		_, err := parseTaskSchedule(test.expression)
+		if (err != nil) != test.wantErr {
+			t.Errorf("parseTaskSchedule(%q) error = %v, wantErr %t", test.expression, err, test.wantErr)
+		}
+	}
+}
+
+func TestTaskScheduleNext(t *testing.T) {
+	location := time.UTC
+	after := time.Date(2026, time.January, 2, 4, 0, 0, 0, location)
+	schedule, err := parseTaskSchedule("0 3 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.January, 3, 3, 0, 0, 0, location)
+	if got := schedule.next(after, location); !got.Equal(want) {
+		t.Errorf("next() = %s, want %s", got, want)
+	}
+	dayOrWeekday, err := parseTaskSchedule("0 0 2 * mon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := dayOrWeekday.next(time.Date(2026, time.January, 1, 0, 0, 0, 0, location), location), time.Date(2026, time.January, 2, 0, 0, 0, 0, location); !got.Equal(want) {
+		t.Errorf("day-or-weekday next() = %s, want %s", got, want)
+	}
+	interval, err := parseTaskSchedule("@every 50ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := interval.next(after, location), after.Add(50*time.Millisecond); !got.Equal(want) {
+		t.Errorf("interval next() = %s, want %s", got, want)
+	}
+}
+
 func TestNew(t *testing.T) {
 	s := New(nil, 0)
 	if s == nil {
 		t.Fatal("New() returned nil")
 	}
-	if s.c == nil {
-		t.Fatal("New() returned a Scheduler with a nil underlying cron.Cron")
+	if s.tickInterval <= 0 {
+		t.Fatal("New() returned a Scheduler with an invalid ticker interval")
 	}
 	if s.catchUpWindow != time.Hour {
 		t.Errorf("catchUpWindow default = %s, want 1h", s.catchUpWindow)
@@ -63,8 +113,8 @@ func TestNewWithLocation(t *testing.T) {
 		if s == nil {
 			t.Fatal("NewWithLocation() returned nil")
 		}
-		if s.c == nil {
-			t.Fatal("NewWithLocation() returned a Scheduler with a nil underlying cron.Cron")
+		if s.location != time.Local {
+			t.Fatal("NewWithLocation() did not default to time.Local")
 		}
 	})
 
@@ -186,6 +236,26 @@ func TestRegisterTask_HandlerErrorIsLoggedNotFatal(t *testing.T) {
 	}
 	if st.FailCount < 1 {
 		t.Errorf("FailCount = %d, want >= 1", st.FailCount)
+	}
+}
+
+func TestTaskPanicIsRecordedAsFailure(t *testing.T) {
+	db := testDB(t)
+	s := New(db, time.Hour)
+	if err := s.RegisterTask("panic-task", "Panic Task", "0 0 1 1 *", false, false, 0, func() error {
+		panic("boom")
+	}); err != nil {
+		t.Fatalf("RegisterTask: %v", err)
+	}
+	if err := s.RunNow("panic-task"); err != nil {
+		t.Fatalf("RunNow: %v", err)
+	}
+	state, ok := s.Get("panic-task")
+	if !ok {
+		t.Fatal("Get: task not found")
+	}
+	if state.LastStatus != "failed" || !strings.Contains(state.LastError, "task panicked: boom") {
+		t.Errorf("panic state = (%q, %q), want failed with recovered panic message", state.LastStatus, state.LastError)
 	}
 }
 

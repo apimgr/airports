@@ -45,9 +45,9 @@ func TestBuildDNSProviderCloudflareSuccess(t *testing.T) {
 // Covers BuildDNSProvider's failure path for a known provider missing its
 // required credentials.
 func TestBuildDNSProviderCloudflareMissingCreds(t *testing.T) {
-	os.Unsetenv("CLOUDFLARE_DNS_API_TOKEN")
-	os.Unsetenv("CLOUDFLARE_EMAIL")
-	os.Unsetenv("CLOUDFLARE_API_KEY")
+	t.Setenv("CLOUDFLARE_DNS_API_TOKEN", "")
+	t.Setenv("CLOUDFLARE_EMAIL", "")
+	t.Setenv("CLOUDFLARE_API_KEY", "")
 	if _, err := BuildDNSProvider("cloudflare", nil); err == nil {
 		t.Error("BuildDNSProvider(cloudflare, no creds) expected error, got nil")
 	}

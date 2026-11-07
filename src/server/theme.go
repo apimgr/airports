@@ -28,12 +28,14 @@ func (s *Server) handleSetTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     themeCookieName,
-		Value:    theme,
-		Path:     "/",
-		MaxAge:   365 * 24 * 60 * 60,
-		SameSite: http.SameSiteLaxMode,
-	})
+	if CanSetPreferenceCookie(r) {
+		http.SetCookie(w, &http.Cookie{
+			Name:     themeCookieName,
+			Value:    theme,
+			Path:     "/",
+			MaxAge:   365 * 24 * 60 * 60,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 	redirectBack(w, r)
 }

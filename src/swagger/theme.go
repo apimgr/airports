@@ -1,6 +1,9 @@
 package swagger
 
-import "fmt"
+import (
+	"fmt"
+	"html"
+)
 
 // renderSwaggerHTML returns the Swagger UI page that loads the embedded
 // assets at assetsPrefix and fetches the OpenAPI spec from specURL.
@@ -9,16 +12,22 @@ import "fmt"
 // Swagger UI colors with the project theme variables so light/dark/auto
 // matches the rest of the site (see AI.md PART 14 "Swagger & GraphQL
 // Theming").
-func renderSwaggerHTML(specURL, assetsPrefix string) string {
+func renderSwaggerHTML(specURL, assetsPrefix string, baseURLs ...string) string {
+	baseURL := ""
+	if len(baseURLs) > 0 {
+		baseURL = html.EscapeString(baseURLs[0])
+	}
+	specURL = html.EscapeString(specURL)
+	assetsPrefix = html.EscapeString(assetsPrefix)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en" class="theme-dark">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Documentation - Airports API</title>
-    <link rel="stylesheet" href="/static/css/common.css">
-    <link rel="stylesheet" href="/static/css/components.css">
-    <link rel="stylesheet" href="/static/css/public.css">
+    <link rel="stylesheet" href="%[3]s/static/css/common.css">
+    <link rel="stylesheet" href="%[3]s/static/css/components.css">
+    <link rel="stylesheet" href="%[3]s/static/css/public.css">
     <link rel="stylesheet" href="%[2]sswagger-ui.css">
     <style>
       body { margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
@@ -43,15 +52,15 @@ func renderSwaggerHTML(specURL, assetsPrefix string) string {
       <div class="header-container">
         <div class="header-left">
           <button class="mobile-menu-toggle" data-action="toggle-mobile-menu">&#9776;</button>
-          <a class="logo" href="/">Airports API</a>
+          <a class="logo" href="%[3]s/">Airports API</a>
         </div>
         <nav id="main-nav" class="header-center">
-          <a href="/">Home</a>
-          <a href="/search">Search</a>
-          <a href="/nearby">Nearby</a>
-          <a href="/stats">Stats</a>
-          <a href="/server/docs/swagger" class="active">API Docs</a>
-          <a href="/server/docs/graphql">GraphQL</a>
+          <a href="%[3]s/">Home</a>
+          <a href="%[3]s/airports/search">Search</a>
+          <a href="%[3]s/airports/nearby">Nearby</a>
+          <a href="%[3]s/stats">Stats</a>
+          <a href="%[3]s/server/docs/swagger" class="active">API Docs</a>
+          <a href="%[3]s/server/docs/graphql">GraphQL</a>
         </nav>
         <div class="header-right">
           <button class="theme-toggle" data-action="toggle-theme">
@@ -67,8 +76,8 @@ func renderSwaggerHTML(specURL, assetsPrefix string) string {
 
     <script src="%[2]sswagger-ui-bundle.js"></script>
     <script src="%[2]sswagger-ui-standalone-preset.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="%[3]s/static/js/app.js"></script>
   </body>
 </html>
-`, specURL, assetsPrefix)
+`, specURL, assetsPrefix, baseURL)
 }

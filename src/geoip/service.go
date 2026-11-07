@@ -1,6 +1,7 @@
 package geoip
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -76,10 +77,10 @@ type Service struct {
 	available  bool // true once databases are downloaded and loaded successfully
 }
 
-// Available reports whether GeoIP databases are loaded and lookups can
+// IsGeoIPAvailable reports whether GeoIP databases are loaded and lookups can
 // succeed. GeoIP is a risk signal only (AI.md PART 19) — callers must
 // never treat an unavailable service as a reason to block a request.
-func (s *Service) Available() bool {
+func (s *Service) IsGeoIPAvailable() bool {
 	return s != nil && s.available
 }
 
@@ -150,7 +151,9 @@ func (s *Service) LoadDatabases() error {
 	countryPath := filepath.Join(s.dataDir, "geo-whois-asn-country.mmdb")
 	asnPath := filepath.Join(s.dataDir, "asn.mmdb")
 
-	s.Close()
+	if err := s.Close(); err != nil {
+		return fmt.Errorf("failed to close existing GeoIP databases: %w", err)
+	}
 
 	cityIPv4DB, err := maxminddb.Open(cityIPv4Path)
 	if err != nil {
@@ -160,24 +163,24 @@ func (s *Service) LoadDatabases() error {
 
 	cityIPv6DB, err := maxminddb.Open(cityIPv6Path)
 	if err != nil {
-		s.cityIPv4DB.Close()
+		_ = s.cityIPv4DB.Close()
 		return fmt.Errorf("failed to load city IPv6 database: %w", err)
 	}
 	s.cityIPv6DB = cityIPv6DB
 
 	countryDB, err := maxminddb.Open(countryPath)
 	if err != nil {
-		s.cityIPv4DB.Close()
-		s.cityIPv6DB.Close()
+		_ = s.cityIPv4DB.Close()
+		_ = s.cityIPv6DB.Close()
 		return fmt.Errorf("failed to load country database: %w", err)
 	}
 	s.countryDB = countryDB
 
 	asnDB, err := maxminddb.Open(asnPath)
 	if err != nil {
-		s.cityIPv4DB.Close()
-		s.cityIPv6DB.Close()
-		s.countryDB.Close()
+		_ = s.cityIPv4DB.Close()
+		_ = s.cityIPv6DB.Close()
+		_ = s.countryDB.Close()
 		return fmt.Errorf("failed to load ASN database: %w", err)
 	}
 	s.asnDB = asnDB
@@ -220,7 +223,11 @@ func (s *Service) UpdateDatabases() error {
 	if err := os.MkdirAll(tempDir, 0700); err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			log.Printf("Warning: could not remove GeoIP temp directory: %v", err)
+		}
+	}()
 
 	databases := []struct {
 		filename string
@@ -240,7 +247,9 @@ func (s *Service) UpdateDatabases() error {
 		}
 	}
 
-	s.Close()
+	if err := s.Close(); err != nil {
+		return fmt.Errorf("failed to close existing GeoIP databases: %w", err)
+	}
 
 	for _, db := range databases {
 		tempPath := filepath.Join(tempDir, db.filename)
@@ -340,23 +349,24 @@ func (s *Service) LookupString(ipStr string) (*GeoLocation, error) {
 // Close closes all GeoIP databases
 func (s *Service) Close() error {
 	s.available = false
+	var closeErrors []error
 	if s.cityIPv4DB != nil {
-		s.cityIPv4DB.Close()
+		closeErrors = append(closeErrors, s.cityIPv4DB.Close())
 		s.cityIPv4DB = nil
 	}
 	if s.cityIPv6DB != nil {
-		s.cityIPv6DB.Close()
+		closeErrors = append(closeErrors, s.cityIPv6DB.Close())
 		s.cityIPv6DB = nil
 	}
 	if s.countryDB != nil {
-		s.countryDB.Close()
+		closeErrors = append(closeErrors, s.countryDB.Close())
 		s.countryDB = nil
 	}
 	if s.asnDB != nil {
-		s.asnDB.Close()
+		closeErrors = append(closeErrors, s.asnDB.Close())
 		s.asnDB = nil
 	}
-	return nil
+	return errors.Join(closeErrors...)
 }
 
 func fileExists(path string) bool {
@@ -369,7 +379,7 @@ func downloadFile(dest string, url string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	// Remove a partial/empty file if the download fails at any point so a
 	// truncated database is never left on disk (a corrupt file that still
@@ -385,7 +395,7 @@ func downloadFile(dest string, url string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)

@@ -1,25 +1,124 @@
 {{define "content"}}
-<section class="page-section">
+<article class="page-section privacy-page">
     <h1>{{t "privacy.title"}}</h1>
     <p>{{t "privacy.intro"}}</p>
 
-    <h2>{{t "privacy.collect_heading"}}</h2>
-    <ul>
-        <li><strong>{{t "privacy.collect_logs_label"}}</strong> &mdash; {{t "privacy.collect_logs_desc"}}</li>
-        <li><strong>{{t "privacy.collect_geoip_label"}}</strong> &mdash; {{t "privacy.collect_geoip_desc"}}</li>
-    </ul>
+    <section id="cookie-policy">
+        <h2>Cookies and Consent</h2>
+        <p>{{.Privacy.GetConsentMessage}}</p>
+        <h3>Cookie Categories</h3>
+        <ul>
+            <li><strong>Essential:</strong> {{.Privacy.Cookies.Essential.Description}}</li>
+            <li><strong>Preferences:</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
+            <li><strong>Analytics:</strong> {{.Privacy.GetAnalyticsDescription}}</li>
+        </ul>
+        <p>Consent is saved in a first-party cookie. You can manage your choices using the cookie controls.</p>
+    </section>
 
-    <h2>{{t "privacy.not_collect_heading"}}</h2>
-    <ul>
-        <li>{{t "privacy.not_collect_accounts"}}</li>
-        <li>{{t "privacy.not_collect_cookies_pre"}} <code>localStorage</code> {{t "privacy.not_collect_cookies_post"}}</li>
-        <li>{{t "privacy.not_collect_analytics"}}</li>
-    </ul>
+    <section id="data-collection">
+        <h2>Data We Collect</h2>
+        {{.Privacy.Content.DataCollection | markdownToHTML}}
+    </section>
 
-    <h2>{{t "privacy.third_party_heading"}}</h2>
-    <p>{{t "privacy.third_party_desc"}}</p>
+    <section id="data-usage">
+        <h2>How We Use Your Data</h2>
+        {{.Privacy.GetDataUsageContent | markdownToHTML}}
+    </section>
 
-    <h2>{{t "privacy.contact_heading"}}</h2>
-    <p>{{t "privacy.contact_pre"}} <a href="/security.txt">security.txt</a>{{t "privacy.contact_post"}}</p>
-</section>
+    <section id="data-security">
+        <h2>Data Security</h2>
+        {{.Privacy.Content.DataSecurity | markdownToHTML}}
+    </section>
+
+    <section id="data-storage">
+        <h2>Data Storage and Third-Party Sharing</h2>
+        {{if .Privacy.Data.StoredOnServer}}
+        <p>Data is stored on this server.</p>
+        {{else}}
+        <p>Data is not stored on this server.</p>
+        {{end}}
+        <h3>When Data May Be Shared</h3>
+        {{if .Privacy.Data.Sharing}}
+        <ul>
+            {{range .Privacy.Data.Sharing}}
+            <li><strong>{{.Condition | humanize}}:</strong> {{.When}} — {{.Data}}</li>
+            {{end}}
+        </ul>
+        {{else}}
+        <p>No third-party sharing conditions are configured.</p>
+        {{end}}
+        {{if .Privacy.Data.Sold}}
+        <p>Your data may be sold to third parties. See the CCPA opt-out section below.</p>
+        {{else}}
+        <p>Your data is never sold.</p>
+        {{end}}
+    </section>
+
+    <section id="data-retention">
+        <h2>Data Retention</h2>
+        <p>{{.Privacy.Retention.Period}}</p>
+    </section>
+
+    <section id="third-parties">
+        <h2>Third-Party Services</h2>
+        {{if .ThirdPartyServices}}
+        <p>These services may receive data for the purposes described below:</p>
+        <table>
+            <thead><tr><th>Service</th><th>Purpose</th><th>Data Sent</th><th>Privacy Policy</th></tr></thead>
+            <tbody>
+                {{range .ThirdPartyServices}}
+                <tr>
+                    <td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td>
+                    <td>{{if .PolicyURL}}<a href="{{.PolicyURL}}" rel="noopener noreferrer">View policy</a>{{else}}Not provided{{end}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+        {{else}}
+        <p>No third-party services are configured.</p>
+        {{end}}
+    </section>
+
+    <section id="your-rights">
+        <h2>Your Rights</h2>
+        <ul>
+            {{if .Privacy.Retention.ExportAvailable}}<li>You can request or export a copy of your data.</li>{{end}}
+            {{if .Privacy.Retention.DeletionAvailable}}<li>You can request deletion of your data.</li>{{end}}
+            <li>You can change cookie preferences at any time.</li>
+        </ul>
+        <form method="post" action="{{.BaseURL}}/server/consent" class="cookie-preferences-form">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="choice" value="save">
+            <label><input type="checkbox" name="preferences" value="true" {{if .ConsentPreferences}}checked{{end}} {{if not .Privacy.Cookies.Preferences.Enabled}}disabled{{end}}> {{.Privacy.Cookies.Preferences.Description}}</label>
+            <label><input type="checkbox" name="analytics" value="true" {{if .ConsentAnalytics}}checked{{end}} {{if not .Privacy.Cookies.Analytics.Enabled}}disabled{{end}}> {{.Privacy.GetAnalyticsDescription}}</label>
+            <button type="submit">Save Preferences</button>
+        </form>
+    </section>
+
+    {{if .Privacy.IsCCPAApplicable}}
+    <section id="ccpa-opt-out" class="ccpa-section">
+        <h2>California Privacy Rights (CCPA)</h2>
+        <p>You can opt out of the sale of your personal information.</p>
+        {{if .CCPAOptedOut}}
+        <p class="ccpa-status opted-out">You have opted out of data sales.</p>
+        <form method="post" action="{{.BaseURL}}/server/ccpa">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="choice" value="opt-in">
+            <button type="submit" class="btn-secondary">Opt Back In</button>
+        </form>
+        {{else}}
+        <form method="post" action="{{.BaseURL}}/server/ccpa">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="choice" value="opt-out">
+            <button type="submit" class="btn-primary btn-ccpa-opt-out">Do Not Sell My Personal Information</button>
+        </form>
+        {{end}}
+    </section>
+    {{end}}
+
+    <section id="contact">
+        <h2>Contact</h2>
+        <p>For privacy-related inquiries, use the <a href="{{.BaseURL}}/server/contact">contact page</a>.</p>
+    </section>
+</article>
 {{end}}

@@ -100,6 +100,25 @@ func (w *LogWriter) Close() error {
 	return err
 }
 
+// Reopen closes the current descriptor and opens the active path again. It is
+// used after external log rotation moves the file while the process is live.
+func (w *LogWriter) Reopen() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return nil
+	}
+	if err := w.file.Close(); err != nil {
+		w.file = nil
+		return fmt.Errorf("logging: close %q for reopen: %w", w.Path(), err)
+	}
+	w.file = nil
+	if err := w.ensureOpen(); err != nil {
+		return fmt.Errorf("logging: reopen %q: %w", w.Path(), err)
+	}
+	return nil
+}
+
 // RotateIfDue rotates this log file's active contents if its configured
 // rotate policy is due, relative to now. It is idempotent: calling it more
 // often than the configured cadence is a no-op until the policy is
@@ -209,7 +228,7 @@ func gzipFile(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 	if err != nil {
@@ -218,18 +237,18 @@ func gzipFile(src string) (string, error) {
 
 	gw := gzip.NewWriter(out)
 	if _, err := io.Copy(gw, in); err != nil {
-		gw.Close()
-		out.Close()
-		os.Remove(dstPath)
+		_ = gw.Close()
+		_ = out.Close()
+		_ = os.Remove(dstPath)
 		return "", err
 	}
 	if err := gw.Close(); err != nil {
-		out.Close()
-		os.Remove(dstPath)
+		_ = out.Close()
+		_ = os.Remove(dstPath)
 		return "", err
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(dstPath)
+		_ = os.Remove(dstPath)
 		return "", err
 	}
 	if err := os.Remove(src); err != nil {
@@ -274,6 +293,28 @@ func (w *LogWriter) listRotatedBackups() ([]rotatedBackup, error) {
 		return backups[i].modTime.Before(backups[j].modTime)
 	})
 	return backups, nil
+}
+
+// pruneRotatedBefore removes only this writer's rotated log files older than
+// cutoff. The active log path is never considered for deletion.
+func (w *LogWriter) pruneRotatedBefore(cutoff time.Time) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	backups, err := w.listRotatedBackups()
+	if err != nil {
+		return 0, fmt.Errorf("logging: list rotated backups for %q: %w", w.cfg.Filename, err)
+	}
+	deleted := 0
+	for _, item := range backups {
+		if !item.modTime.Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(item.path); err != nil {
+			return deleted, fmt.Errorf("logging: remove expired rotated log %q: %w", item.path, err)
+		}
+		deleted++
+	}
+	return deleted, nil
 }
 
 // applyRetention prunes rotated backups for this log file down to the

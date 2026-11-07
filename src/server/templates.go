@@ -1,14 +1,20 @@
 package server
 
 import (
+	"bytes"
 	"embed"
+	"encoding/json"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
+	commonhttp "github.com/apimgr/airports/src/common/httputil"
 	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/mode"
 )
@@ -40,6 +46,9 @@ var pageFiles = map[string]string{
 	"server_privacy": "server-privacy.tmpl",
 	"server_terms":   "server-terms.tmpl",
 	"server_contact": "server-contact.tmpl",
+	"server_security": "server-security.tmpl",
+	"server_security_policy": "server-security-policy.tmpl",
+	"server_security_thanks": "server-security-thanks.tmpl",
 	"server_healthz": "healthz.tmpl",
 	"error":          "error.tmpl",
 }
@@ -68,8 +77,72 @@ var pageTemplates map[string]*template.Template
 // clone in renderTemplate — templates are parsed once at startup, long
 // before any request (and its resolved language) exists.
 var i18nPlaceholderFuncs = template.FuncMap{
-	"t":  func(string) string { return "" },
-	"tf": func(string, ...interface{}) string { return "" },
+	"t":              func(string) string { return "" },
+	"tf":             func(string, ...interface{}) string { return "" },
+	"markdownToHTML": renderPrivacyMarkdown,
+	"humanize":       humanizePrivacyLabel,
+}
+
+var privacyBoldPattern = regexp.MustCompile(`\*\*(.+?)\*\*`)
+
+func renderPrivacyMarkdown(source string) template.HTML {
+	var out strings.Builder
+	var paragraph []string
+	listOpen := false
+	flushParagraph := func() {
+		if len(paragraph) == 0 {
+			return
+		}
+		out.WriteString("<p>")
+		out.WriteString(strings.Join(paragraph, " "))
+		out.WriteString("</p>")
+		paragraph = nil
+	}
+	closeList := func() {
+		if listOpen {
+			out.WriteString("</ul>")
+			listOpen = false
+		}
+	}
+	for _, line := range strings.Split(source, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flushParagraph()
+			closeList()
+			continue
+		}
+		if strings.HasPrefix(line, "- ") {
+			flushParagraph()
+			if !listOpen {
+				out.WriteString("<ul>")
+				listOpen = true
+			}
+			out.WriteString("<li>")
+			out.WriteString(renderPrivacyInline(line[2:]))
+			out.WriteString("</li>")
+			continue
+		}
+		closeList()
+		paragraph = append(paragraph, renderPrivacyInline(line))
+	}
+	flushParagraph()
+	closeList()
+	return template.HTML(out.String())
+}
+
+func renderPrivacyInline(source string) string {
+	escaped := html.EscapeString(source)
+	return privacyBoldPattern.ReplaceAllString(escaped, "<strong>$1</strong>")
+}
+
+func humanizePrivacyLabel(value string) string {
+	words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(value, "_", " "), "-", " "))
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // initTemplates loads and parses all templates, one isolated
@@ -92,7 +165,7 @@ func initTemplates() error {
 // renderTemplate renders the named page (a key of pageFiles, e.g. "home",
 // "server_about") through public.tmpl with data. When data is a
 // map[string]interface{}, "APIBase" (the versioned API base path, e.g.
-// "/api/v1" per AI.md PART 14) is injected automatically unless the
+// "/api/{api_version}" per AI.md PART 14) is injected automatically unless the
 // caller already set it, so templates never need to hardcode "v1".
 // "ThemeClass" is likewise injected from the "theme" cookie so the
 // server renders theme-light/theme-dark/theme-auto directly on <html>
@@ -121,11 +194,14 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, page str
 // (API base, canonical URL, theme, language, cookie-consent banner, current
 // year) into m, without clobbering values a caller already set.
 func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interface{}) {
+	if _, exists := m["BaseURL"]; !exists {
+		m["BaseURL"] = strings.TrimSuffix(RequestBaseURL(r), "/")
+	}
 	if _, exists := m["APIBase"]; !exists {
-		m["APIBase"] = s.APIBasePath()
+		m["APIBase"] = strings.TrimSuffix(RequestBaseURL(r), "/") + s.APIBasePath()
 	}
 	if _, exists := m["CanonicalURL"]; !exists {
-		m["CanonicalURL"] = canonicalURL(r)
+		m["CanonicalURL"] = s.publicBaseURL(r) + r.URL.Path
 	}
 	if _, exists := m["Robots"]; !exists {
 		m["Robots"] = robotsDirective(r)
@@ -136,6 +212,28 @@ func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interfac
 	if _, exists := m["ThemeClass"]; !exists {
 		m["ThemeClass"] = themeClassFromRequest(r)
 	}
+	if _, exists := m["ConsentPreferences"]; !exists {
+		state := consentStateFromContext(r)
+		if state == nil {
+			state = consentFromRequest(r, s.config)
+		}
+		m["ConsentPreferences"] = state.Preferences
+	}
+	if _, exists := m["ConsentAnalytics"]; !exists {
+		state := consentStateFromContext(r)
+		if state == nil {
+			state = consentFromRequest(r, s.config)
+		}
+		m["ConsentAnalytics"] = state.Analytics
+	}
+	privacy := s.config.Server.Privacy
+	m["ConsentPreferencesDescription"] = privacy.Cookies.Preferences.Description
+	m["ConsentAnalyticsDescription"] = privacy.GetAnalyticsDescription()
+	m["PreferencesCategoryEnabled"] = privacy.Cookies.Preferences.Enabled
+	m["AnalyticsCategoryEnabled"] = privacy.Cookies.Analytics.Enabled
+	m["ConsentShowPreferences"] = privacy.Consent.ShowPreferences
+	m["ConsentPreferencesText"] = privacy.Consent.PreferencesText
+	m["ConsentPosition"] = privacy.Consent.Position
 	if _, exists := m["Lang"]; !exists {
 		lang := i18n.FromContext(r.Context())
 		m["Lang"] = lang
@@ -146,8 +244,7 @@ func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interfac
 		m["Announcements"] = s.announcementViews(r)
 	}
 	if _, exists := m["ShowCookieConsent"]; !exists {
-		privacy := s.config.Server.Privacy
-		m["ShowCookieConsent"] = !hasValidConsentCookie(r)
+		m["ShowCookieConsent"] = privacy.Consent.ShowUntilAcknowledged && !hasValidConsentCookie(r)
 		m["ConsentMessage"] = privacy.GetConsentMessage()
 		m["ConsentPolicyURL"] = privacy.Consent.Policy.URL
 		m["ConsentPolicyText"] = privacy.Consent.Policy.Text
@@ -155,6 +252,12 @@ func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interfac
 		m["ConsentAcceptText"] = privacy.Consent.Buttons.Accept
 		m["ConsentDataSold"] = privacy.Data.Sold
 	}
+	tracking := s.config.Server.Tracking
+	m["TrackingEnabled"] = canLoadAnalytics(r, s.config) && !s.isTorRequest(r)
+	m["TrackingType"] = tracking.Type
+	m["TrackingID"] = tracking.ID
+	m["TrackingURL"] = tracking.URL
+	m["TrackingSimple"] = tracking.Type == "simple"
 	if _, exists := m["CurrentYear"]; !exists {
 		m["CurrentYear"] = time.Now().Year()
 	}
@@ -200,24 +303,73 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 			return i18n.Tf(lang, key, args...)
 		},
 	})
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var rendered bytes.Buffer
+	if err := clone.ExecuteTemplate(&rendered, "public.tmpl", data); err != nil {
+		return err
+	}
+	format := commonhttp.GetFrontendResponseFormat(r)
+	w.Header().Add("Vary", "Accept")
+	w.Header().Add("Vary", "User-Agent")
+	contentType := "text/html; charset=utf-8"
+	body := rendered.Bytes()
+	switch format {
+	case "json":
+		contentType = "application/json; charset=utf-8"
+		jsonData := frontendJSONData(data)
+		encoded, err := json.Marshal(jsonData)
+		if err != nil {
+			return fmt.Errorf("encode frontend JSON: %w", err)
+		}
+		body = encoded
+	case "text":
+		contentType = "text/plain; charset=utf-8"
+		body = []byte(commonhttp.HTML2TextConverter(rendered.String(), 80))
+	case "nojs":
+		var noJS string
+		noJS, err = commonhttp.RenderNoJSHTML(rendered.String())
+		if err != nil {
+			return err
+		}
+		body = []byte(noJS)
+	}
+	w.Header().Set("Content-Type", contentType)
+	if r.Method == http.MethodGet && status >= http.StatusOK && status < http.StatusMultipleChoices &&
+		strings.HasPrefix(contentType, "text/html") && !s.isTorRequest(r) && s.config.Server.Tor.OnionAddress != "" {
+		onionURL := url.URL{
+			Scheme:   "http",
+			Host:     strings.TrimSpace(s.config.Server.Tor.OnionAddress),
+			Path:     r.URL.Path,
+			RawQuery: r.URL.RawQuery,
+		}
+		w.Header().Set("Onion-Location", onionURL.String())
+	}
 	w.WriteHeader(status)
-	if err := clone.ExecuteTemplate(w, "public.tmpl", data); err != nil {
-		log.Printf("executeTemplateStatus: rendering %q failed after headers sent: %v", page, err)
+	if _, err := w.Write(body); err != nil {
+		log.Printf("executeTemplateStatus: writing %q failed after headers sent: %v", page, err)
 	}
 	return nil
 }
 
-// canonicalURL reconstructs the full request URL (scheme + host + path,
-// deliberately no query string) for the og:url / twitter:url SEO meta tags
-// in public.tmpl. Scheme detection mirrors the TLS/X-Forwarded-Proto check
-// already used for HSTS in securityHeaders.
-func canonicalURL(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "https"
+// frontendJSONData removes layout and request-security values from the
+// page-specific data before returning it to the first-party CLI client.
+func frontendJSONData(data interface{}) interface{} {
+	values, ok := data.(map[string]interface{})
+	if !ok {
+		return data
 	}
-	return scheme + "://" + r.Host + r.URL.Path
+	result := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		switch key {
+		case "CSRFToken", "BaseURL", "CanonicalURL", "Robots", "ThemeClass", "Lang", "Dir",
+			"AvailableLanguages", "Announcements", "ShowCookieConsent", "ConsentMessage",
+			"ConsentPolicyURL", "ConsentPolicyText", "ConsentDeclineText", "ConsentAcceptText",
+			"ConsentDataSold", "CurrentYear":
+			continue
+		default:
+			result[key] = value
+		}
+	}
+	return result
 }
 
 // robotsDirective computes the per-route <meta name="robots"> value per AI.md
@@ -252,6 +404,9 @@ func robotsDirective(r *http.Request) string {
 // holds an unrecognized value.
 func themeClassFromRequest(r *http.Request) string {
 	if r == nil {
+		return "theme-dark"
+	}
+	if state := consentStateFromContext(r); state != nil && !state.Preferences {
 		return "theme-dark"
 	}
 	c, err := r.Cookie("theme")

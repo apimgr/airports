@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -33,7 +32,7 @@ func respondGeoBlocked(w http.ResponseWriter, r *http.Request) {
 		Message: i18n.T(lang, "errors.forbidden"),
 		Details: map[string]interface{}{},
 	}
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := encodeJSON(w, resp); err != nil {
 		log.Printf("respondGeoBlocked: encode failed: %v", err)
 	}
 }
@@ -72,7 +71,7 @@ func countryAllowed(country string, allowCountries, denyCountries []string) bool
 func GeoIPMiddleware(svc *geoip.Service, enabled bool, allowCountries, denyCountries []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !enabled || (len(allowCountries) == 0 && len(denyCountries) == 0) {
+			if TorCircuitID(r) != "" || !enabled || (len(allowCountries) == 0 && len(denyCountries) == 0) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -80,7 +79,7 @@ func GeoIPMiddleware(svc *geoip.Service, enabled bool, allowCountries, denyCount
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !svc.Available() {
+			if !svc.IsGeoIPAvailable() {
 				next.ServeHTTP(w, r)
 				return
 			}

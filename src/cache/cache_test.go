@@ -28,6 +28,28 @@ func TestNewEmptyTypeDefaultsToNoop(t *testing.T) {
 	}
 }
 
+func TestNewWithDebugWrapsCacheAndPreservesMetrics(t *testing.T) {
+	c, err := NewWithDebug(config.CacheConfig{Type: "memory", Prefix: "debug:"}, true)
+	if err != nil {
+		t.Fatalf("NewWithDebug(memory) returned error: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, ok := c.(*debugCache); !ok {
+		t.Fatalf("expected *debugCache, got %T", c)
+	}
+	if err := c.Set(context.Background(), "key", []byte("value"), time.Minute); err != nil {
+		t.Fatalf("Set returned error: %v", err)
+	}
+	value, err := c.Get(context.Background(), "key")
+	if err != nil || string(value) != "value" {
+		t.Fatalf("Get returned %q, %v; want value", value, err)
+	}
+	provider, ok := c.(MetricsProvider)
+	if !ok || !provider.MetricsStats().Enabled {
+		t.Fatalf("debug wrapper did not preserve metrics provider: %T", c)
+	}
+}
+
 func TestNewUnknownType(t *testing.T) {
 	if _, err := New(config.CacheConfig{Type: "bogus"}); err == nil {
 		t.Fatal("expected error for unknown cache type")
@@ -194,6 +216,20 @@ func TestNewRedisTypeUnreachableFallsBackToError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error connecting to an unreachable redis host")
+	}
+}
+
+func TestRedisMetricsExposeOnlyClientObservedCacheLookups(t *testing.T) {
+	cache := &redisCache{hits: 7, misses: 3}
+	stats := cache.MetricsStats()
+	if stats.Hits != 7 || stats.Misses != 3 {
+		t.Fatalf("Redis hit/miss metrics = %d/%d, want 7/3", stats.Hits, stats.Misses)
+	}
+	if !stats.Enabled {
+		t.Fatal("Redis metrics are disabled, want lookup counters enabled")
+	}
+	if stats.HasEvictionCount || stats.HasSize {
+		t.Fatalf("Redis metrics claim unsupported eviction/size data: %+v", stats)
 	}
 }
 

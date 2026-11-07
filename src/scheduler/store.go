@@ -5,7 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/apimgr/airports/src/common/diagnostics"
 )
+
+var queryObserver func(string, string, time.Time, error)
+
+func SetQueryObserver(observer func(string, string, time.Time, error)) {
+	queryObserver = observer
+}
+
+func observeQuery(operation, table string, started time.Time, err error) {
+	if queryObserver != nil {
+		queryObserver(operation, table, started, err)
+	}
+}
 
 // Query timeout tiers per AI.md PART 10 "Query Timeouts" — this package has
 // no request-scoped context to thread through (the scheduler runs on
@@ -53,7 +67,10 @@ func EnsureSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_scheduler_history_task ON scheduler_history(task_id, ran_at DESC)`,
 	}
 	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		started := time.Now()
+		result, err := db.ExecContext(ctx, stmt)
+		logExecQuery(stmt, nil, started, result, err)
+		if err != nil {
 			return fmt.Errorf("scheduler: ensure schema: %w", err)
 		}
 	}
@@ -67,11 +84,13 @@ func upsertTaskDefault(db *sql.DB, id, name, schedule string, enabledDefault boo
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO scheduler_tasks (task_id, task_name, schedule, enabled) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(task_id) DO UPDATE SET task_name = excluded.task_name, schedule = excluded.schedule`,
-		id, name, schedule, boolToInt(enabledDefault),
-	)
+	started := time.Now()
+	query := `INSERT INTO scheduler_tasks (task_id, task_name, schedule, enabled) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(task_id) DO UPDATE SET task_name = excluded.task_name, schedule = excluded.schedule`
+	args := []any{id, name, schedule, boolToInt(enabledDefault)}
+	result, err := db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("insert", "scheduler_tasks", started, err)
 	return err
 }
 
@@ -79,24 +98,33 @@ func loadTaskState(db *sql.DB, id string) (TaskState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
 
-	row := db.QueryRowContext(ctx,
-		`SELECT task_id, task_name, schedule, last_run, last_status, last_error,
+	started := time.Now()
+	query := `SELECT task_id, task_name, schedule, last_run, last_status, last_error,
 		        next_run, run_count, fail_count, enabled
-		 FROM scheduler_tasks WHERE task_id = ?`, id,
-	)
-	return scanTaskState(row)
+		 FROM scheduler_tasks WHERE task_id = ?`
+	row := db.QueryRowContext(ctx, query, id)
+	state, err := scanTaskState(row)
+	rows := int64(0)
+	if err == nil {
+		rows = 1
+	}
+	diagnostics.LogQuery(query, 1, started, rows, err)
+	observeQuery("select", "scheduler_tasks", started, err)
+	return state, err
 }
 
 func listTaskStates(db *sql.DB) ([]TaskState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
 
-	rows, err := db.QueryContext(ctx,
-		`SELECT task_id, task_name, schedule, last_run, last_status, last_error,
+	started := time.Now()
+	query := `SELECT task_id, task_name, schedule, last_run, last_status, last_error,
 		        next_run, run_count, fail_count, enabled
-		 FROM scheduler_tasks ORDER BY task_id`,
-	)
+		 FROM scheduler_tasks ORDER BY task_id`
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
+		diagnostics.LogQuery(query, 0, started, 0, err)
+		observeQuery("select", "scheduler_tasks", started, err)
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
@@ -105,11 +133,16 @@ func listTaskStates(db *sql.DB) ([]TaskState, error) {
 	for rows.Next() {
 		st, err := scanTaskState(rows)
 		if err != nil {
+			diagnostics.LogQuery(query, 0, started, int64(len(out)), err)
+			observeQuery("select", "scheduler_tasks", started, err)
 			return nil, err
 		}
 		out = append(out, st)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	diagnostics.LogQuery(query, 0, started, int64(len(out)), err)
+	observeQuery("select", "scheduler_tasks", started, err)
+	return out, err
 }
 
 // rowScanner abstracts *sql.Row and *sql.Rows so scanTaskState works for both.
@@ -119,12 +152,12 @@ type rowScanner interface {
 
 func scanTaskState(row rowScanner) (TaskState, error) {
 	var (
-		st              TaskState
-		lastRun         sql.NullString
-		nextRun         sql.NullString
-		enabledInt      int
-		lastStatus      string
-		lastError       string
+		st         TaskState
+		lastRun    sql.NullString
+		nextRun    sql.NullString
+		enabledInt int
+		lastStatus string
+		lastError  string
 	)
 	if err := row.Scan(&st.ID, &st.Name, &st.Schedule, &lastRun, &lastStatus, &lastError,
 		&nextRun, &st.RunCount, &st.FailCount, &enabledInt); err != nil {
@@ -150,7 +183,12 @@ func updateNextRun(db *sql.DB, id string, next time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx, `UPDATE scheduler_tasks SET next_run = ? WHERE task_id = ?`, formatTime(next), id)
+	started := time.Now()
+	query := `UPDATE scheduler_tasks SET next_run = ? WHERE task_id = ?`
+	args := []any{formatTime(next), id}
+	result, err := db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("update", "scheduler_tasks", started, err)
 	return err
 }
 
@@ -161,30 +199,37 @@ func recordRun(db *sql.DB, id, status, errMsg string, ranAt time.Time, next time
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx,
-		`UPDATE scheduler_tasks
+	started := time.Now()
+	query := `UPDATE scheduler_tasks
 		 SET last_run = ?, last_status = ?, last_error = ?, next_run = ?,
 		     run_count = run_count + CASE WHEN ? = 'success' THEN 1 ELSE 0 END,
 		     fail_count = fail_count + CASE WHEN ? = 'failed' THEN 1 ELSE 0 END
-		 WHERE task_id = ?`,
-		formatTime(ranAt), status, errMsg, formatTime(next), status, status, id,
-	)
+		 WHERE task_id = ?`
+	args := []any{formatTime(ranAt), status, errMsg, formatTime(next), status, status, id}
+	result, err := db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("update", "scheduler_tasks", started, err)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO scheduler_history (task_id, ran_at, status, duration_ms, error) VALUES (?, ?, ?, ?, ?)`,
-		id, formatTime(ranAt), status, durationMS, errMsg,
-	)
+	started = time.Now()
+	query = `INSERT INTO scheduler_history (task_id, ran_at, status, duration_ms, error) VALUES (?, ?, ?, ?, ?)`
+	args = []any{id, formatTime(ranAt), status, durationMS, errMsg}
+	result, err = db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("insert", "scheduler_history", started, err)
 	if err != nil {
 		return err
 	}
 	// Keep only the most recent 100 history rows per task.
-	_, err = db.ExecContext(ctx,
-		`DELETE FROM scheduler_history WHERE task_id = ? AND id NOT IN (
+	started = time.Now()
+	query = `DELETE FROM scheduler_history WHERE task_id = ? AND id NOT IN (
 			SELECT id FROM scheduler_history WHERE task_id = ? ORDER BY ran_at DESC LIMIT 100
-		)`, id, id,
-	)
+		)`
+	args = []any{id, id}
+	result, err = db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("delete", "scheduler_history", started, err)
 	return err
 }
 
@@ -192,7 +237,13 @@ func setEnabled(db *sql.DB, id string, enabled bool) (sql.Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
 
-	return db.ExecContext(ctx, `UPDATE scheduler_tasks SET enabled = ? WHERE task_id = ?`, boolToInt(enabled), id)
+	started := time.Now()
+	query := `UPDATE scheduler_tasks SET enabled = ? WHERE task_id = ?`
+	args := []any{boolToInt(enabled), id}
+	result, err := db.ExecContext(ctx, query, args...)
+	logExecQuery(query, args, started, result, err)
+	observeQuery("update", "scheduler_tasks", started, err)
+	return result, err
 }
 
 func listHistory(db *sql.DB, id string, limit int) ([]HistoryEntry, error) {
@@ -202,11 +253,14 @@ func listHistory(db *sql.DB, id string, limit int) ([]HistoryEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), simpleSelectTimeout)
 	defer cancel()
 
-	rows, err := db.QueryContext(ctx,
-		`SELECT ran_at, status, duration_ms, error FROM scheduler_history
-		 WHERE task_id = ? ORDER BY ran_at DESC LIMIT ?`, id, limit,
-	)
+	started := time.Now()
+	query := `SELECT ran_at, status, duration_ms, error FROM scheduler_history
+		 WHERE task_id = ? ORDER BY ran_at DESC LIMIT ?`
+	args := []any{id, limit}
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
+		diagnostics.LogQuery(query, len(args), started, 0, err)
+		observeQuery("select", "scheduler_history", started, err)
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
@@ -219,6 +273,8 @@ func listHistory(db *sql.DB, id string, limit int) ([]HistoryEntry, error) {
 			errMsg string
 		)
 		if err := rows.Scan(&ranAt, &h.Status, &h.DurationMS, &errMsg); err != nil {
+			diagnostics.LogQuery(query, len(args), started, int64(len(out)), err)
+			observeQuery("select", "scheduler_history", started, err)
 			return nil, err
 		}
 		h.Error = errMsg
@@ -227,7 +283,20 @@ func listHistory(db *sql.DB, id string, limit int) ([]HistoryEntry, error) {
 		}
 		out = append(out, h)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	diagnostics.LogQuery(query, len(args), started, int64(len(out)), err)
+	observeQuery("select", "scheduler_history", started, err)
+	return out, err
+}
+
+func logExecQuery(query string, args []any, started time.Time, result sql.Result, err error) {
+	rows := int64(0)
+	if result != nil {
+		if affected, resultErr := result.RowsAffected(); resultErr == nil {
+			rows = affected
+		}
+	}
+	diagnostics.LogQuery(query, len(args), started, rows, err)
 }
 
 func formatTime(t time.Time) string {

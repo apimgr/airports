@@ -319,8 +319,16 @@ Temporary Items
 **/*.rewrite.sh
 **/*.refactor.sh
 
-# AI config directories (regenerated from AI.md rules, not committed)
+# AI team config is committed; personal and runtime state stays local.
 .claude/
+!.claude/
+.claude/*
+!.claude/rules/
+!.claude/memory/
+.claude/rules/*
+!.claude/rules/*.md
+.claude/memory/*
+!.claude/memory/MEMORY.md
 .cursor/
 .aider/
 .ai/
@@ -328,4 +336,3 @@ Temporary Items
 
 # Claude Code personal files (always gitignored)
 CLAUDE.local.md
-

@@ -1,0 +1,15 @@
+{{define "content"}}
+<section class="page-section">
+    <h1>Security</h1>
+    <p>We welcome responsible reports of security vulnerabilities affecting the Airports API.</p>
+    <h2>How to report</h2>
+    <p>Use GitHub's private vulnerability reporting for project vulnerabilities. For a deployed instance, use the <a href="{{.BaseURL}}/server/contact">security contact form</a> or email the configured security contact.</p>
+    {{if .SecurityEmail}}<p>Security contact: <a href="mailto:{{.SecurityEmail}}">{{.SecurityEmail}}</a></p>{{end}}
+    <h2>Security information</h2>
+    <ul>
+        <li><a href="{{.BaseURL}}/server/security/policy">Coordinated disclosure policy</a></li>
+        <li><a href="{{.BaseURL}}/server/security/thanks">Researcher acknowledgments</a></li>
+        <li><a href="{{.SecurityTxtURL}}">Machine-readable security.txt</a></li>
+    </ul>
+</section>
+{{end}}

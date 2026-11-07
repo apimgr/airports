@@ -5,7 +5,7 @@
 </div>
 
 <div class="nearby-container">
-    <form method="get" action="/nearby" class="nearby-form" data-action="submit-nearby">
+    <form method="get" action="{{.BaseURL}}/airports/nearby" class="nearby-form" data-action="submit-nearby">
         <div class="form-row">
             <div class="form-group">
                 <label for="latitude">{{t "nearby.latitude"}}</label>
@@ -44,10 +44,52 @@
     </form>
 
     <div id="nearby-results">
-        {{if .Airports}}
+        {{if .BBoxSearch}}
+            {{if .BBoxResults}}
+                <div class="results-info">{{tf "search.results_found" "count" .BBoxTotal}}</div>
+                <section class="airport-map" hidden data-map-points="{{.MapJSON}}" data-map-error="{{t "airport.map_unavailable"}}" aria-label="{{t "airport.map_heading"}}">
+                    <div class="map-toolbar">
+                        <h3>{{t "airport.map_heading"}}</h3>
+                        <div class="map-zoom-controls">
+                            <button type="button" data-map-zoom="1" aria-label="{{t "airport.zoom_in"}}">+</button>
+                            <button type="button" data-map-zoom="-1" aria-label="{{t "airport.zoom_out"}}">−</button>
+                        </div>
+                    </div>
+                    <div class="map-canvas" role="region" aria-label="{{t "airport.map_heading"}}"></div>
+                    <p class="map-attribution">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></p>
+                </section>
+                <div class="results-grid">
+                    {{range .BBoxResults}}
+                    <article class="airport-card">
+                        <div class="airport-header"><h3>{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</h3></div>
+                        <div class="airport-name">{{.Name}}</div>
+                        <div class="airport-location">{{.City}}, {{.Country}}</div>
+                        <div class="airport-details"><span>{{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
+                            <a href="https://www.openstreetmap.org/?mlat={{.Lat}}&mlon={{.Lon}}#map=12/{{.Lat}}/{{.Lon}}" target="_blank" rel="noopener">{{t "airport.view_on_map"}}</a>
+                        </div>
+                    </article>
+                    {{end}}
+                </div>
+                {{if gt .BBoxTotal .Limit}}<p>{{tf "search.showing_first" "shown" .Limit "total" .BBoxTotal}}</p>{{end}}
+            {{else}}
+                <div class="results-info">{{t "search.no_results_title"}}</div>
+            {{end}}
+        {{else if .Airports}}
             <div class="results-info">
                 {{tf "nearby.results_found" "count" (len .Airports) "radius" .DisplayRadius "unit" .RadiusUnit}}
             </div>
+
+            <section class="airport-map" hidden data-map-points="{{.MapJSON}}" data-map-error="{{t "airport.map_unavailable"}}" aria-label="{{t "airport.map_heading"}}">
+                <div class="map-toolbar">
+                    <h3>{{t "airport.map_heading"}}</h3>
+                    <div class="map-zoom-controls">
+                        <button type="button" data-map-zoom="1" aria-label="{{t "airport.zoom_in"}}">+</button>
+                        <button type="button" data-map-zoom="-1" aria-label="{{t "airport.zoom_out"}}">−</button>
+                    </div>
+                </div>
+                <div class="map-canvas" role="region" aria-label="{{t "airport.map_heading"}}"></div>
+                <p class="map-attribution">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></p>
+            </section>
 
             <div class="results-list">
                 {{range .Airports}}
@@ -65,6 +107,7 @@
                         <span>📍 {{.City}}, {{.Country}}</span>
                         <span>✈️ {{.Elevation}} ft</span>
                         <span>🌐 {{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
+                        <a href="https://www.openstreetmap.org/?mlat={{.Lat}}&mlon={{.Lon}}#map=12/{{.Lat}}/{{.Lon}}" target="_blank" rel="noopener">{{t "airport.view_on_map"}}</a>
                     </div>
                 </div>
                 {{end}}

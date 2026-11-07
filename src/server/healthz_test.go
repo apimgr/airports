@@ -32,6 +32,76 @@ func TestFormatUptime(t *testing.T) {
 	}
 }
 
+func TestHealthHTTPStatus(t *testing.T) {
+	tests := map[string]int{
+		"healthy":          http.StatusOK,
+		"degraded":         http.StatusOK,
+		"restart_required": http.StatusOK,
+		"unhealthy":        http.StatusServiceUnavailable,
+		"maintenance":      http.StatusServiceUnavailable,
+		"shutting_down":    http.StatusServiceUnavailable,
+	}
+	for status, want := range tests {
+		if got := healthHTTPStatus(status); got != want {
+			t.Errorf("healthHTTPStatus(%q) = %d, want %d", status, got, want)
+		}
+	}
+}
+
+func TestStatusWithRuntimeState(t *testing.T) {
+	checks := ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok"}
+	tests := []struct {
+		name   string
+		state  HealthRuntimeState
+		want   string
+		checks ChecksInfo
+	}{
+		{name: "healthy", want: "healthy"},
+		{name: "restart required", state: HealthRuntimeState{PendingRestart: true}, want: "restart_required"},
+		{name: "unhealthy outranks restart", state: HealthRuntimeState{PendingRestart: true}, want: "unhealthy", checks: ChecksInfo{Database: "error", Cache: "ok", Disk: "ok", Scheduler: "ok"}},
+		{name: "maintenance", state: HealthRuntimeState{Maintenance: &MaintenanceHealthInfo{}}, want: "maintenance"},
+		{name: "shutdown outranks maintenance", state: HealthRuntimeState{ShuttingDown: true, Maintenance: &MaintenanceHealthInfo{}}, want: "shutting_down"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputChecks := tt.checks
+			if inputChecks == (ChecksInfo{}) {
+				inputChecks = checks
+			}
+			if got := statusWithRuntimeState(inputChecks, tt.state); got != tt.want {
+				t.Errorf("statusWithRuntimeState(%+v, %+v) = %q, want %q", inputChecks, tt.state, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetHealthRuntimeStateSanitizesPublicMaintenanceData(t *testing.T) {
+	SetHealthRuntimeState(HealthRuntimeState{
+		PendingRestart: true,
+		RestartReason:  []string{"ssl.cert", "server.port", "secret=private", "ssl.cert"},
+		Maintenance: &MaintenanceHealthInfo{
+			Reason:      "database_connection",
+			Message:     "database failed at /private/path with token secret",
+			SelfHealing: SelfHealingHealthStatus{Enabled: true, Attempts: -1},
+		},
+	})
+	defer SetHealthRuntimeState(HealthRuntimeState{})
+
+	state := currentHealthRuntimeState()
+	if len(state.RestartReason) != 2 || state.RestartReason[0] != "ssl.cert" || state.RestartReason[1] != "server.port" {
+		t.Errorf("RestartReason = %v, want safe unique setting names", state.RestartReason)
+	}
+	if state.Maintenance == nil {
+		t.Fatal("Maintenance = nil, want sanitized maintenance state")
+	}
+	if state.Maintenance.Message != "Database connection failed" || state.Maintenance.Reason != "database_connection" {
+		t.Errorf("Maintenance = %+v, want fixed public-safe fields", state.Maintenance)
+	}
+	if state.Maintenance.SelfHealing.Attempts != 0 {
+		t.Errorf("SelfHealing.Attempts = %d, want 0 for negative input", state.Maintenance.SelfHealing.Attempts)
+	}
+}
+
 func TestCheckDatabaseNil(t *testing.T) {
 	if got := checkDatabase(nil); got != "error" {
 		t.Errorf("checkDatabase(nil) = %q, want %q", got, "error")
@@ -138,6 +208,9 @@ func TestBuildHealthResponseNilDependencies(t *testing.T) {
 	if resp.Features.Tor.Status != "disabled" {
 		t.Errorf("Features.Tor.Status = %q, want %q", resp.Features.Tor.Status, "disabled")
 	}
+	if resp.Features.I2P.Enabled || resp.Features.I2P.Running || resp.Features.I2P.Status != "disabled" || resp.Features.I2P.Provider != "none" {
+		t.Errorf("Features.I2P = %+v, want disabled feature with no provider", resp.Features.I2P)
+	}
 	if resp.Status != "unhealthy" {
 		t.Errorf("Status = %q, want %q (db/cache/scheduler all failing)", resp.Status, "unhealthy")
 	}
@@ -157,16 +230,17 @@ func TestBuildHealthResponseNilDependencies(t *testing.T) {
 
 func TestHealthResponseTextFormat(t *testing.T) {
 	resp := HealthResponse{
-		Project: ProjectInfo{Name: "Airports API", Tagline: "Fly", Description: "Desc"},
-		Status:  "healthy",
-		Version: "1.0.0",
+		Project:   ProjectInfo{Name: "Airports API", Tagline: "Fly", Description: "Desc"},
+		Status:    "healthy",
+		Version:   "1.0.0",
 		GoVersion: "go1.23.0",
-		Build:   BuildInfo{Commit: "abc1234", Date: "2026-01-01T00:00:00Z"},
-		Uptime:  "2d 5h 30m",
-		Mode:    "production",
+		Build:     BuildInfo{Commit: "abc1234", Date: "2026-01-01T00:00:00Z"},
+		Uptime:    "2d 5h 30m",
+		Mode:      "production",
 		Timestamp: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 		Features: FeaturesInfo{
 			Tor:   TorInfo{Status: "disabled"},
+			I2P:   I2PInfo{Status: "disabled", Provider: "none"},
 			GeoIP: true,
 		},
 		Checks: ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok"},
@@ -209,6 +283,9 @@ func TestHealthResponseTextFormat(t *testing.T) {
 	if !strings.Contains(text, want) {
 		t.Errorf("expected no blank line between features.geoip and # 6. Checks, got:\n%s", text)
 	}
+	if !strings.Contains(text, "features.i2p.provider: none\n") {
+		t.Errorf("missing disabled I2P feature details:\n%s", text)
+	}
 
 	if !strings.Contains(text, "project.name: Airports API\n") {
 		t.Errorf("missing project.name line:\n%s", text)
@@ -228,6 +305,38 @@ func TestHealthResponseTextIncludesTorCheckWhenPresent(t *testing.T) {
 	}
 }
 
+func TestHealthResponseTextShowsRuntimeState(t *testing.T) {
+	lastAttempt := time.Date(2026, 1, 2, 3, 3, 0, 0, time.UTC)
+	nextAttempt := time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC)
+	resp := HealthResponse{
+		Status:         "restart_required",
+		PendingRestart: true,
+		RestartReason:  []string{"server.port", "ssl.enabled"},
+		Maintenance: &MaintenanceHealthInfo{
+			Reason:  "disk_full",
+			Message: "Available disk space is critically low",
+			Since:   time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+			SelfHealing: SelfHealingHealthStatus{
+				Enabled: true, Attempts: 2,
+				LastAttempt: &lastAttempt,
+				NextAttempt: &nextAttempt,
+			},
+		},
+	}
+	text := healthResponseText(resp)
+	for _, field := range []string{
+		"status: restart_required\n",
+		"pending_restart: true\n",
+		"restart_reason: server.port,ssl.enabled\n",
+		"maintenance.reason: disk_full\n",
+		"maintenance.self_healing.attempts: 2\n",
+	} {
+		if !strings.Contains(text, field) {
+			t.Errorf("health text missing %q:\n%s", field, text)
+		}
+	}
+}
+
 func TestWantsHealthzText(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -237,15 +346,16 @@ func TestWantsHealthzText(t *testing.T) {
 	}{
 		{"explicit text/plain", "text/plain", "", true},
 		{"explicit text/html", "text/html", "", false},
-		{"explicit application/json", "application/json", "", false},
+		{"browser application/json accept", "application/json", "Mozilla/5.0", false},
 		{"curl user agent, no accept", "", "curl/8.0.0", true},
 		{"wget user agent, no accept", "", "Wget/1.21", true},
 		{"browser user agent, no accept", "", "Mozilla/5.0", false},
-		{"no accept, no user agent", "", "", false},
+		{"no accept, no user agent", "", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
+			req.Header.Del("User-Agent")
 			if tt.accept != "" {
 				req.Header.Set("Accept", tt.accept)
 			}
@@ -285,12 +395,13 @@ func TestFormatWithCommas(t *testing.T) {
 func TestHandleServerHealthzJSONShape(t *testing.T) {
 	s := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
+	req.Header.Set("User-Agent", "airports-cli/integration-test")
 	rec := httptest.NewRecorder()
 
 	s.handleServerHealthz(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", ct)
@@ -337,8 +448,8 @@ func TestHandleServerHealthzTextNegotiation(t *testing.T) {
 
 	s.handleServerHealthz(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "# 1. Project (PART 16: branding)") {
@@ -357,11 +468,44 @@ func TestHandleServerHealthzHTMLNegotiation(t *testing.T) {
 
 	s.handleServerHealthz(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 	ct := rec.Header().Get("Content-Type")
 	if !strings.Contains(ct, "text/html") {
 		t.Errorf("Content-Type = %q, want text/html", ct)
+	}
+}
+
+func TestHealthzAPIRouteUsesAPIFormats(t *testing.T) {
+	s := newTestServer(t)
+	tests := []struct {
+		name        string
+		path        string
+		userAgent   string
+		accept      string
+		contentType string
+		status      int
+	}{
+		{name: "HTML accept stays JSON on API", path: "/api/v1/server/healthz", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "application/json", status: http.StatusServiceUnavailable},
+		{name: "HTTP tool gets text", path: "/api/v1/server/healthz", userAgent: "curl/8.0", contentType: "text/plain", status: http.StatusServiceUnavailable},
+		{name: "txt suffix gets text", path: "/api/v1/server/healthz.txt", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "text/plain", status: http.StatusServiceUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			r.Header.Set("User-Agent", tt.userAgent)
+			if tt.accept != "" {
+				r.Header.Set("Accept", tt.accept)
+			}
+			w := httptest.NewRecorder()
+			s.Router().ServeHTTP(w, r)
+			if w.Code != tt.status {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.status, w.Body.String())
+			}
+			if got := w.Header().Get("Content-Type"); !strings.Contains(got, tt.contentType) {
+				t.Fatalf("Content-Type = %q, want %q", got, tt.contentType)
+			}
+		})
 	}
 }

@@ -17,13 +17,13 @@ func withStdin(t *testing.T, input string) {
 	if _, err := w.WriteString(input); err != nil {
 		t.Fatalf("write to pipe: %v", err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	orig := os.Stdin
 	os.Stdin = r
 	t.Cleanup(func() {
 		os.Stdin = orig
-		r.Close()
+		_ = r.Close()
 	})
 }
 
@@ -95,7 +95,7 @@ func newServiceTestDir(t *testing.T) string {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
 	t.Cleanup(func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	})
 	return dir
 }

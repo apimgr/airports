@@ -32,11 +32,15 @@ func AssetsHandler(prefix string) http.Handler {
 
 // Handler serves the Swagger UI HTML page that loads the embedded assets
 // and points at the OpenAPI spec at specPath.
-func Handler(specPath, assetsPrefix string) http.HandlerFunc {
-	page := renderSwaggerHTML(specPath, assetsPrefix)
+func Handler(specPath, assetsPrefix string, baseURLResolver ...func(*http.Request) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		baseURL := ""
+		if len(baseURLResolver) > 0 {
+			baseURL = baseURLResolver[0](r)
+		}
+		page := renderSwaggerHTML(baseURL+specPath, baseURL+assetsPrefix, baseURL)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}
 }
 
@@ -47,7 +51,20 @@ func Handler(specPath, assetsPrefix string) http.HandlerFunc {
 // once per supported language at handler-creation time and selected per
 // request via the resolved request language — this avoids re-marshaling
 // JSON on every request while still serving each visitor's language.
-func SpecHandler(version, apiVersion string) http.HandlerFunc {
+func SpecHandler(version, apiVersion string, baseURLResolver ...func(*http.Request) string) http.HandlerFunc {
+	if len(baseURLResolver) > 0 {
+		return func(w http.ResponseWriter, r *http.Request) {
+			lang := i18n.FromContext(r.Context())
+			spec := BuildSpec(version, apiVersion, lang, baseURLResolver[0](r))
+			body, err := json.MarshalIndent(spec, "", "  ")
+			if err != nil {
+				http.Error(w, "failed to encode OpenAPI spec", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(append(body, '\n'))
+		}
+	}
 	bodies := make(map[string][]byte, len(i18n.SupportedLanguages))
 	for _, lang := range i18n.SupportedLanguages {
 		spec := BuildSpec(version, apiVersion, lang)
@@ -65,6 +82,6 @@ func SpecHandler(version, apiVersion string) http.HandlerFunc {
 			body = bodies["en"]
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body)
+		_, _ = w.Write(body)
 	}
 }
