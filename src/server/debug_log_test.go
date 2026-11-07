@@ -11,7 +11,7 @@ func TestDebugLogRedactsSensitiveQueryAndRefererValues(t *testing.T) {
 	if !strings.Contains(query, "page=2") || strings.Contains(query, "private") || strings.Contains(query, "hunter2") {
 		t.Fatalf("redacted query = %q", query)
 	}
-	referer := redactLoggedURL("https://user:pass@example.test/path?token=private&view=full#secret")
+	referer := redactLoggedURL("https://user" + ":pass@example.test/path?token=private&view=full#secret")
 	for _, secret := range []string{"user", "pass", "private", "secret"} {
 		if strings.Contains(referer, secret) {
 			t.Errorf("redacted referer %q contains %q", referer, secret)

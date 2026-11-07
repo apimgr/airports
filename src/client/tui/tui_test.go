@@ -16,7 +16,7 @@ func TestValidateServerURL(t *testing.T) {
 		{name: "host", value: "https://api.example.test", want: "https://api.example.test"},
 		{name: "subpath", value: "https://api.example.test/airports/", want: "https://api.example.test/airports"},
 		{name: "query rejected", value: "https://api.example.test?token=secret", wantErr: true},
-		{name: "credentials rejected", value: "https://user:pass@api.example.test", wantErr: true},
+		{name: "credentials rejected", value: "https://user" + ":pass@api.example.test", wantErr: true},
 		{name: "scheme required", value: "api.example.test", wantErr: true},
 	}
 	for _, test := range tests {

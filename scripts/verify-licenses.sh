@@ -37,7 +37,7 @@ echo "Generating license report..."
 mkdir -p "$license_output_dir"
 GOFLAGS="$license_go_flags" go-licenses csv --ignore=modernc.org/mathutil ./... > "$license_output_dir/licenses.csv"
 printf '%s\n' 'modernc.org/mathutil,https://gitlab.com/cznic/mathutil/-/blob/master/LICENSE,BSD-3-Clause' >> "$license_output_dir/licenses.csv"
-GOFLAGS="$license_go_flags" go-licenses save --ignore=modernc.org/mathutil ./... --save_path="$license_output_dir/third_party_licenses"
+GOFLAGS="$license_go_flags" go-licenses save --ignore=modernc.org/mathutil ./... --save_path="$license_output_dir/third_party_licenses" --force
 
 echo "✓ License report saved to $license_output_dir/licenses.csv and $license_output_dir/third_party_licenses/"
 echo ""
