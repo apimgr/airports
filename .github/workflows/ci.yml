@@ -92,7 +92,7 @@ jobs:
         with:
           base: ${{ steps.range.outputs.base }}
           head: ${{ steps.range.outputs.head }}
-          extra_args: --results=verified,unknown
+          extra_args: --only-verified
 
   workflow-policy:
     runs-on: ubuntu-latest
