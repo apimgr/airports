@@ -156,9 +156,26 @@ display, which falls back to the general email and never exposes admin. Webhook
 destinations use the same per-role fallback order. Keep webhook URLs private;
 debug config output redacts them.
 
-The contact page uses a self-hosted arithmetic challenge when
-`server.pages.contact.captcha` is `simple`. Submissions are sent to the
-effective general email address; SMTP must be enabled and configured.
+The contact page requires a CAPTCHA on every submission. The default
+`simple` provider uses a self-hosted arithmetic challenge and also applies to
+Tor and I2P requests. Clearnet requests may use reCAPTCHA v2 or hCaptcha;
+those providers require both a public site key and a private secret key.
+Provider verification has a five-second timeout. The secret key is redacted
+from debug configuration output.
+
+```yaml
+server:
+  pages:
+    contact:
+      enabled: true
+      captcha: simple             # simple | recaptcha | hcaptcha
+      captcha_site_key: ""        # required for recaptcha and hcaptcha
+      captcha_secret_key: ""      # required for recaptcha and hcaptcha
+      success_message: "Thank you for your message. We'll respond soon."
+```
+
+Submissions are sent to the effective general email address; SMTP must be
+enabled and configured.
 
 The server's CLI binary endpoint reads matching versioned assets and
 `sha256.txt` from the `apimgr/airports` GitHub Release. Downloads are public by
@@ -219,7 +236,7 @@ server:
         enabled: false
         schedule: "0 2 * * *"
   tor:
-    enabled: true
+    binary: ""
 ```
 
 ## Environment Variables
