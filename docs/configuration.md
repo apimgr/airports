@@ -7,7 +7,7 @@ The Airports server reads configuration from four sources, in order of precedenc
 3. **Config file** (`server.yml`)
 4. **Built-in defaults**
 
-Every setting is expressible at all four layers.
+Only settings with a documented command-line flag or environment-variable mapping can be set at those layers; all other settings are read from `server.yml` or use their built-in defaults.
 
 ## Config File Location
 
@@ -42,9 +42,12 @@ configured trusted proxy. The `--baseurl` flag overrides the config value.
 
 ```yaml
 server:
-  mode: production          # development | production
-  lang: auto                # output language: auto, or a supported locale code
-  baseurl: /                # URL path prefix; defaults to /
+  # Application mode: development or production.
+  mode: production
+  # Output language: auto or a supported locale code.
+  lang: auto
+  # URL path prefix; defaults to /.
+  baseurl: /
   i18n:
     enabled: true
     default_language: en
@@ -54,14 +57,20 @@ server:
     cookie_max_age: 365d
   session:
     cookie_name: session
-    max_age: 0s               # browser-session lifetime
-    secure: auto              # trusted request scheme; always secure for Tor
+    # Browser-session lifetime.
+    max_age: 0s
+    # Follows the trusted request scheme and remains secure for Tor.
+    secure: auto
     http_only: true
     same_site: lax
-  address: 0.0.0.0          # bind address
-  port: 8080                # listen port (containers always 80 internally)
-  domain: ""                # comma-separated allowed hosts (auto-detect behind reverse proxy)
+  # Bind address.
+  address: 0.0.0.0
+  # Listen port; containers use internal port 80.
+  port: 8080
+  # Comma-separated allowed hosts; auto-detected behind a reverse proxy.
+  domain: ""
   timezone: America/New_York
+```
 
 `server.url_detection` controls request-aware URL resolution and trusted proxy
 domain learning. Forwarded host and protocol values are considered only when
@@ -89,27 +98,29 @@ server:
     live_reload: true
 ```
 
-paths:
-  config_dir: ~/.config/apimgr/airports
-  data_dir:   ~/.local/share/apimgr/airports
-  log_dir:    ~/.local/state/airports/log
-  cache_dir:  ~/.cache/apimgr/airports
-  database_dir: ~/.local/share/apimgr/airports/db/sqlite
-
-logging:
-  format: json              # json | text
-  level: info               # debug | info | warn | error
-  files:
-    access: access.log
-    error:  error.log
-
-rate_limit:
-  enabled: true
-  default_per_minute: 100
-  burst: 20
-  endpoint_overrides:
-    /api/{api_version}/airports/search: 200
-    /api/{api_version}/airports/nearby: 100
+```yaml
+server:
+  logs:
+    level: info
+    access:
+      filename: access.log
+      format: apache
+    error:
+      filename: error.log
+      format: iso8601
+  rate_limit:
+    enabled: true
+    read:
+      requests: 120
+      window: 60
+    write:
+      requests: 10
+      window: 60
+    health:
+      requests: 120
+      window: 60
+    global_burst: 240
+```
 
 `server.contact` is the canonical recipient tree for server notifications,
 security reports, abuse reports, and contact form submissions. The admin
@@ -167,7 +178,8 @@ effective consent state allows it, and is always disabled for Tor requests.
 ```yaml
 server:
   tracking:
-    type: ""                 # google, matomo, piwik, owa, fathom, plausible, umami, simple, cloudflare
+    # Provider: google, matomo, piwik, owa, fathom, plausible, umami, simple, or cloudflare.
+    type: ""
     id: ""
     url: ""
   privacy:
@@ -184,43 +196,30 @@ Cloudflare Web Analytics use their hosted endpoints. The consent banner stores
 the visitor's analytics choice in the `cookie_consent` cookie. Tor requests do
 not load third-party analytics scripts.
 
-geoip:
-  enabled: true
-  provider: ip-location-db
-  refresh_cron: "0 4 * * *"        # daily 04:00
-  databases:
-    asn:     { enabled: true }
-    country: { enabled: true }
-    city:    { enabled: true }
-    whois:   { enabled: true }
-
-tls:
-  enabled: false
-  cert_file: ""              # operator-provided cert
-  key_file:  ""              # operator-provided key
-  acme:
-    enabled: false           # Let's Encrypt
-    email: ""
-    domains: []
-    challenge: http-01       # http-01 | dns-01
-
-tor:
-  binary: ""                 # auto-detected; Tor starts whenever the binary is found
-  publish_onion: true
-
-scheduler:
-  enabled: true
-  jobs:
-    geoip_refresh:    { enabled: true, cron: "0 4 * * *" }
-    blocklist_refresh:{ enabled: true, cron: "30 4 * * *" }
-    cache_cleanup:    { enabled: true, cron: "0 * * * *" }
-    tls_renewal:      { enabled: true, cron: "0 */12 * * *" }
-    backup:           { enabled: false, cron: "0 3 * * *" }
-
-backup:
-  enabled: false
-  directory: ~/.local/share/apimgr/airports/backups
-  retain: 7
+```yaml
+server:
+  geoip:
+    enabled: true
+  ssl:
+    enabled: false
+    cert: ""
+    key: ""
+    letsencrypt:
+      enabled: false
+      email: ""
+      challenge: http-01
+  scheduler:
+    enabled: true
+    timezone: America/New_York
+    tasks:
+      geoip_update:
+        enabled: true
+        schedule: "0 3 * * 0"
+      backup:
+        enabled: false
+        schedule: "0 2 * * *"
+  tor:
+    enabled: true
 ```
 
 ## Environment Variables

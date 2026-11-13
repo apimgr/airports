@@ -2,7 +2,7 @@
 
 ## Posture in One Sentence
 
-Airports is a public, read-only reference API. There are **no user accounts**, **no admin panel**, **no API keys**, and **no privileged endpoints** — abuse prevention rests entirely on rate limiting, request-size limits, strict input validation, and transport hardening.
+Airports is a public, read-only reference API. There are **no user accounts** and **no admin panel**. Public HTML and data APIs are unauthenticated; a small set of Tor process-control routes is available only to loopback callers for CLI-to-server communication. Abuse prevention rests on rate limiting, request-size limits, strict input validation, and transport hardening.
 
 ## What Exists
 
@@ -13,6 +13,7 @@ Airports is a public, read-only reference API. There are **no user accounts**, *
 | GraphQL (`/api/{api_version}/server/graphql`, alias `/api/graphql`) | None | Public read-only; depth + complexity limited |
 | `/metrics` | Network ACL | Loopback or private network only |
 | `/server/healthz` | None | Public |
+| Tor control (`/server/tor/*`) | Loopback peer | Internal CLI-to-server channel; remote peers receive 404 |
 | Service CLI (`airports --service ...`) | OS user privilege | Requires sudo where needed |
 
 ## Trust Boundaries
@@ -110,8 +111,7 @@ The server serves exactly these discovery paths:
 | Path | Notes |
 |------|-------|
 | `/robots.txt` | Crawler policy |
-| `/security.txt` | Security disclosure info (RFC 9116 style) |
-| `/.well-known/security.txt` | Canonical RFC 9116 location; same content as `/security.txt` |
+| `/.well-known/security.txt` | Canonical RFC 9116 security disclosure file |
 
 Any other `/.well-known/*` path is **not implemented** and returns `404`.
 

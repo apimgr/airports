@@ -15,7 +15,7 @@ Complete API reference for the Airports API Server.
 
 ## Authentication
 
-All endpoints are **public** and require no authentication. There are no user accounts, no admin panel, and no API keys. Abuse protection is rate-limit-only. See [security.md](./security.md) for the full security model.
+Airport data and public information endpoints require no authentication. The metrics service endpoints use independent bearer tokens per service unless `server.metrics.auth.allow_unauthenticated` is enabled. There are no user accounts or admin panel. See [security.md](./security.md) for the full security model.
 
 ## `.txt` / Plain-Text Support
 
@@ -468,6 +468,18 @@ GET /api/autodiscover
 ```
 
 Unversioned. Returns server identity/version, the API version list, the primary URL, and the endpoint map — used by `airports-cli` and other agent consumers to self-configure.
+
+## Metrics
+
+When `server.metrics.enabled` is true, Prometheus metrics are available at
+`/metrics` and the Prometheus service route `/metrics/prometheus`. The
+Prometheus, Grafana, and Loki services are also available under
+`/server/metrics/{service}`, `/api/metrics/{service}`, and
+`/api/{api_version}/server/metrics/{service}`. Each service has a separate
+bearer token configured under `server.metrics.auth.tokens`. Requests without
+the matching token are rejected unless
+`server.metrics.auth.allow_unauthenticated` is explicitly enabled. Root
+metrics aliases can be disabled with `server.metrics.root.enabled: false`.
 
 ---
 

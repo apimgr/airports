@@ -7,14 +7,14 @@ The Airports server is designed to run with **no required external dependencies*
 | Item | Value |
 |------|-------|
 | Provider | [ip-location-db](https://github.com/sapics/ip-location-db) (CDN-distributed via jsDelivr) |
-| Files | `asn.mmdb`, `country.mmdb`, `city.mmdb`, `whois.mmdb` |
-| License | CC0 / PDDL (no API key, no account required) |
+| Files | `asn.mmdb`, `geo-whois-asn-country.mmdb`, `dbip-city-ipv4.mmdb`, `dbip-city-ipv6.mmdb` |
+| License | CC BY 4.0 (no API key or account required) |
 | Format | MaxMind MMDB binary |
-| Update cadence | Daily |
-| Storage | `{data_dir}/security/geoip/` (~80 MB total) |
+| Update cadence | Weekly, Sunday at 03:00 local time |
+| Storage | `{data_dir}/security/geoip/` |
 | Required? | No — server runs without GeoIP; home page falls back to a generic view |
 
-Outbound URL pattern: `https://cdn.jsdelivr.net/npm/@ip-location-db/...`.
+ASN and country databases download from jsDelivr; the larger DB-IP city databases download from the project's GitHub Releases.
 
 Used for:
 
@@ -27,11 +27,12 @@ GeoIP lookup results for callers are **never logged or stored** — they are com
 
 ```yaml
 # server.yml
-geoip:
-  enabled: false
+server:
+  geoip:
+    enabled: false
 ```
 
-When disabled, the home page shows a generic list of major hubs instead of nearby airports.
+When disabled, the home page shows a generic view without caller-location results. The scheduler uses `server.scheduler.tasks.geoip_update.schedule` for refresh timing; its default is `0 3 * * 0`.
 
 ## Airport Dataset — embedded
 
@@ -77,7 +78,7 @@ If Tor fails to start the server continues without it; the warning is logged.
 
 ## SMTP — Outbound Email (optional)
 
-Used only for admin notifications (e.g., backup failure alerts). Auto-detected when SMTP config is present.
+Used for operator notifications (e.g., backup failure alerts) and delivery of public contact-form submissions. Auto-detected when SMTP config is present.
 
 ```yaml
 smtp:
@@ -123,6 +124,6 @@ Compatible with Docker, Podman, containerd, and any OCI-compliant runtime.
 
 - **No OAuth / OIDC / SAML** — no user accounts exist.
 - **No external database server required** — embedded SQLite for operational state.
-- **No external cache** — in-process LRU.
+- **External cache is optional** — in-process memory is the default; Redis or Valkey can be configured for shared cache and rate-limit state.
 - **No external scheduler** — built-in cron (do not deploy host cron / systemd timers).
-- **No telemetry / analytics / phone-home** — outbound HTTPS only for GeoIP refresh, ACME (if enabled), and self-update (when explicitly invoked).
+- **No mandatory telemetry or phone-home** — optional consent-gated analytics may load in visitors' browsers. The server's outbound HTTPS calls are limited to GeoIP refresh, ACME (if enabled), and self-update (when explicitly invoked).

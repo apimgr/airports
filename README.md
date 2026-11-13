@@ -27,6 +27,7 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 - **REST API** with OpenAPI/Swagger documentation
 - **GraphQL** endpoint for flexible queries
 - **Web UI** — dark/light/auto theme, mobile-first, PWA-capable
+- **Localized UI and CLI** — seven languages; see the [translation guide](docs/translating.md)
 - **CLI client** — `airports-cli` for terminal queries
 - **Self-contained** — single static binary, all assets embedded, no runtime dependencies
 - **Auto-updates** — weekly GeoIP database refresh via built-in scheduler

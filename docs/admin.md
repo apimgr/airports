@@ -2,7 +2,7 @@
 
 ## No Web Admin Panel
 
-**Airports has no admin web panel, no user accounts, no login flow, and no privileged API.** This is intentional — the service is a public, read-only reference API for airport data.
+**Airports has no admin web panel, user accounts, or login flow.** Public airport data is read-only. Metrics endpoints use service-specific bearer tokens, and the Tor process-control routes accept loopback callers only.
 
 All operator tasks happen out-of-band via:
 
@@ -91,7 +91,7 @@ The binary auto-detects when it is behind a reverse proxy via `X-Forwarded-*` he
 
 ## Telemetry
 
-There is **no telemetry**, no analytics, no phone-home. The binary makes outbound HTTPS calls only for:
+There is no mandatory telemetry or phone-home. Optional analytics can be configured and is loaded in visitors' browsers only when consent permits it. The server binary makes outbound HTTPS calls only for:
 
 - GeoIP database updates (`cdn.jsdelivr.net`)
 - ACME certificate issuance (`acme-v02.api.letsencrypt.org`) when TLS-ACME is enabled
