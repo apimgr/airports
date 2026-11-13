@@ -171,6 +171,23 @@ those providers require both a public site key and a private secret key.
 Provider verification has a five-second timeout. The secret key is redacted
 from debug configuration output.
 
+The AI discovery document is generated at `/.well-known/llms.txt` and `/llms.txt`
+by default. Endpoint paths are collected from the registered API routes, and
+the current request host is used when building absolute URLs.
+
+```yaml
+web:
+  llms:
+    enabled: true
+    include_endpoints: true
+    include_schemas: false
+    custom_sections: []
+  api_contact: ""
+```
+
+`api_contact` is shown in the discovery document and falls back to the general
+contact email when empty. Custom sections are appended as Markdown.
+
 ```yaml
 server:
   pages:

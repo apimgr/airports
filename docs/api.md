@@ -404,12 +404,22 @@ GET /api/{api_version}/server/healthz
 GET /api/{api_version}/server/about
 GET /api/{api_version}/server/help
 GET /api/{api_version}/server/privacy
+GET /api/{api_version}/server/dpo
 GET /api/{api_version}/server/terms
 GET /api/{api_version}/server/contact
 POST /api/{api_version}/server/contact
+GET /api/{api_version}/server/security
+GET /api/{api_version}/server/security/policy
+GET /api/{api_version}/server/security/thanks
 GET /api/{api_version}/server/swagger
 POST /api/{api_version}/server/graphql
 ```
+
+The DPO endpoint returns `name`, `email`, and an absolute `privacy_url`. Its
+email uses `server.contact.dpo.email`, then `server.contact.general.email`;
+it never falls back to the private admin address. Security report status is
+available only at the emailed `/server/security/report/{tracking_id}` link
+and has no API mirror.
 
 ---
 

@@ -106,22 +106,32 @@ X-API-Version:               v1
 
 ## `.well-known` and Discovery Files
 
-The server serves exactly these discovery paths:
+The server serves these discovery paths:
 
 | Path | Notes |
 |------|-------|
 | `/robots.txt` | Crawler policy |
 | `/.well-known/security.txt` | Canonical RFC 9116 security disclosure file |
+| `/.well-known/llms.txt` | Generated API discovery document |
+| `/llms.txt` | Alias for the generated API discovery document |
+| `/.well-known/pgp-key.asc` | Public key when a configured key is available |
 
-Any other `/.well-known/*` path is **not implemented** and returns `404`.
+Other unsupported `/.well-known/*` paths return `404`. `/security.txt` is not
+an alias; use the canonical `/.well-known/security.txt` path.
 
 ## Reporting a Security Issue
 
-If you believe you have found a security vulnerability:
+For a vulnerability in this repository, use GitHub's private vulnerability
+reporting flow. For a vulnerability in a running instance, use its
+`/server/security` page and submit the security report form linked from
+`/.well-known/security.txt`.
 
-1. **Do not** open a public GitHub issue.
-2. Email <security@apimgr.us> with reproduction steps and impact.
-3. Include the commit/version you tested against.
+Security reports are encrypted at rest using the configured
+`server.security.encryption_key`. When SMTP is configured, the operator gets
+an encrypted report payload and the researcher receives a private status link
+with a token that permits one status-page use per day. Report content is not
+shown on the status page.
+Invalid or expired security form IDs are logged by hash prefix only.
 
 We aim to acknowledge within 72 hours and ship a fix within 14 days for verified critical/high issues.
 
