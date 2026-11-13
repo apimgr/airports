@@ -146,6 +146,9 @@ server:
     abuse:
       email: ""
       webhooks: {}
+    dpo:
+      name: ""
+      email: ""
     general:
       email: ""
       webhooks: {}
@@ -155,6 +158,11 @@ An empty role email falls back to the admin email, except public abuse contact
 display, which falls back to the general email and never exposes admin. Webhook
 destinations use the same per-role fallback order. Keep webhook URLs private;
 debug config output redacts them.
+
+The public `/server/dpo` page and `/api/{api_version}/server/dpo` response use
+the configured DPO name and email. If the DPO email is empty, they fall back to
+the general contact email; they never expose the admin email. The HTML page
+always links to the privacy policy and contact form.
 
 The contact page requires a CAPTCHA on every submission. The default
 `simple` provider uses a self-hosted arithmetic challenge and also applies to
