@@ -181,7 +181,9 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /server/security/thanks` | Security acknowledgments (HTML) |
 | `GET /api/{api_version}/server/security/thanks` | Security acknowledgments (JSON) |
 | `GET /server/preferences` | Language and theme preferences |
-| `GET /server/preferences/tokens` | View and manage owner and linked tokens |
+| `GET /server/preferences/tokens` | View and manage owner and linked tokens with the owner cookie; without it, only token issue and restore forms appear |
+| `POST /server/consent` | Save cookie consent choices |
+| `POST /server/ccpa` | Save or clear the CCPA opt-out choice |
 | `GET /sitemap.xml` | Search-engine sitemap for allowed public pages |
 | `GET /feed.xml`, `/rss.xml` | Atom and RSS feeds (currently empty; no user-created content) |
 | `GET /server/docs/swagger` | Swagger UI |
@@ -202,9 +204,10 @@ browser requests require an explicitly allowed origin.
 
 MCP clients can use the canonical `/api/{api_version}/server/mcp` endpoint or
 the direct `/api/mcp` and `/mcp` aliases. Every MCP request requires an
-operator or owner `Authorization: Bearer` token; a linked owner token is the
-recommended credential for each client. See `/server/help/mcp` for client
-configuration, protocol requirements, and available tools.
+`Authorization: Bearer` linked owner token created for that client. Never use
+the primary owner token or operator token (`server.token`). See
+`/server/help/mcp` for client configuration, protocol requirements, and
+available tools.
 
 Owner token management is available at `/server/preferences/tokens`; its
 versioned API mirror supports primary and linked token management. Token

@@ -95,12 +95,11 @@ uses `{config_dir}/i2p/` for generated provider configuration and
 
 The server exposes remote Streamable HTTP MCP at
 `/api/{api_version}/server/mcp`, with aliases `/api/mcp` and `/mcp`. MCP
-requests reuse API Bearer authentication and require a valid primary or linked
-owner token; a linked token created for each MCP client is recommended. The
-operator token also authenticates but grants global operator access. Cookies
-are ignored and MCP has no separate token type or scope. The REST data API
-remains public. The live tool list and client setup instructions are available
-at `/server/help/mcp`.
+requests reuse API Bearer authentication and require a linked owner token
+created for that client. Never use the primary owner token or the operator
+token (`server.token`). Cookies are ignored and MCP has no separate token type
+or scope. The REST data API remains public. The live tool list and client setup
+instructions are available at `/server/help/mcp`.
 
 ## Public discovery and reporting
 

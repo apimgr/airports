@@ -550,10 +550,10 @@ metrics aliases can be disabled with `server.metrics.root.enabled: false`.
 ## Model Context Protocol
 
 Airports exposes its API operations as tools over Streamable HTTP. Every
-request requires the same `Authorization: Bearer` operator or owner token used
-by the REST API; cookies are ignored. A linked owner token is the recommended
-credential for each MCP client. Token management and token issuance are never
-MCP tools. The canonical endpoint is
+request requires an `Authorization: Bearer` linked owner token created for
+that client; never use the primary owner token or operator token
+(`server.token`). Cookies are ignored. Token management and token issuance are
+never MCP tools. The canonical endpoint is
 `/api/{api_version}/server/mcp`; `/api/mcp` and `/mcp` are direct aliases.
 Requests use `POST`, protocol version `2026-07-28`, and an allowed `Origin`
 when an Origin header is sent. The `MCP-Protocol-Version` header must match

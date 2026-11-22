@@ -2,13 +2,14 @@
 
 ## Posture in One Sentence
 
-Airports is a public, read-only reference API. There are **no user accounts** and **no admin panel**. Public HTML and data APIs are unauthenticated; a small set of Tor process-control routes is available only to loopback callers for CLI-to-server communication. Abuse prevention rests on rate limiting, request-size limits, strict input validation, and transport hardening.
+Airports is a public, read-only reference API. There are **no user accounts** and **no admin panel**. Public informational HTML pages and data APIs are unauthenticated; owner-token management is scoped to the owner cookie, and a small set of Tor process-control routes is available only to loopback callers for CLI-to-server communication. Abuse prevention rests on rate limiting, request-size limits, strict input validation, and transport hardening.
 
 ## What Exists
 
 | Surface | Auth | Notes |
 |---------|------|-------|
-| All HTML pages | None | Public read-only |
+| Public HTML pages | None | Public read-only |
+| `/server/preferences/tokens` | Owner token cookie | Lists and manages only the token owner's credentials and linked tokens; without a valid owner cookie, only token issue/restore forms appear |
 | Public REST endpoints (`/api/{api_version}/...`) | None | Public read-only data and server information |
 | GraphQL (`/api/{api_version}/server/graphql`, alias `/api/graphql`) | None | Public read-only; depth + complexity limited |
 | Metrics (`/server/metrics/{service}`, `/api/metrics/{service}`, `/api/{api_version}/server/metrics/{service}`, `/metrics/{service}`) | Per-service bearer token | Network ACL is additional defense in depth; unauthenticated access is not allowed |
@@ -51,10 +52,10 @@ Metrics use separate bearer tokens for the `prometheus`, `grafana`, and `loki`
 services. Firewalling metrics endpoints is additional defense in depth.
 
 MCP at `/api/{api_version}/server/mcp` and its aliases reuses API Bearer
-authentication and authorization. Every request needs a valid owner primary
-or linked token; a per-client linked token is recommended. The operator token
-also works but grants global operator access. API cookies are ignored, and
-there is no MCP-specific credential or scope.
+authentication and authorization. Every request needs a linked owner token
+created for that client. Never use the primary owner token or the operator
+token (`server.token`). API cookies are ignored, and there is no MCP-specific
+credential or scope.
 
 ## Transport Security
 
@@ -65,6 +66,9 @@ there is no MCP-specific credential or scope.
   browser's convenience copy while keeping the credential valid. A build
   version mismatch sends `Clear-Site-Data: "cache", "storage"` to recover
   stale assets and service workers; it never clears cookies.
+- Consent withdrawal sends `Clear-Site-Data: "cache", "storage"` and never
+  clears cookies; the server expires cookies for withdrawn categories while
+  preserving the updated consent choice and owner token.
 - TLS certificates may come from ACME (Let's Encrypt), operator-provided files, or self-signed (development only).
 - All ACME challenges served on port 80 with redirect to HTTPS for everything else.
 
