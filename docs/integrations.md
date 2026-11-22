@@ -6,15 +6,17 @@ The Airports server is designed to run with **no required external dependencies*
 
 | Item | Value |
 |------|-------|
-| Provider | [ip-location-db](https://github.com/sapics/ip-location-db) (CDN-distributed via jsDelivr) |
-| Files | `asn.mmdb`, `geo-whois-asn-country.mmdb`, `dbip-city-ipv4.mmdb`, `dbip-city-ipv6.mmdb` |
-| License | CC BY 4.0 (no API key or account required) |
+| Provider | [ip-location-db](https://github.com/sapics/ip-location-db) (GitHub Release assets) |
+| Files | `iptoasn-asn.mmdb`, `iptoasn-country.mmdb`, `dbip-city-ipv4.mmdb`, `dbip-city-ipv6.mmdb` |
+| License | PDDL (ASN and country); CC BY 4.0 (city) |
 | Format | MaxMind MMDB binary |
 | Update cadence | Weekly, Sunday at 03:00 local time |
 | Storage | `{data_dir}/security/geoip/` |
 | Required? | No — server runs without GeoIP; home page falls back to a generic view |
 
-ASN and country databases download from jsDelivr; the larger DB-IP city databases download from the project's GitHub Releases.
+All four databases download from GitHub Releases and are checked against their
+published SHA-256 checksum assets before installation. The DB-IP city databases
+download from the project's GitHub Releases.
 
 Used for:
 

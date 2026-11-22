@@ -13,9 +13,17 @@ Complete API reference for the Airports API Server.
 - **Swagger UI**: `/server/docs/swagger`
 - **GraphQL Playground**: `/server/docs/graphql`
 
+## Discovery and Syndication
+
+The public frontend also serves `GET /sitemap.xml`, `GET /feed.xml` (Atom
+1.0), and `GET /rss.xml` (RSS 2.0). Airports has no public user-created
+content, so both feeds are valid and currently contain zero entries. URLs are
+absolute for the current request host; feed responses support `ETag`,
+`Last-Modified`, and conditional requests.
+
 ## Authentication
 
-Airport data and public information endpoints require no authentication. The metrics service endpoints use independent bearer tokens per service unless `server.metrics.auth.allow_unauthenticated` is enabled. There are no user accounts or admin panel. See [security.md](./security.md) for the full security model.
+Airport data and public information endpoints require no authentication. Metrics endpoints require an independent bearer token for each service (`prometheus`, `grafana`, or `loki`); network ACLs are additional defense in depth. There are no user accounts or admin panel. See [security.md](./security.md) for the full security model.
 
 ## `.txt` / Plain-Text Support
 
@@ -408,6 +416,7 @@ GET /api/{api_version}/server/dpo
 GET /api/{api_version}/server/terms
 GET /api/{api_version}/server/contact
 POST /api/{api_version}/server/contact
+GET /api/{api_version}/server/help/mcp
 GET /api/{api_version}/server/security
 GET /api/{api_version}/server/security/policy
 GET /api/{api_version}/server/security/thanks
@@ -415,11 +424,28 @@ GET /api/{api_version}/server/swagger
 POST /api/{api_version}/server/graphql
 ```
 
+The About, Help, Terms, and MCP help endpoints return JSON objects with their
+documented `title`/`content`/`format` fields (Help also returns `pages`; MCP
+help returns `enabled`, `url`, `aliases`, `auth`, `tools`, and `project`). The
+security status page has no API mirror. Preferences are currently available
+only as the HTML page `/server/preferences`.
+
+Contact `GET` returns the field descriptors, a newly created CAPTCHA, and a
+form token. `POST` submissions use `step=submit` to validate and return a
+review without delivering the report, then repeat the fields with
+`step=confirm`, the review token, and `confirmed=true` to deliver. CAPTCHA
+challenges are one-use and expire after ten minutes. Security reports are
+accepted only through a valid security ID from the security page or
+`security.txt`.
+
 The DPO endpoint returns `name`, `email`, and an absolute `privacy_url`. Its
 email uses `server.contact.dpo.email`, then `server.contact.general.email`;
 it never falls back to the private admin address. Security report status is
 available only at the emailed `/server/security/report/{tracking_id}` link
-and has no API mirror.
+and has no API mirror. The one-shot token is removed before access and
+application request logging. The page shows the current triage state,
+submission date, maintainer comment, and expected disclosure date; it never
+shows the vulnerability report body.
 
 ---
 
@@ -481,15 +507,29 @@ Unversioned. Returns server identity/version, the API version list, the primary 
 
 ## Metrics
 
-When `server.metrics.enabled` is true, Prometheus metrics are available at
+When metrics are enabled in configuration, Prometheus metrics are available at
 `/metrics` and the Prometheus service route `/metrics/prometheus`. The
 Prometheus, Grafana, and Loki services are also available under
 `/server/metrics/{service}`, `/api/metrics/{service}`, and
 `/api/{api_version}/server/metrics/{service}`. Each service has a separate
-bearer token configured under `server.metrics.auth.tokens`. Requests without
-the matching token are rejected unless
-`server.metrics.auth.allow_unauthenticated` is explicitly enabled. Root
+bearer token configured under `server.metrics.auth.tokens`. A matching token
+is mandatory; firewalling the endpoint is additional defense in depth. Root
 metrics aliases can be disabled with `server.metrics.root.enabled: false`.
+
+## Model Context Protocol
+
+Airports exposes its documented read-only API operations as tools over
+Streamable HTTP. The canonical endpoint is
+`/api/{api_version}/server/mcp`; `/api/mcp` and `/mcp` are direct aliases.
+The currently exposed airport data tools are public and require no token.
+Requests use `POST`, a supported `MCP-Protocol-Version`, and an allowed
+`Origin` when an Origin header is sent.
+
+The live tool names and schemas, endpoint, aliases, connection examples,
+protocol versions, and troubleshooting guidance are available at
+`/server/help/mcp`. Its JSON mirror is
+`/api/{api_version}/server/help/mcp`. MCP does not create a session, and tool
+calls follow the API request-size and rate limits.
 
 ---
 
@@ -501,7 +541,8 @@ All errors follow this format:
 {
   "ok": false,
   "error": "NOT_FOUND",
-  "message": "Airport not found: XXXX"
+  "message": "Airport not found: XXXX",
+  "details": {}
 }
 ```
 

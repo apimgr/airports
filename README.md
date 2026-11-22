@@ -11,7 +11,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 
 Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary with zero runtime dependencies.
 
-**No user accounts. No admin panel. No authentication. All endpoints are public and read-only.**
+**No user accounts or admin panel. Airport data and public server information are unauthenticated and read-only. Metrics require per-service bearer tokens.**
 
 ## Official Site
 
@@ -109,7 +109,9 @@ With no command, the client opens a TUI in a terminal or a native GUI in a suppo
 
 ## Configuration
 
-All settings can be expressed as CLI flags, environment variables, or `server.yml` entries. CLI flags take highest precedence.
+Settings use CLI flags and supported environment overrides where documented;
+otherwise they come from `server.yml` and the relevant `yaml.d/` drop-ins.
+Secrets and generated tokens are stored separately in `secrets.yml`.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
@@ -117,7 +119,7 @@ All settings can be expressed as CLI flags, environment variables, or `server.ym
 | `--address` | `LISTEN` | `0.0.0.0` | Bind address |
 | `--mode` | `MODE` | `production` | `development` or `production` |
 | `--debug` | `DEBUG` | `false` | Enable pprof/expvar endpoints |
-| `--config` | — | auto-detected | Path to `server.yml` |
+| `--config` | — | auto-detected | Config directory containing `server.yml` |
 
 Config file is auto-created at first run with sane defaults. No manual setup required.
 
@@ -150,17 +152,28 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 |----------|-------------|
 | `GET /server/healthz` | Health status (HTML) |
 | `GET /api/{api_version}/server/healthz` | Health status (JSON) |
-| `GET /server/about` | Version and build info (HTML) |
-| `GET /api/{api_version}/server/about` | Version and build info (JSON) |
+| `GET /server/about` | Project description and version info (HTML) |
+| `GET /api/{api_version}/server/about` | Project description (JSON) |
+| `GET /server/preferences` | Language and theme preferences |
+| `GET /sitemap.xml` | Search-engine sitemap for allowed public pages |
+| `GET /feed.xml`, `/rss.xml` | Atom and RSS feeds (currently empty; no user-created content) |
 | `GET /server/docs/swagger` | Swagger UI |
 | `GET /api/{api_version}/server/swagger` | OpenAPI spec |
+| `POST /api/{api_version}/server/mcp` | Public airport tools over Model Context Protocol Streamable HTTP |
+| `GET /server/help/mcp` | MCP setup and live tool reference |
+| `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
 | `GET /server/docs/graphql` | GraphiQL UI |
 | `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
-| `GET /metrics` | Prometheus metrics |
+| `GET /server/metrics/{service}` | Prometheus, Grafana, or Loki metrics (per-service bearer token required) |
+| `GET /api/metrics/{service}` | Metrics alias (per-service bearer token required) |
 
 **Response format:** JSON by default. Use `Accept: text/csv`, `Accept: application/geo+json`, or `?format=csv|geojson` for alternate formats.
 
-**CORS:** `Access-Control-Allow-Origin: *` on all API responses (public read-only data).
+**CORS:** `Access-Control-Allow-Origin: *` on public API responses (public read-only data).
+
+MCP clients can use the canonical `/api/{api_version}/server/mcp` endpoint or
+the direct `/api/mcp` and `/mcp` aliases. See `/server/help/mcp` for client
+configuration and available tools.
 
 ### Quick examples
 
@@ -186,7 +199,7 @@ curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_vers
 ## Data Sources
 
 - **Airport data:** [OurAirports](https://ourairports.com/) — public domain, embedded at build time
-- **GeoIP databases:** [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — CC0/PDDL, downloaded on first run, updated weekly
+- **GeoIP databases:** [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — ASN/country data under PDDL and DB-IP city data under CC BY 4.0; downloaded on first run and updated weekly
 
 ---
 

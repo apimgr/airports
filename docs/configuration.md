@@ -1,13 +1,13 @@
 # Configuration
 
-The Airports server reads configuration from four sources, in order of precedence:
+The Airports server reads configuration from these sources, in order of precedence:
 
 1. **Command-line flags** (`--port 9000`)
 2. **Environment variables** (`PORT=9000`)
-3. **Config file** (`server.yml`)
+3. **Config files** (`server.yml`, then area drop-ins in `yaml.d/`)
 4. **Built-in defaults**
 
-Only settings with a documented command-line flag or environment-variable mapping can be set at those layers; all other settings are read from `server.yml` or use their built-in defaults.
+Only settings with a documented command-line flag or environment-variable mapping can be set at those layers; other settings are read from the matching config file or use their built-in defaults. Credentials and generated tokens live in `secrets.yml`.
 
 ## Config File Location
 
@@ -22,7 +22,10 @@ Only settings with a documented command-line flag or environment-variable mappin
 Override the config directory with `--config /path/to/dir` or `CONFIG_DIR=/path/to/dir`
 (the server always reads `server.yml` from within that directory).
 
-The file is auto-generated with sane defaults on first run.
+The main file is auto-generated with sane defaults on first run. The operator
+token is generated with the `adm_` prefix and stored separately in `secrets.yml`;
+both files are restricted to owner-only permissions. Public branding and
+operator-managed page content belong in `{config_dir}/yaml.d/branding.yml`.
 
 ## Modes
 
@@ -162,18 +165,62 @@ debug config output redacts them.
 The public `/server/dpo` page and `/api/{api_version}/server/dpo` response use
 the configured DPO name and email. If the DPO email is empty, they fall back to
 the general contact email; they never expose the admin email. The HTML page
-always links to the privacy policy and contact form.
+links to the privacy policy and `/server/security`; it never links directly to
+the report form.
 
 The contact page requires a CAPTCHA on every submission. The default
 `simple` provider uses a self-hosted arithmetic challenge and also applies to
 Tor and I2P requests. Clearnet requests may use reCAPTCHA v2 or hCaptcha;
 those providers require both a public site key and a private secret key.
-Provider verification has a five-second timeout. The secret key is redacted
-from debug configuration output.
+Simple challenges are stored as expiring hashes in the application database
+and are single-use across server instances. Provider verification has a
+five-second timeout. Contact submission uses a review step before any email is
+sent. The secret key is redacted from debug configuration output and stored in
+`secrets.yml`.
 
 The AI discovery document is generated at `/.well-known/llms.txt` and `/llms.txt`
 by default. Endpoint paths are collected from the registered API routes, and
 the current request host is used when building absolute URLs.
+
+Brand title, tagline, description, SEO tags, and the default theme live in
+`yaml.d/branding.yml`. The optional `web.ui.accent` value accepts `#RRGGBB`;
+when valid, the server generates contrast-adjusted colors in
+`/static/css/accent.css`. Logo, favicon, and Open Graph images can be HTTPS
+URLs, validated image data URIs, or file names under `assets/`. Local image
+files require `assets/` mode `0700` and file mode `0600`; remote images are
+fetched over HTTPS with public-address, redirect, MIME, and size checks and
+cached under the data directory.
+
+## Public help, contact, and MCP pages
+
+```yaml
+server:
+  pages:
+    help:
+      # Project-specific Markdown appended to the built-in help page.
+      content: ""
+      # Project-specific Markdown appended to the base MCP help page.
+      mcp: ""
+    contact:
+      enabled: true
+      captcha: simple
+      captcha_site_key: ""
+      # Kept in secrets.yml; never returned by the config API.
+      captcha_secret_key: ""
+      success_message: "Thank you for your message. We'll respond soon."
+web:
+  llms:
+    enabled: true
+    include_endpoints: true
+    include_schemas: false
+    custom_sections: []
+```
+
+The help page and its JSON mirror use `server.pages.help.content`. The MCP
+setup page and its JSON mirror use `server.pages.help.mcp`; the built-in
+sections, endpoint URL, aliases, and tool list remain generated from the
+running server. See [`api.md`](./api.md#model-context-protocol) for client
+connection details.
 
 ```yaml
 web:

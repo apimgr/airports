@@ -25,7 +25,8 @@ client_binary: airports-cli
 - Geographic queries: airports within radius, bounding box, nearest N airports
 - Multiple export formats: JSON, CSV, GeoJSON
 - Full web frontend (server-side Go templates, dark/light/auto theme, PWA, mobile-first)
-- Server pages: `/server/about`, `/server/help`, `/server/healthz`, `/server/privacy`, `/server/terms`
+- Public server pages for About, Help, Health, Privacy, Preferences, Terms, Contact, DPO, Security, security reporting, and MCP setup; machine-readable mirrors follow AI.md
+- Public sitemap and Atom/RSS discovery feeds (empty when the read-only product has no public items)
 - CLI client (`airports-cli`) for querying from the terminal
 - OpenAPI/Swagger docs at `/api/{api_version}/server/swagger`
 - GraphQL POST at `/api/{api_version}/server/graphql`, with the current-version alias `/api/graphql`
@@ -37,19 +38,19 @@ client_binary: airports-cli
 - No write/mutation API (airport data is read-only, embedded at build time)
 - No live flight tracking or real-time data
 - No aviation ATIS, METAR, NOTAMs, or operational data
-- No paid tiers, no API keys, no rate-limited access tiers
+- No paid tiers or user-facing API-key products; the operator and per-service tokens required by AI.md are platform controls, not access tiers
 
 ### Roles & permissions
 
-There are no user roles. All endpoints are public and require no authentication.
+There are no user accounts or user roles. Airport data endpoints and public pages are anonymous. Metrics endpoints use the per-service bearer tokens required by AI.md PART 20; local Tor control endpoints accept loopback callers only.
 
 | Actor | Access |
 |-------|--------|
 | **Anonymous visitor (browser)** | Full read access to all web pages and API endpoints |
-| **Anonymous API client (curl/CLI)** | Full read access to all API endpoints |
+| **Anonymous API client (curl/CLI)** | Full read access to public airport data and server information; metrics use their per-service bearer tokens |
 | **Server operator** | Configures server via `server.yml` only; no web management interface |
 
-The server operator uses the CLI (`airports --service`, `airports --maintenance`, `airports --config`) to manage the process. No web-based administration exists.
+The server operator uses local configuration files and the CLI (`airports --service`, `airports --maintenance`, `airports --config`) to manage the process. No web-based administration exists.
 
 ### Data model & sensitivity
 
@@ -82,7 +83,7 @@ No PII is stored or served. GeoIP lookup results for the caller are used only to
 | Boundary | Trust level | Notes |
 |----------|-------------|-------|
 | Airport dataset (embedded at build) | Fully trusted | Static, embedded at compile time |
-| sapics/ip-location-db (MMDB via jsdelivr CDN, downloaded at first run) | Trusted — HTTPS-verified | Used for caller GeoIP lookup only |
+| sapics/ip-location-db (MMDB GitHub Release assets with published SHA-256 checksums, downloaded at first run) | Trusted — checksum-verified | Used for caller GeoIP lookup only |
 | OpenStreetMap tile server (fetched client-side, browser to tile server) | Trusted — public tile CDN, no API key, no server-side proxy | Used only to render map view; server never calls out to it |
 | Incoming HTTP requests | **Untrusted** | All input validated; GeoIP lookup is best-effort, not security-critical |
 | CI/CD build pipeline | Trusted | Produces signed binaries |
@@ -114,8 +115,8 @@ Map rendering follows progressive enhancement, per the no-JS-required rule: the 
 
 ### Security decisions & exceptions
 
-- **No authentication on any endpoint**: intentional. This is a public read-only reference API. Rate limiting is the sole abuse-prevention mechanism.
-- **GeoIP databases downloaded at runtime**: intentional for size reasons (GeoIP databases are ~80 MB and updated weekly; embedding them would double binary size and require weekly releases). Integrity checked via HTTPS.
-- **All responses include `Access-Control-Allow-Origin: *`**: intentional. Public data API designed for cross-origin browser use.
+- **No user accounts or login**: intentional. Public airport data and server pages are anonymous; platform-required operator and per-service metrics tokens remain in place.
+- **GeoIP databases downloaded at runtime**: intentional for size reasons (GeoIP databases are ~80 MB and updated weekly; embedding them would double binary size and require weekly releases). Downloads are verified against published SHA-256 checksums.
+- **Public data API supports cross-origin browser use**: intentional. CORS follows the configured public-origin policy.
 - **Map tiles loaded client-side from OpenStreetMap, no API key**: intentional. Keeps zero-config/no-paywall posture; the server never proxies or caches tile requests, so tile-server load and ToS compliance rest on standard OSM attribution/usage-policy adherence in the frontend, not on server-side rate limiting.
 - **Container binds privileged port 80 as a non-root user**: intentional. The runtime image runs as the non-root `airports` user (UID/GID 1000). Because the app listens on internal port 80 (<1024), the Dockerfile grants `cap_net_bind_service` on the binary via `setcap` rather than running as root or doing a root-then-drop dance. This is the documented exception to the non-root/no-privileged-port rule.

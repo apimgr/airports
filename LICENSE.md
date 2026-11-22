@@ -34,21 +34,19 @@ Airport data is sourced from OurAirports and is in the public domain. No attribu
 ### GeoIP Databases
 
 Source: [sapics/ip-location-db](https://github.com/sapics/ip-location-db)
-License: CC BY 4.0 (ASN, country, and city data)
+License: PDDL (ASN and country data); CC BY 4.0 (DB-IP city data)
 
 | Database | License | Underlying Source(s) |
 |----------|---------|-----------------------|
-| ASN | CC BY 4.0 | RouteViews, NRO, DB-IP (merged) |
-| Country | CC BY 4.0 | NRO (RIR whois + geofeed + ASN data, merged) |
+| ASN | PDDL | iptoasn.com (RouteViews / RIR data) |
+| Country | PDDL | iptoasn.com (RIR data) |
 | City | CC BY 4.0 | DB-IP |
 
-All three databases are licensed CC BY 4.0, and attribution is a license
-condition. Both notices below are required together — MaxMind GeoLite2 is
+The DB-IP attribution is required because the City database is used. The ASN
+and country datasets are PDDL and require no attribution. MaxMind GeoLite2 is
 not used by this project:
 
 [IP Geolocation by DB-IP](https://db-ip.com/)
-
-Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).
 
 ### Go Dependencies
 

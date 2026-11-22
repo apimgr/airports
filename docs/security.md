@@ -9,9 +9,9 @@ Airports is a public, read-only reference API. There are **no user accounts** an
 | Surface | Auth | Notes |
 |---------|------|-------|
 | All HTML pages | None | Public read-only |
-| All REST endpoints (`/api/{api_version}/...`) | None | Public read-only |
+| Public REST endpoints (`/api/{api_version}/...`) | None | Public read-only data and server information |
 | GraphQL (`/api/{api_version}/server/graphql`, alias `/api/graphql`) | None | Public read-only; depth + complexity limited |
-| `/metrics` | Network ACL | Loopback or private network only |
+| Metrics (`/server/metrics/{service}`, `/api/metrics/{service}`, `/api/{api_version}/server/metrics/{service}`, `/metrics/{service}`) | Per-service bearer token | Network ACL is additional defense in depth; unauthenticated access is not allowed |
 | `/server/healthz` | None | Public |
 | Tor control (`/server/tor/*`) | Loopback peer | Internal CLI-to-server channel; remote peers receive 404 |
 | Service CLI (`airports --service ...`) | OS user privilege | Requires sudo where needed |
@@ -35,18 +35,20 @@ Airports is a public, read-only reference API. There are **no user accounts** an
 
 ## Rate Limiting
 
-| Endpoint class | Default | Window | Configurable |
-|----------------|---------|--------|--------------|
-| All endpoints | 100 req | 1 min per IP | Yes — `server.yml` `rate_limit:` block |
+| Endpoint class | Default | Window | Identity |
+|----------------|---------|--------|----------|
+| Read (GET, HEAD) | 120 requests | 60 seconds | Per IP, or per valid bearer token |
+| Write (POST, PUT, PATCH, DELETE) | 10 requests | 60 seconds | Per IP, or per valid bearer token |
+| Health and status | 120 requests | 60 seconds | Per IP, or per valid bearer token |
+| Global ceiling | 240 requests | 60 seconds | Per IP, or per valid bearer token |
 
-Response headers on every API response:
+Rate-limit values are configured in `server.yml` under `server.rate_limit`. The
+limiter is always enabled. Failed authentication attempts remain counted by IP.
+Rate-limit response headers report the applicable bucket; `Retry-After` is sent
+when a request is rejected.
 
-```
-X-RateLimit-Limit:     100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset:     2026-05-16T12:15:00Z
-Retry-After:           60         # on 429 only
-```
+Metrics use separate bearer tokens for the `prometheus`, `grafana`, and `loki`
+services. Firewalling metrics endpoints is additional defense in depth.
 
 ## Transport Security
 
@@ -86,7 +88,7 @@ X-API-Version:               v1
 
 ## Logging & Privacy
 
-- No PII is stored.
+- Security report details, including researcher contact information, are stored only as AES-256-GCM ciphertext in the database. Contact-form messages are delivered through configured email and are not retained as plaintext records by the application.
 - GeoIP lookups for callers are used only to surface nearby airports on the home page — results are **never logged or stored**.
 - The access log records: timestamp, method, path, status, duration, request ID, hashed IP. Raw IP and User-Agent are not logged.
 - The error log never contains user-supplied content beyond the request ID.
@@ -111,6 +113,9 @@ The server serves these discovery paths:
 | Path | Notes |
 |------|-------|
 | `/robots.txt` | Crawler policy |
+| `/sitemap.xml` | Public frontend pages allowed by `robots.txt` |
+| `/feed.xml` | Atom 1.0 feed; valid with zero entries for this read-only service |
+| `/rss.xml` | RSS 2.0 feed; valid with zero entries for this read-only service |
 | `/.well-known/security.txt` | Canonical RFC 9116 security disclosure file |
 | `/.well-known/llms.txt` | Generated API discovery document |
 | `/llms.txt` | Alias for the generated API discovery document |
@@ -127,10 +132,12 @@ reporting flow. For a vulnerability in a running instance, use its
 `/.well-known/security.txt`.
 
 Security reports are encrypted at rest using the configured
-`server.security.encryption_key`. When SMTP is configured, the operator gets
-an encrypted report payload and the researcher receives a private status link
-with a token that permits one status-page use per day. Report content is not
-shown on the status page.
+`server.security.encryption_key`. When SMTP is configured, the operator
+notification contains the encrypted report payload and the researcher receives
+a private status link with a token that permits one status-page use per day.
+The status page exposes the triage state, submission date, maintainer comment,
+and expected disclosure date, never report content. One-shot status tokens are
+removed from access and application log URLs.
 Invalid or expired security form IDs are logged by hash prefix only.
 
 We aim to acknowledge within 72 hours and ship a fix within 14 days for verified critical/high issues.

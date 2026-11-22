@@ -6,8 +6,8 @@
 
 All operator tasks happen out-of-band via:
 
-- The `airports` CLI (service install, backup, restore, update, config validation)
-- The `server.yml` config file
+- The `airports` CLI (service install, backup, restore, update, security report maintenance, config validation)
+- `server.yml`, area drop-ins in `yaml.d/`, and the separate `secrets.yml` file
 - The host's service manager (`systemctl`, `launchctl`, etc.)
 
 If you are looking for "how do I log into the admin panel?", there is no answer — the panel does not exist by design.
@@ -20,7 +20,7 @@ If you are looking for "how do I log into the admin panel?", there is no answer 
 | View live status | `airports --status` |
 | View health | `curl -q -LSsf http://YOUR_SERVER/server/healthz` |
 | Tail logs | `journalctl -u airports` |
-| Change config | Edit `server.yml`; the server watches for changes |
+| Change config | Edit `server.yml` or a relevant file in `yaml.d/`; the server watches for changes |
 | Run backup | `airports --backup` |
 | Restore | `airports --maintenance restore <archive.tar.gz>` |
 | Upgrade | `airports --update` or `docker pull` |
@@ -32,6 +32,8 @@ If you are looking for "how do I log into the admin panel?", there is no answer 
 | Path | Contents |
 |------|----------|
 | `{config_dir}/server.yml` | Main config |
+| `{config_dir}/yaml.d/branding.yml` | Public branding, SEO, theme, and operator page content |
+| `{config_dir}/secrets.yml` | Operator and service tokens, encryption key, SMTP/CAPTCHA secrets |
 | `{config_dir}/ssl/` | TLS certs and keys |
 | `{config_dir}/tor/` | Tor `torrc` (binary owns Tor entirely) |
 | `{data_dir}/security/geoip/` | Downloaded MMDB files |
@@ -47,12 +49,16 @@ See [installation.md](./installation.md) for OS-specific default paths.
 
 Backups include:
 
-- `server.yml`
+- `server.yml` and `secrets.yml`
+- Configuration area drop-ins under `yaml.d/` (including `branding.yml`)
+- Branding images in `assets/` and disclosure keys under `security/` when present
 - The SQLite operational DB (`server.db`)
 - TLS certificates and keys
 - Tor hidden-service keys
 
 Backups **do not** include GeoIP, blocklist, or CVE data — these are re-downloadable.
+The fetched branding-image cache is also excluded because it is derived from
+the configured image URLs.
 
 ```bash
 airports --backup                                    # writes to {data_dir}/backups/
@@ -62,11 +68,29 @@ airports --maintenance restore /mnt/external/backups/airports-2026-05-15T03-00-0
 
 Automated backups can be enabled via the scheduler block in `server.yml`.
 
+## Security Reports
+
+Coordinated disclosure reports are stored in the application database with the
+report body and researcher contact details encrypted separately. The operator
+can list reports, inspect non-report metadata, and advance a report using the
+maintenance CLI:
+
+```bash
+airports --maintenance security list
+airports --maintenance security list --status triaged
+airports --maintenance security show sec_0123456789abcdef
+airports --maintenance security update sec_0123456789abcdef --status confirmed --comment "Fix is in progress"
+```
+
+These commands require root or the configured `server.token`. `show` never
+prints the vulnerability report body. Moving a report to `disclosed` adds an
+eligible researcher credit to the public hall of fame.
+
 ## Monitoring
 
 - **Prometheus metrics**: `GET /metrics` (Prometheus text exposition format).
 - **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/{api_version}/server/healthz` (JSON).
-- **About endpoint**: `GET /server/about` shows version, build date, commit, GeoIP DB freshness, Tor onion address (if enabled), and uptime.
+- **About endpoint**: `GET /server/about` shows the project description, features, links, and version.
 - **Docker healthcheck**: built in (`airports --status`).
 
 ## Scheduler
@@ -75,13 +99,18 @@ The binary includes its own scheduler — **never depend on host cron or systemd
 
 | Job | Default cron | Purpose |
 |-----|--------------|---------|
-| GeoIP refresh | `0 4 * * *` | Daily download of ip-location-db MMDB files |
-| Blocklist refresh | `30 4 * * *` | Daily fetch of configured blocklists |
-| Cache cleanup | `0 * * * *` | Hourly LRU sweep |
-| TLS renewal check | `0 */12 * * *` | ACME renewal if cert age > 60 days |
-| Backup | disabled by default | Set `scheduler.jobs.backup.enabled: true` in `server.yml` |
+| TLS renewal | `0 3 * * *` | Renew certificates within the configured window |
+| GeoIP refresh | `0 3 * * 0` | Weekly ip-location-db update |
+| Blocklist refresh | `0 4 * * *` | Fetch configured blocklists |
+| CVE refresh | `0 5 * * *` | Update vulnerability data |
+| Update check | `0 6 * * *` | Check release metadata |
+| Token cleanup | `*/15 * * * *` | Remove expired/revoked token state |
+| Log rotation | `0 0 * * *` | Rotate application logs |
+| Backup | `0 2 * * *` | Create a scheduled backup (five retained by default) |
+| Health check | `*/5 * * * *` | Refresh server health state |
+| Tor health | `*/10 * * * *` | Check the configured Tor service |
 
-All jobs are leader-only in multi-instance deployments via a DB advisory lock.
+Schedules and enablement are configurable under `server.scheduler.tasks`.
 
 ## Reverse Proxy
 
@@ -93,7 +122,7 @@ The binary auto-detects when it is behind a reverse proxy via `X-Forwarded-*` he
 
 There is no mandatory telemetry or phone-home. Optional analytics can be configured and is loaded in visitors' browsers only when consent permits it. The server binary makes outbound HTTPS calls only for:
 
-- GeoIP database updates (`cdn.jsdelivr.net`)
+- GeoIP database and checksum updates (`github.com` release assets)
 - ACME certificate issuance (`acme-v02.api.letsencrypt.org`) when TLS-ACME is enabled
 - Update checks (`api.github.com`) when `airports --update` is invoked
 
