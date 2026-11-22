@@ -5,7 +5,7 @@ the server and CLI binaries; both use the same keys and supported languages.
 
 ## Current Languages
 
-The repository contains seven locale files:
+The repository contains eight locale files, shared by the server and CLI:
 
 | Code | Language | Native name | Direction | Translator credit |
 |------|----------|-------------|-----------|-------------------|
@@ -14,6 +14,7 @@ The repository contains seven locale files:
 | `en` | English | English | LTR | Source language |
 | `es` | Spanish | Español | LTR | Not provided in locale metadata |
 | `fr` | French | Français | LTR | Not provided in locale metadata |
+| `it` | Italian | Italiano | LTR | Not provided in locale metadata |
 | `ja` | Japanese | 日本語 | LTR | Not provided in locale metadata |
 | `zh` | Chinese | 中文 | LTR | Not provided in locale metadata |
 
@@ -57,8 +58,9 @@ welcome, but it is not required for merging.
 2. Translate every key and fill `meta.language`, `meta.name`,
    `meta.native_name`, `meta.direction`, and `meta.version`. Add optional
    `meta.translators` credits only with the translator's permission.
-3. Register the language and add it to `server.i18n.available_languages` in
-   the configuration defaults.
+3. Add the language metadata and plural categories to the central registry in
+   `src/common/i18n/i18n.go`. The configuration default language list is
+   derived from this registry; do not maintain a separate hardcoded list.
 4. Rebuild the server and CLI so both binaries embed the new locale.
 5. Update the language selector, README language list, locale table above, and
    the count in this guide.
@@ -85,7 +87,7 @@ welcome, but it is not required for merging.
   URLs, and literal values unchanged.
 - Preserve language-specific punctuation, spacing, decimal separators, and
   quotation marks.
-- Avoid shipping uncertain machine translations. If the language cannot be
-  translated reliably, wait for a human translator to contribute it.
+- Review translated strings for semantic accuracy. Do not leave human-readable
+  English values as substitutes for the language's translation.
 - Keep all locale files synchronized whenever English strings are added,
   changed, or removed.

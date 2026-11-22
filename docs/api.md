@@ -8,6 +8,13 @@ Complete API reference for the Airports API Server.
 - **Development**: `http://localhost:PORT`
 - **API Base**: `/api/{api_version}` (the version segment is configurable via `server.api_version`; `v1` is the default)
 
+Versioned routes are canonical. The operational aliases `/api/swagger`,
+`/api/graphql`, `/api/healthz`, `/api/metrics[/{service}]`, `/api/mcp`,
+`/mcp`, and `/api/debug/*` use the current API version's same handlers
+directly; they do not redirect. `/api/autodiscover` is unversioned by design.
+Data-shaped resource routes remain versioned. The optional root `/healthz`
+alias is disabled unless `server.healthz.root.enabled` is true.
+
 ## Interactive Documentation
 
 - **Swagger UI**: `/server/docs/swagger`
@@ -450,7 +457,7 @@ The About, Help, Terms, and MCP help endpoints return JSON objects with their
 documented `title`/`content`/`format` fields (Help also returns `pages`; MCP
 help returns `enabled`, `url`, `aliases`, `auth`, `tools`, and `project`). The
 security status page has no API mirror. Language and theme preferences are
-are available on `/server/preferences` and mirrored by the four preference
+available on `/server/preferences` and mirrored by the four preference
 routes above. The sync response includes the effective theme, language and
 app-specific preference map, a shareable import URL, and an unpadded base64url
 code. Imports accept direct query values or a pasted URL/query/code and return
@@ -461,7 +468,9 @@ management accepts a primary owner Bearer token only; token issuance needs no
 token and returns the newly issued primary token once. Linked tokens cannot
 manage tokens.
 
-Contact `GET` returns the field descriptors, a newly created CAPTCHA, and a
+The one-shot security report status page is available at
+`GET /server/security/report/{tracking_id}` and has no API mirror. Contact
+`GET` returns the field descriptors, a newly created CAPTCHA, and a
 form token. `POST` submissions use `step=submit` to validate and return a
 review without delivering the report, then repeat the fields with
 `step=confirm`, the review token, and `confirmed=true` to deliver. CAPTCHA

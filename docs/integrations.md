@@ -121,14 +121,20 @@ exposure.
 Used for operator notifications (e.g., backup failure alerts) and delivery of public contact-form submissions. Auto-detected when SMTP config is present.
 
 ```yaml
-smtp:
-  host: smtp.example.com
-  port: 587
-  username: user@example.com
-  password: "<env or vault>"
-  from:     "airports@example.com"
-  tls: starttls
+server:
+  notifications:
+    email:
+      smtp:
+        host: smtp.example.com
+        port: 587
+        username: user@example.com
+        tls: auto
+      from:
+        email: airports@example.com
 ```
+
+Store `server.notifications.email.smtp.password` in `secrets.yml`. SMTP
+settings may also use the documented `SMTP_*` environment variables.
 
 This project has no user accounts, so transactional email (signup, password reset) does not exist.
 

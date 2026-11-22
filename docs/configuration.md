@@ -63,7 +63,7 @@ server:
   baseurl: /
   i18n:
     default_language: en
-    available_languages: [en, es, zh, fr, ar, de, ja]
+    available_languages: [en, es, fr, ar, de, it, ja, zh]
   session:
     cookie_name: session
     # Browser-session lifetime.

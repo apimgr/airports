@@ -6,6 +6,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 [![Release](https://img.shields.io/github/v/release/apimgr/airports)](https://github.com/apimgr/airports/releases)
 [![License](https://img.shields.io/github/license/apimgr/airports)](LICENSE.md)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/apimgr/airports/pkgs/container/airports)
+[![Documentation](https://readthedocs.org/projects/apimgr-airports/badge/?version=latest)](https://apimgr-airports.readthedocs.io/en/latest/)
 
 ## About
 
@@ -27,7 +28,7 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 - **REST API** with OpenAPI/Swagger documentation
 - **GraphQL** endpoint for flexible queries
 - **Web UI** — dark/light/auto theme, mobile-first, PWA-capable
-- **Localized UI and CLI** — seven languages; see the [translation guide](docs/translating.md)
+- **Localized UI and CLI** — eight languages; see the [translation guide](docs/translating.md)
 - **CLI client** — `airports-cli` for terminal queries
 - **Self-contained** — single static binary, all assets embedded, no runtime dependencies
 - **Auto-updates** — weekly GeoIP database refresh via built-in scheduler
