@@ -143,6 +143,12 @@ server:
     health:
       requests: 120
       window: 60
+    strict:
+      requests: 10
+      window: 900
+    auth_failures:
+      requests: 5
+      window: 900
     global_burst: 240
 ```
 

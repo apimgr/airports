@@ -14,6 +14,8 @@ license: MIT
 binary: airports
 client_binary: airports-cli
 owner_token: airports_owner_token_6kP9qV2x
+resource_label: airport
+resource_label_plural: airports
 
 ## Business logic
 
