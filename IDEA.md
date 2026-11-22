@@ -13,6 +13,7 @@ repo: https://github.com/apimgr/airports
 license: MIT
 binary: airports
 client_binary: airports-cli
+owner_token: airports_owner_token_6kP9qV2x
 
 ## Business logic
 

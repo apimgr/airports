@@ -81,6 +81,8 @@ server:
   timezone: America/New_York
 ```
 
+Only `default_language` and `available_languages` are configurable. `default_language` selects the language for operator email; web requests fall back to English. Internationalization is always enabled, and the language preference cookie is fixed as `lang` with a one-year lifetime.
+
 `server.url_detection` controls request-aware URL resolution and trusted proxy
 domain learning. Forwarded host and protocol values are considered only when
 the request peer is a configured trusted proxy; invalid hosts and untrusted
@@ -90,6 +92,19 @@ URL; a client-controlled `.onion` Host header does not establish Tor identity.
 Learning is bounded by `sample_window` and
 `min_samples`; `live_reload` controls whether an observed trusted host is used
 immediately, and `log_changes` controls domain/protocol change logs.
+
+Owner-token policy is stored in `yaml.d/security.yml`. Primary and linked
+tokens are encrypted at rest with `server.security.encryption_key`; the
+owner-token cookie name is fixed per project. The default cookie lifetime is
+one year and slides forward when a valid primary token is used.
+
+```yaml
+server:
+  tokens:
+    max_linked: 25
+    cookie_max_age: 1y
+    idle_purge_days: 0
+```
 
 `server.session` sets attributes for cookies issued by browser-session
 features. The default `max_age: 0s` creates a browser-session cookie. The
