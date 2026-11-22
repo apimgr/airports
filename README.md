@@ -154,6 +154,21 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /api/{api_version}/server/healthz` | Health status (JSON) |
 | `GET /server/about` | Project description and version info (HTML) |
 | `GET /api/{api_version}/server/about` | Project description (JSON) |
+| `GET /server/help` | Usage and API documentation links (HTML) |
+| `GET /api/{api_version}/server/help` | Help content and registered help pages (JSON) |
+| `GET /server/help/mcp` | MCP setup instructions and live tools (HTML) |
+| `GET /server/privacy` | Privacy policy (HTML) |
+| `GET /api/{api_version}/server/privacy` | Privacy policy data (JSON) |
+| `GET /server/terms` | Terms of service (HTML) |
+| `GET /api/{api_version}/server/terms` | Terms of service (JSON) |
+| `GET /server/dpo` | Data Protection Officer contact (HTML) |
+| `GET /api/{api_version}/server/dpo` | DPO contact information (JSON) |
+| `GET /server/security` | Security reporting information (HTML) |
+| `GET /api/{api_version}/server/security` | Security disclosure channels and key status (JSON) |
+| `GET /server/security/policy` | Coordinated disclosure policy (HTML) |
+| `GET /api/{api_version}/server/security/policy` | Coordinated disclosure policy (JSON) |
+| `GET /server/security/thanks` | Security acknowledgments (HTML) |
+| `GET /api/{api_version}/server/security/thanks` | Security acknowledgments (JSON) |
 | `GET /server/preferences` | Language and theme preferences |
 | `GET /sitemap.xml` | Search-engine sitemap for allowed public pages |
 | `GET /feed.xml`, `/rss.xml` | Atom and RSS feeds (currently empty; no user-created content) |

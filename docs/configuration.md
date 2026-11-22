@@ -62,12 +62,8 @@ server:
   # URL path prefix; defaults to /.
   baseurl: /
   i18n:
-    enabled: true
     default_language: en
     available_languages: [en, es, zh, fr, ar, de, ja]
-    fallback_language: en
-    cookie_name: lang
-    cookie_max_age: 365d
   session:
     cookie_name: session
     # Browser-session lifetime.
@@ -202,10 +198,12 @@ fetched over HTTPS with public-address, redirect, MIME, and size checks and
 cached under the data directory.
 
 Configured images are served through opaque same-origin URLs. Raster variants
-are generated on demand with aspect ratio preserved, then cached in the private
-branding cache: logos at 50px and 200px widths; favicons at 16, 32, 48, 180,
-192, and 512px widths; and Open Graph images at 1200px width. SVG and ICO files
-remain in their original format.
+are generated on demand and cached in the private branding cache. Logo variants
+at 50px and 200px widths preserve the source aspect ratio. Favicon variants at
+16, 32, 48, 180, 192, and 512px are square and fit the source on a transparent
+background without stretching or cropping. The Open Graph variant is exactly
+1200×630 pixels, scaled to cover and center-cropped. SVG and ICO files remain
+in their original format.
 
 The built-in `/server/terms` page includes acceptance, acceptable use, liability,
 changes, and governing law. Its default governing-law text names the United
