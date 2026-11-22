@@ -191,6 +191,17 @@ files require `assets/` mode `0700` and file mode `0600`; remote images are
 fetched over HTTPS with public-address, redirect, MIME, and size checks and
 cached under the data directory.
 
+Configured images are served through opaque same-origin URLs. Raster variants
+are generated on demand with aspect ratio preserved, then cached in the private
+branding cache: logos at 50px and 200px widths; favicons at 16, 32, 48, 180,
+192, and 512px widths; and Open Graph images at 1200px width. SVG and ICO files
+remain in their original format.
+
+The built-in `/server/terms` page includes acceptance, acceptable use, liability,
+changes, and governing law. Its default governing-law text refers to the place
+where the operator is established; operators can replace the page through
+`server.branding.content.terms`.
+
 ## Public help, contact, and MCP pages
 
 ```yaml

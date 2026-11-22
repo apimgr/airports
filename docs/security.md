@@ -131,6 +131,11 @@ reporting flow. For a vulnerability in a running instance, use its
 `/server/security` page and submit the security report form linked from
 `/.well-known/security.txt`.
 
+The disclosure policy at `/server/security/policy` defaults to explicit scope,
+out-of-scope activities, a 90-day coordinated-disclosure window, and safe-harbor
+terms for good-faith research that follows the policy. Operators can replace
+the default Markdown through `web.security.policy`.
+
 Security reports are encrypted at rest using the configured
 `server.security.encryption_key`. When SMTP is configured, the operator
 notification contains the encrypted report payload and the researcher receives
