@@ -208,9 +208,9 @@ branding cache: logos at 50px and 200px widths; favicons at 16, 32, 48, 180,
 remain in their original format.
 
 The built-in `/server/terms` page includes acceptance, acceptable use, liability,
-changes, and governing law. Its default governing-law text refers to the place
-where the operator is established; operators can replace the page through
-`server.branding.content.terms`.
+changes, and governing law. Its default governing-law text names the United
+States. Operators can replace
+the page through `server.branding.content.terms`.
 
 ## Public help, contact, and MCP pages
 

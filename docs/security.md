@@ -88,7 +88,7 @@ X-API-Version:               v1
 
 ## Logging & Privacy
 
-- Security report details, including researcher contact information, are stored only as AES-256-GCM ciphertext in the database. Contact-form messages are delivered through configured email and are not retained as plaintext records by the application.
+- Security report bodies are stored as PGP ciphertext when a project key is available, with AES-256-GCM as the configured-key fallback. Researcher contact details are always stored as AES-256-GCM ciphertext. Contact-form messages are delivered through configured email and are not retained as plaintext records by the application.
 - GeoIP lookups for callers are used only to surface nearby airports on the home page — results are **never logged or stored**.
 - The access log records: timestamp, method, path, status, duration, request ID, hashed IP. Raw IP and User-Agent are not logged.
 - The error log never contains user-supplied content beyond the request ID.
@@ -120,6 +120,7 @@ The server serves these discovery paths:
 | `/.well-known/llms.txt` | Generated API discovery document |
 | `/llms.txt` | Alias for the generated API discovery document |
 | `/.well-known/pgp-key.asc` | Public key when a configured key is available |
+| `/server/security/report/{tracking_id}` | Researcher status page; the emailed one-shot token is required and no API mirror exists |
 
 Other unsupported `/.well-known/*` paths return `404`. `/security.txt` is not
 an alias; use the canonical `/.well-known/security.txt` path.
@@ -136,8 +137,9 @@ out-of-scope activities, a 90-day coordinated-disclosure window, and safe-harbor
 terms for good-faith research that follows the policy. Operators can replace
 the default Markdown through `web.security.policy`.
 
-Security reports are encrypted at rest using the configured
-`server.security.encryption_key`. When SMTP is configured, the operator
+Security report bodies use the project PGP key when available and otherwise
+the configured `server.security.encryption_key`; contact details always use
+AES-256-GCM with that encryption key. When SMTP is configured, the operator
 notification contains the encrypted report payload and the researcher receives
 a private status link with a token that permits one status-page use per day.
 The status page exposes the triage state, submission date, maintainer comment,
