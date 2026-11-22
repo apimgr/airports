@@ -78,6 +78,45 @@ The binary owns Tor entirely — it generates `torrc`, manages hidden-service ke
 
 If Tor fails to start the server continues without it; the warning is logged.
 
+## I2P — Eepsite (optional)
+
+I2P is opt-in on bare metal and in a VM, and enabled by default in a
+container. The server manages the eepsite lifecycle through its configured
+provider and exposes its status through `/server/healthz`. The I2P address is
+available on the help page while the eepsite is enabled and running. I2P
+requests use HTTP over the overlay and do not receive TLS redirects or HSTS.
+
+Configuration is available through `server.i2p` in `server.yml`, the
+`I2P_ENABLED` environment variable, and the `--i2p` CLI option. The server
+uses `{config_dir}/i2p/` for generated provider configuration and
+`{data_dir}/i2p/` for runtime data and destination keys.
+
+## Model Context Protocol (MCP)
+
+The server exposes remote Streamable HTTP MCP at
+`/api/{api_version}/server/mcp`, with aliases `/api/mcp` and `/mcp`. MCP
+requests reuse API Bearer authentication and require a valid primary or linked
+owner token; a linked token created for each MCP client is recommended. The
+operator token also authenticates but grants global operator access. Cookies
+are ignored and MCP has no separate token type or scope. The REST data API
+remains public. The live tool list and client setup instructions are available
+at `/server/help/mcp`.
+
+## Public discovery and reporting
+
+The server publishes `/.well-known/llms.txt` (also `/llms.txt`),
+`/.well-known/security.txt`, and an optional `/.well-known/pgp-key.asc` when a
+public key is configured. Security reports can be submitted through the
+security page; the emailed one-shot status link opens
+`/server/security/report/{tracking_id}`. Swagger and GraphQL explorers are
+available from the server help page.
+
+`GET /api/autodiscover` returns server identity and version, supported API
+versions, the primary URL, and the endpoint map for `airports-cli` and other
+programmatic clients. It is machine discovery; Tor and I2P addresses are
+advertised only when the overlay is enabled and the operator opts in to
+exposure.
+
 ## SMTP — Outbound Email (optional)
 
 Used for operator notifications (e.g., backup failure alerts) and delivery of public contact-form submissions. Auto-detected when SMTP config is present.

@@ -98,6 +98,17 @@ tokens are encrypted at rest with `server.security.encryption_key`; the
 owner-token cookie name is fixed per project. The default cookie lifetime is
 one year and slides forward when a valid primary token is used.
 
+Closed security reports are removed after `server.security.reports.retention_days`
+(default `365`). Open reports are retained. This value controls the daily
+`security_cleanup` task.
+
+```yaml
+server:
+  security:
+    reports:
+      retention_days: 365
+```
+
 ```yaml
 server:
   tokens:
@@ -227,7 +238,7 @@ in their original format.
 
 The built-in `/server/terms` page includes acceptance, acceptable use, liability,
 changes, and governing law. Its default governing-law text names the United
-States. Operators can replace
+States without regard to conflict-of-law rules. Operators can replace
 the page through `server.branding.content.terms`.
 
 ## Public help, contact, and MCP pages

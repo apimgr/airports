@@ -22,34 +22,36 @@ make dev          # quick build to $TMPDIR/apimgr/airports-XXXXXX/
 make local        # build with version info to binaries/airports
 make build        # cross-compile all platforms to binaries/
 make test         # run unit tests
-make lint         # run go vet, staticcheck
 make docker       # build the Docker image
 ```
 
-All targets internally invoke `docker run --rm -v $(pwd):/build -w /build golang:alpine ...`. No host Go toolchain is touched.
+The Makefile's Go targets use `casjaysdev/go:latest`; no host Go toolchain is
+needed. CI runs `go vet ./...` and `staticcheck ./...` in the same project
+toolchain image. Documentation can be built with `mkdocs build` after installing
+`docs/requirements.txt`.
 
 ## Repository Layout
 
 ```
 .
 ├── src/                  # Go source
-│   ├── server/           # HTTP server
+│   ├── server/           # HTTP server, routes, handlers, middleware and templates
 │   ├── client/           # airports-cli source
-│   ├── handler/          # HTTP handlers (singular dir name)
-│   ├── model/            # Domain types
+│   ├── config/           # Configuration loading and validation
+│   ├── airports/         # Airport dataset and query behavior
 │   ├── data/             # Embedded airport JSON
 │   └── ...
 ├── docker/               # Dockerfile, compose files, rootfs overlay
 ├── docs/                 # ReadTheDocs MkDocs source (only RTD files)
-├── tests/                # Repo-root integration test scripts (bash)
-│   ├── run_tests.sh
-│   ├── docker.sh
-│   └── incus.sh
-├── test/                 # Go integration/E2E packages
-│   ├── integration/
-│   └── e2e/
+├── tests/                # Integration and end-to-end checks
+│   ├── run_tests.sh      # Auto-detect Docker or Incus for integration checks
+│   ├── docker.sh         # Force Docker-based integration
+│   ├── incus.sh          # Force Incus-based integration
+│   ├── integration/      # Go HTTP integration tests
+│   ├── e2e/              # Go end-to-end tests
+│   └── e2e.sh            # Browser/server E2E runner
 ├── scripts/              # Production / install scripts
-├── .github/workflows/    # CI/CD (release, beta, daily, docker)
+├── .github/workflows/    # GitHub Actions CI/CD
 ├── .claude/rules/        # Assistant rule cheatsheets
 ├── binaries/             # Build output (gitignored)
 ├── volumes/              # Runtime data (gitignored)
@@ -62,7 +64,8 @@ All targets internally invoke `docker run --rm -v $(pwd):/build -w /build golang
 └── release.txt           # Sole version source of truth
 ```
 
-Source directories use **singular** names (`handler/`, `model/`, `middleware/`) — never plural.
+Source packages are grouped by domain under `src/`; HTTP routing and handlers
+live in `src/server/`.
 
 ## Testing
 
@@ -73,7 +76,8 @@ make test                  # Go unit tests inside Docker
 ./tests/incus.sh           # Force Incus VM (preferred — systemd available)
 ```
 
-The Go integration tests live under `tests/integration/` (package path `github.com/apimgr/airports/tests/integration`).
+The Go integration tests live under `tests/integration/` and end-to-end tests
+under `tests/e2e/`.
 
 The Docker test compose file (`docker/docker-compose.test.yml`) **must** be copied to a temp dir before running — never run from the project directory:
 
@@ -86,22 +90,8 @@ cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
 rm -rf "$TEMP_DIR"
 ```
 
-## Commit Messages
-
-Use the existing commit style — emoji header, 64-char title, blank line, body with bulleted per-file change list.
-
-```
-Add bounding-box query endpoint
-
-Adds a new /api/{api_version}/airports/within endpoint that accepts a bbox
-parameter and returns all airports inside the rectangle.
-
-- src/handler/airports.go: add WithinBBox handler
-- src/server/router.go: register /airports/within route
-- docs/api.md: document the new endpoint
-```
-
-Do not add any tool-attribution footer to commit messages.
+Commit changes through the repository's `gitcommit` workflow and follow the
+current project and global commit instructions.
 
 ## Coding Conventions
 
@@ -117,10 +107,10 @@ Do not add any tool-attribution footer to commit messages.
 ## Adding a New Feature
 
 1. Update `IDEA.md` "Business logic" section with the new capability.
-2. Add the route in `src/server/router.go` following the web + API pattern (every web page has a corresponding `/api/{api_version}/...` endpoint).
-3. Implement the handler under `src/handler/` and the model under `src/model/`.
+2. Add routes in `src/server/routes.go` and follow the web/API contract in `AI.md`.
+3. Implement the handler and related types in the appropriate existing `src/` packages.
 4. Add a unit test next to the source (`*_test.go`).
-5. Add an integration test under `test/integration/` if HTTP behaviour is non-trivial.
+5. Add an integration test under `tests/integration/` if HTTP behavior is non-trivial.
 6. Document the endpoint in `docs/api.md` and the CLI subcommand in `docs/cli.md`.
 7. Add or update an entry in `docs/configuration.md` if a new setting is involved.
 
@@ -135,7 +125,8 @@ Releases are tagged `v{semver}` and cut by pushing the tag — `release.yml` the
 ## Reporting Issues
 
 - Bugs: https://github.com/apimgr/airports/issues
-- Security: <security@apimgr.us> (see [security.md](./security.md) for the policy)
+- Vulnerabilities: https://github.com/apimgr/airports/security/advisories/new
+- Security email: <security@apimgr.us> (secondary contact only; see [security.md](./security.md))
 
 ## License
 

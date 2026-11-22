@@ -24,10 +24,10 @@
       and disables color/emoji overrides across the CLI and server banner. Focused display, client,
       and banner checks pass; recheck the full binary matrix before resolving.
 
-- [ ] PART 8 maintenance commands: implement remaining supported `mode`, `pgp`, `secret`, `token`,
-      and `data` operations with the specified authorization and audit behavior. `--maintenance mode`
-      persists `server.mode` through the protected operator command; per-run `--mode` remains
-      independent. The persisted setting applies on the next normal startup, per user direction.
+- [ ] PART 8 maintenance commands: `mode`, `pgp`, `secret`, `token`, `data`, and compliance report
+      dispatchers and specified authorization/audit paths are implemented. Primary review and
+      required Docker verification remain before resolving this item; do not describe these actions
+      as unavailable or stubbed.
 
 - [ ] PART 11 compliance configuration: all eleven standards now have independent `server.yml`
       booleans, any enabled standard activates encrypted-backup enforcement, and the maintenance

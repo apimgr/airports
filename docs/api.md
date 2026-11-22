@@ -13,6 +13,15 @@ Complete API reference for the Airports API Server.
 - **Swagger UI**: `/server/docs/swagger`
 - **GraphQL Playground**: `/server/docs/graphql`
 
+## Public web pages
+
+- **Airport directory**: `GET /airports` renders a server-side paginated directory; use `?page=N` to move between pages.
+- **Search**: `GET /airports/search?q=...`
+- **Nearby airports**: `GET /airports/nearby?lat=...&lon=...`
+- **Airport details**: `GET /airports/{ident}`
+
+These pages use the same airport data as the API and remain usable without JavaScript.
+
 ## Discovery and Syndication
 
 The public frontend also serves `GET /sitemap.xml`, `GET /feed.xml` (Atom
@@ -412,10 +421,23 @@ GET /api/{api_version}/server/healthz
 GET /api/{api_version}/server/about
 GET /api/{api_version}/server/help
 GET /api/{api_version}/server/privacy
+GET /api/{api_version}/server/preferences
+POST /api/{api_version}/server/preferences
+GET /api/{api_version}/server/preferences/sync
+GET /api/{api_version}/server/preferences/sync/import
 GET /api/{api_version}/server/dpo
 GET /api/{api_version}/server/terms
 GET /api/{api_version}/server/contact
 POST /api/{api_version}/server/contact
+GET /api/{api_version}/server/preferences/tokens
+POST /api/{api_version}/server/preferences/tokens/primary
+POST /api/{api_version}/server/preferences/tokens/primary/reveal
+POST /api/{api_version}/server/preferences/tokens/primary/rotate
+POST /api/{api_version}/server/preferences/tokens
+POST /api/{api_version}/server/preferences/tokens/{id}/reveal
+POST /api/{api_version}/server/preferences/tokens/{id}/rotate
+PATCH /api/{api_version}/server/preferences/tokens/{id}
+DELETE /api/{api_version}/server/preferences/tokens/{id}
 GET /api/{api_version}/server/help/mcp
 GET /api/{api_version}/server/security
 GET /api/{api_version}/server/security/policy
@@ -427,8 +449,17 @@ POST /api/{api_version}/server/graphql
 The About, Help, Terms, and MCP help endpoints return JSON objects with their
 documented `title`/`content`/`format` fields (Help also returns `pages`; MCP
 help returns `enabled`, `url`, `aliases`, `auth`, `tools`, and `project`). The
-security status page has no API mirror. Preferences are currently available
-only as the HTML page `/server/preferences`.
+security status page has no API mirror. Language and theme preferences are
+are available on `/server/preferences` and mirrored by the four preference
+routes above. The sync response includes the effective theme, language and
+app-specific preference map, a shareable import URL, and an unpadded base64url
+code. Imports accept direct query values or a pasted URL/query/code and return
+`applied` and `ignored` parameter arrays. Consent and credential cookies are
+never exported or imported. Owner tokens have a separate page at
+`/server/preferences/tokens` and the versioned API routes listed above. Token
+management accepts a primary owner Bearer token only; token issuance needs no
+token and returns the newly issued primary token once. Linked tokens cannot
+manage tokens.
 
 Contact `GET` returns the field descriptors, a newly created CAPTCHA, and a
 form token. `POST` submissions use `step=submit` to validate and return a
@@ -625,7 +656,8 @@ curl -q -LSsf https://YOUR_SERVER/api/{api_version}/airports/KJFK
 # Search nearby
 curl -q -LSsf "https://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.6398&lon=-73.7789&radius=50"
 
-# All endpoints are public — no token, no auth header needed
+# Public airport read endpoints need no token. Protected server and metrics endpoints
+# document their authentication requirements in the sections above.
 curl -q -LSsf "https://YOUR_SERVER/api/{api_version}/airports/search?q=Tokyo"
 
 # Plain-text response instead of JSON

@@ -32,7 +32,9 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 - **Self-contained** — single static binary, all assets embedded, no runtime dependencies
 - **Auto-updates** — weekly GeoIP database refresh via built-in scheduler
 - **Multi-platform** — Linux, macOS, Windows, FreeBSD (amd64 & arm64)
-- **Tor hidden service** — optional .onion address
+- **Tor hidden service** — auto-detected .onion service when Tor is available
+- **I2P eepsite** — optional overlay service with container-aware defaults
+- **MCP server** — remote Streamable HTTP tools for AI clients using linked tokens
 - **OpenStreetMap maps** — interactive airport, search, and nearby maps with a no-JavaScript coordinate/link fallback
 
 ---
@@ -146,6 +148,15 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /api/{api_version}/airports/nearby?lat=...&lon=...&radius=...` | Airports within radius (km) |
 | `GET /api/{api_version}/airports/within?min_lat=...&max_lat=...&min_lon=...&max_lon=...` | Airports in bounding box |
 
+### Public web pages
+
+| Page | Description |
+|------|-------------|
+| `GET /airports` | Server-rendered, paginated airport directory |
+| `GET /airports/{ident}` | Airport detail page |
+| `GET /airports/search?q=...` | Airport search page |
+| `GET /airports/nearby` | Nearby and bounding-box results |
+
 ### Server endpoints
 
 | Endpoint | Description |
@@ -170,11 +181,13 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /server/security/thanks` | Security acknowledgments (HTML) |
 | `GET /api/{api_version}/server/security/thanks` | Security acknowledgments (JSON) |
 | `GET /server/preferences` | Language and theme preferences |
+| `GET /server/preferences/tokens` | View and manage owner and linked tokens |
 | `GET /sitemap.xml` | Search-engine sitemap for allowed public pages |
 | `GET /feed.xml`, `/rss.xml` | Atom and RSS feeds (currently empty; no user-created content) |
 | `GET /server/docs/swagger` | Swagger UI |
 | `GET /api/{api_version}/server/swagger` | OpenAPI spec |
 | `POST /api/{api_version}/server/mcp` | Bearer-authenticated airport tools over Model Context Protocol Streamable HTTP |
+| `/api/{api_version}/server/preferences/tokens` | Primary and linked owner-token management (primary Bearer required except issuance) |
 | `GET /server/help/mcp` | MCP setup and live tool reference |
 | `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
 | `GET /server/docs/graphql` | GraphiQL UI |
@@ -184,13 +197,18 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 
 **Response format:** JSON by default. Use `Accept: text/csv`, `Accept: application/geo+json`, or `?format=csv|geojson` for alternate formats.
 
-**CORS:** `Access-Control-Allow-Origin: *` on public API responses (public read-only data).
+**CORS:** API origins follow the server's resolved CORS allow-list. Credentialed
+browser requests require an explicitly allowed origin.
 
 MCP clients can use the canonical `/api/{api_version}/server/mcp` endpoint or
 the direct `/api/mcp` and `/mcp` aliases. Every MCP request requires an
 operator or owner `Authorization: Bearer` token; a linked owner token is the
 recommended credential for each client. See `/server/help/mcp` for client
 configuration, protocol requirements, and available tools.
+
+Owner token management is available at `/server/preferences/tokens`; its
+versioned API mirror supports primary and linked token management. Token
+values are returned only by issuance, reveal, and rotation actions.
 
 ### Quick examples
 

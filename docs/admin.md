@@ -86,6 +86,37 @@ These commands require root or the configured `server.token`. `show` never
 prints the vulnerability report body. Moving a report to `disclosed` adds an
 eligible researcher credit to the public hall of fame.
 
+## Sensitive maintenance
+
+The maintenance commands below require root or the configured `server.token`.
+Secret rotation and PGP private-key export/import/deletion also require typed
+confirmation. The operator token is re-prompted for sensitive operations.
+
+```bash
+airports --maintenance pgp generate
+airports --maintenance pgp rotate
+airports --maintenance pgp publish
+airports --maintenance pgp export public
+airports --maintenance pgp export private /secure/path/pgp-private.asc
+airports --maintenance pgp import /secure/path/pgp-private.asc
+airports --maintenance pgp delete
+
+airports --maintenance secret rotate installation_secret
+airports --maintenance secret rotate encryption_key
+airports --maintenance token list
+airports --maintenance token revoke PREFIX
+airports --maintenance data export --owner PREFIX --output airports-export.json
+airports --maintenance data delete --owner PREFIX
+airports --maintenance compliance report
+```
+
+Data exports contain owner and token metadata plus owned resources, never token
+values or hashes. Airports currently has no owner-owned resource records.
+Deletion removes the owner's tokens and record transactionally and retains only
+an anonymized compliance event. PGP rotation re-encrypts retained report bodies;
+deleting the PGP key makes PGP-encrypted reports unreadable, so the command
+requires explicit confirmation.
+
 ## Monitoring
 
 - **Prometheus metrics**: `GET /metrics` (Prometheus text exposition format).

@@ -10,7 +10,8 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - [CLI reference](cli.md) — `airports` and `airports-cli`
 - [Admin & operations](admin.md) — service lifecycle, backups, monitoring
 - [Security model](security.md) — what's authenticated, what isn't, and why
-- [External integrations](integrations.md) — GeoIP, Tor, ACME, SMTP
+- [External integrations](integrations.md) — GeoIP, Tor, I2P, MCP, ACME, SMTP
+- [Airport maps](maps.md) — server-rendered coordinates and interactive map behavior
 - [Development](development.md) — contributing, build, test
 
 ## What you get
@@ -21,7 +22,10 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - JSON / CSV / GeoJSON output
 - REST under `/api/{api_version}/...`, GraphQL POST at `/api/{api_version}/server/graphql` (alias `/api/graphql`), OpenAPI at `/api/{api_version}/server/swagger`
 - Server-side rendered web UI with dark / light / auto theme
+- Public airport directory with paginated browsing, search, nearby results, and airport detail pages
 - Tor hidden-service support (binary owns Tor entirely)
+- Optional I2P eepsite support and remote MCP integration
+- Accessible airport maps with static links when JavaScript or map tiles are unavailable
 - Single static binary, no runtime dependencies
 
 ## Quick start

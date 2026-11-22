@@ -50,11 +50,21 @@ when a request is rejected.
 Metrics use separate bearer tokens for the `prometheus`, `grafana`, and `loki`
 services. Firewalling metrics endpoints is additional defense in depth.
 
+MCP at `/api/{api_version}/server/mcp` and its aliases reuses API Bearer
+authentication and authorization. Every request needs a valid owner primary
+or linked token; a per-client linked token is recommended. The operator token
+also works but grants global operator access. API cookies are ignored, and
+there is no MCP-specific credential or scope.
+
 ## Transport Security
 
 - TLS 1.2 minimum; TLS 1.3 preferred.
 - Strong cipher suites only (no RC4, no 3DES, no plain CBC < TLS 1.2).
-- HSTS on HTTPS: `max-age=31536000; includeSubDomains; preload`.
+- HSTS on HTTPS: `max-age=63072000; includeSubDomains; preload`.
+- Preference-token forget sends `Clear-Site-Data: "storage"` to remove the
+  browser's convenience copy while keeping the credential valid. A build
+  version mismatch sends `Clear-Site-Data: "cache", "storage"` to recover
+  stale assets and service workers; it never clears cookies.
 - TLS certificates may come from ACME (Let's Encrypt), operator-provided files, or self-signed (development only).
 - All ACME challenges served on port 80 with redirect to HTTPS for everything else.
 
@@ -66,29 +76,42 @@ If Tor fails to start, the server logs a warning and continues without Tor (grac
 
 ## Response Headers
 
-Every HTML response:
+Every response includes the following baseline security headers (some values are configured from the request and project feature declarations):
 
 ```
-Content-Security-Policy:  default-src 'self'; ...
-X-Content-Type-Options:   nosniff
-X-Frame-Options:          DENY
-Referrer-Policy:          no-referrer
-Strict-Transport-Security: max-age=31536000; includeSubDomains   (HTTPS only)
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+X-Permitted-Cross-Domain-Policies: none
+Origin-Agent-Cluster: ?1
+Cross-Origin-Opener-Policy: unsafe-none (default)
+Cross-Origin-Embedder-Policy: unsafe-none (default)
+Cross-Origin-Resource-Policy: cross-origin (default)
+Content-Security-Policy: generated from the project's policy
+Permissions-Policy: generated from declared browser features
+Reporting-Endpoints: default="https://{fqdn}/api/{api_version}/server/reports/default"
+Report-To: generated reporting endpoint configuration
+NEL: generated network error logging configuration
+X-Request-ID: per-request UUID
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload (HTTPS only)
 ```
 
-Every API response:
+Public API responses additionally include:
 
 ```
-Access-Control-Allow-Origin: *
+Access-Control-Allow-Origin: <resolved configured origin>
 X-Request-ID:                <uuid>
 X-API-Version:               v1
 ```
 
-`Access-Control-Allow-Origin: *` is intentional — this is a public-data API designed for cross-origin browser use. Documented in `IDEA.md`.
+The CORS origin follows the resolved allow-list. A wildcard does not authorize
+credentialed requests; browser clients that send credentials need an explicitly
+allowed origin.
 
 ## Logging & Privacy
 
-- Security report bodies are stored as PGP ciphertext when a project key is available, with AES-256-GCM as the configured-key fallback. Researcher contact details are always stored as AES-256-GCM ciphertext. Contact-form messages are delivered through configured email and are not retained as plaintext records by the application.
+- Security report bodies are stored as PGP ciphertext when a project key is available, with AES-256-GCM as the configured-key fallback. Researcher contact details are always stored as AES-256-GCM ciphertext. Operator notifications attach only the encrypted report; without a project PGP key, the message warns that the attachment uses AES-256-GCM. Researcher acknowledgments contain only the tracking ID and one-shot status link.
 - GeoIP lookups for callers are used only to surface nearby airports on the home page — results are **never logged or stored**.
 - The access log records: timestamp, method, path, status, duration, request ID, hashed IP. Raw IP and User-Agent are not logged.
 - The error log never contains user-supplied content beyond the request ID.

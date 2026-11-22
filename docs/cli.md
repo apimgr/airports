@@ -42,6 +42,13 @@ Running `airports` with no flags starts the server in the foreground, creating d
 | `--maintenance` | — | Start in maintenance mode (read-only, serves maintenance page) |
 | `--maintenance backup [path]` | — | Run a backup now |
 | `--maintenance restore <path>` | — | Restore from a backup archive |
+| `--maintenance pgp <action>` | `server.token` or root | Manage the security-report keypair (`generate`, `rotate`, `publish`, `export`, `import`, `delete`) |
+| `--maintenance secret rotate <name>` | `server.token` or root | Rotate `installation_secret` or `encryption_key` |
+| `--maintenance token list` | `server.token` or root | List owner-token metadata |
+| `--maintenance token revoke <prefix>` | `server.token` or root | Revoke an owner token by prefix |
+| `--maintenance data export --owner <prefix>` | `server.token` or root | Export owner and resource data as JSON |
+| `--maintenance data delete --owner <prefix> [--yes]` | `server.token` or root | Delete an owner and its data |
+| `--maintenance compliance report` | `server.token` or root | Print aggregate compliance settings and event counts |
 
 ### Shell Integration
 
