@@ -133,7 +133,6 @@ server:
       filename: error.log
       format: iso8601
   rate_limit:
-    enabled: true
     read:
       requests: 120
       window: 60

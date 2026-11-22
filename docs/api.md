@@ -518,18 +518,26 @@ metrics aliases can be disabled with `server.metrics.root.enabled: false`.
 
 ## Model Context Protocol
 
-Airports exposes its documented read-only API operations as tools over
-Streamable HTTP. The canonical endpoint is
+Airports exposes its API operations as tools over Streamable HTTP. Every
+request requires the same `Authorization: Bearer` operator or owner token used
+by the REST API; cookies are ignored. A linked owner token is the recommended
+credential for each MCP client. Token management and token issuance are never
+MCP tools. The canonical endpoint is
 `/api/{api_version}/server/mcp`; `/api/mcp` and `/mcp` are direct aliases.
-The currently exposed airport data tools are public and require no token.
-Requests use `POST`, a supported `MCP-Protocol-Version`, and an allowed
-`Origin` when an Origin header is sent.
+Requests use `POST`, protocol version `2026-07-28`, and an allowed `Origin`
+when an Origin header is sent. The `MCP-Protocol-Version` header must match
+the request `_meta` protocol version, `Mcp-Method` must match the JSON-RPC
+method, and name-bearing calls must provide the matching `Mcp-Name`. Origin,
+authentication, protocol-version, header, and method checks run in that order.
+Invalid credentials return `401` with `WWW-Authenticate: Bearer`; unsupported
+versions return `400`; mismatched headers return `400` with `-32020`
+(`HeaderMismatch`); unknown methods return `404` with `-32601`.
 
 The live tool names and schemas, endpoint, aliases, connection examples,
 protocol versions, and troubleshooting guidance are available at
 `/server/help/mcp`. Its JSON mirror is
 `/api/{api_version}/server/help/mcp`. MCP does not create a session, and tool
-calls follow the API request-size and rate limits.
+calls use the same API handlers, authorization, audit, and rate limits.
 
 ---
 

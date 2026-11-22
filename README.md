@@ -174,7 +174,7 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /feed.xml`, `/rss.xml` | Atom and RSS feeds (currently empty; no user-created content) |
 | `GET /server/docs/swagger` | Swagger UI |
 | `GET /api/{api_version}/server/swagger` | OpenAPI spec |
-| `POST /api/{api_version}/server/mcp` | Public airport tools over Model Context Protocol Streamable HTTP |
+| `POST /api/{api_version}/server/mcp` | Bearer-authenticated airport tools over Model Context Protocol Streamable HTTP |
 | `GET /server/help/mcp` | MCP setup and live tool reference |
 | `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
 | `GET /server/docs/graphql` | GraphiQL UI |
@@ -187,8 +187,10 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 **CORS:** `Access-Control-Allow-Origin: *` on public API responses (public read-only data).
 
 MCP clients can use the canonical `/api/{api_version}/server/mcp` endpoint or
-the direct `/api/mcp` and `/mcp` aliases. See `/server/help/mcp` for client
-configuration and available tools.
+the direct `/api/mcp` and `/mcp` aliases. Every MCP request requires an
+operator or owner `Authorization: Bearer` token; a linked owner token is the
+recommended credential for each client. See `/server/help/mcp` for client
+configuration, protocol requirements, and available tools.
 
 ### Quick examples
 
