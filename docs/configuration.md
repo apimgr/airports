@@ -1,11 +1,12 @@
 # Configuration
 
-The Airports server reads configuration from these sources, in order of precedence:
+The Airports server merges configuration in this order, from lowest to highest precedence:
 
-1. **Command-line flags** (`--port 9000`)
-2. **Environment variables** (`PORT=9000`)
-3. **Config files** (`server.yml`, then area drop-ins in `yaml.d/`)
-4. **Built-in defaults**
+1. **Built-in defaults**
+2. **`server.yml`** for node-specific settings
+3. **Area drop-ins** in `yaml.d/`, sorted by filename
+4. **`secrets.yml`** for credentials and generated tokens
+5. **Environment variables and command-line flags**, where the setting has a documented override
 
 Only settings with a documented command-line flag or environment-variable mapping can be set at those layers; other settings are read from the matching config file or use their built-in defaults. Credentials and generated tokens live in `secrets.yml`.
 
@@ -22,10 +23,19 @@ Only settings with a documented command-line flag or environment-variable mappin
 Override the config directory with `--config /path/to/dir` or `CONFIG_DIR=/path/to/dir`
 (the server always reads `server.yml` from within that directory).
 
-The main file is auto-generated with sane defaults on first run. The operator
-token is generated with the `adm_` prefix and stored separately in `secrets.yml`;
-both files are restricted to owner-only permissions. Public branding and
-operator-managed page content belong in `{config_dir}/yaml.d/branding.yml`.
+The main file is auto-generated with node-specific settings on first run. Other
+settings belong in named files under `{config_dir}/yaml.d/` (for example,
+`branding.yml`, `web.yml`, `security.yml`, and `metrics.yml`). The operator
+token is generated with the `adm_` prefix and stored separately in
+`secrets.yml`. The config directory and its private files use owner-only
+permissions. Public branding and operator-managed page content belong in
+`{config_dir}/yaml.d/branding.yml`.
+
+An older `server.yml` containing area settings is accepted and split into the
+matching area files at startup. Invalid individual values, explicit `null`
+values, and duplicate keys fall back to defaults with a warning. A YAML file
+that cannot be parsed is ignored; the last successfully loaded configuration
+stays active during reload, or built-in defaults are used on first startup.
 
 ## Modes
 
