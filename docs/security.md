@@ -57,6 +57,20 @@ created for that client. Never use the primary owner token or the operator
 token (`server.token`). API cookies are ignored, and there is no MCP-specific
 credential or scope.
 
+## Owner Token Handling
+
+The owner-token page masks credentials by default. A browser create, reveal, or
+rotate action uses POST/303 and a one-use `airports_token_view` cookie whose
+value identifies only the owner card. The following GET decrypts and displays
+only that owner's selected token, sends `Cache-Control: no-store`, and clears
+the cookie. Reloads show the masked value again. Raw tokens never appear in a
+URL. The confirmation message is rendered by the server for no-JavaScript
+users and enhanced to a toast when JavaScript is available.
+
+The API equivalents do not redirect: create, reveal, and rotate return the raw
+token in the JSON response body. Store that response securely. Token lists and
+ordinary page loads never decrypt token values.
+
 ## Transport Security
 
 - TLS 1.2 minimum; TLS 1.3 preferred.

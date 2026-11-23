@@ -468,7 +468,11 @@ never exported or imported. Owner tokens have a separate page at
 `/server/preferences/tokens` and the versioned API routes listed above. Token
 management accepts a primary owner Bearer token only; token issuance needs no
 token and returns the newly issued primary token once. Linked tokens cannot
-manage tokens.
+manage tokens. Browser create, reveal, and rotate actions use POST/303 plus a
+one-use card-selection cookie; the following page load reveals only that
+token, disables caching, and clears the cookie. Reloads return to masked values.
+The API equivalents return the raw token in the JSON response body without a
+redirect.
 
 The one-shot security report status page is available at
 `GET /server/security/report/{tracking_id}` and has no API mirror. Contact
