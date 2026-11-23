@@ -58,6 +58,43 @@ func TestHandleServerConsentChoices(t *testing.T) {
 	}
 }
 
+func TestHandleServerConsentWritesAnonymizedAuditEvent(t *testing.T) {
+	recorder := &ownerTokenAuditRecorder{}
+	s := &Server{config: config.DefaultApplicationConfig(), auditLogger: recorder}
+	r := httptest.NewRequest(http.MethodPost, "/server/consent", strings.NewReader("choice=decline"))
+	r.RemoteAddr = "203.0.113.47:1234"
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	s.handleServerConsent(w, r)
+
+	if len(recorder.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(recorder.events))
+	}
+	line := recorder.events[0]
+	for _, want := range []string{"event=compliance.consent_updated", "actor_type=visitor", "source=web", "consent_type=cookie_consent", `ip="203.0.113.0"`, `\"analytics\":false`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("audit event %q does not contain %q", line, want)
+		}
+	}
+	if strings.Contains(line, "actor=") || strings.Contains(line, "policy_version=") {
+		t.Errorf("anonymous event contains an owner identity or undefined policy version: %q", line)
+	}
+}
+
+func TestAnonymizeConsentIP(t *testing.T) {
+	tests := map[string]string{
+		"203.0.113.47":                           "203.0.113.0",
+		"2001:db8:1234:5678:9abc:def0:1234:5678": "2001:db8:1234::",
+		"not-an-ip":                              "",
+	}
+	for input, want := range tests {
+		if got := anonymizeConsentIP(input); got != want {
+			t.Errorf("anonymizeConsentIP(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestHandleServerConsentAcceptHonorsDisabledCategories(t *testing.T) {
 	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Privacy.Cookies.Preferences.Enabled = false

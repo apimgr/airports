@@ -346,9 +346,9 @@ func (m *appMetrics) setDatabase(database dbpkg.Handle) {
 	}
 }
 
-// setCache registers only cache measurements the configured backend can
-// report accurately. Redis size and eviction metrics remain absent because
-// server-wide values would include unrelated clients sharing that database.
+// setCache registers cache measurements exposed by the configured backend.
+// Redis size and byte counts are scoped to this application's key prefix;
+// eviction counts estimate keys observed to disappear before their TTL.
 func (m *appMetrics) setCache(cache cachepkg.Cache) {
 	provider, ok := cache.(cachepkg.MetricsProvider)
 	if !ok {
