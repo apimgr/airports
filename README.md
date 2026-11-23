@@ -198,6 +198,11 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /server/metrics/{service}` | Prometheus, Grafana, or Loki metrics (per-service bearer token required) |
 | `GET /api/metrics/{service}` | Metrics alias (per-service bearer token required) |
 
+The health JSON keeps I2P's normalized `status` separate from its provider
+`state` (`disabled`, `no_provider`, `starting`, `building`, `running`, or
+`error`). With no provider, `status` is `disabled` and `state` is
+`no_provider`; the I2P check is omitted when the network is inactive.
+
 **Response format:** JSON by default. Use `Accept: text/csv`, `Accept: application/geo+json`, or `?format=csv|geojson` for alternate formats.
 
 **CORS:** API origins follow the server's resolved CORS allow-list. Credentialed
