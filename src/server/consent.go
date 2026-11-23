@@ -3,13 +3,18 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
+	"github.com/apimgr/airports/src/logging"
 )
 
 // consentCookieName is the cookie used to persist the visitor's cookie
@@ -238,5 +243,47 @@ func (s *Server) handleServerConsent(w http.ResponseWriter, r *http.Request) {
 
 	s.applyConsentWithdrawal(w, r, *previous, state, choice == "decline")
 	writeConsentCookie(w, state)
+	s.logConsentUpdated(r, state)
 	redirectBack(w, r)
+}
+
+func (s *Server) logConsentUpdated(r *http.Request, state ConsentState) {
+	if s == nil || s.auditLogger == nil {
+		return
+	}
+	actorType := "visitor"
+	fields := ""
+	if identity, _, ok := s.ownerTokenFromCookie(r); ok {
+		actorType = "owner"
+		fields += " actor=" + strconv.Quote(identity.Owner)
+	}
+	if ip := anonymizeConsentIP(realIP(r)); ip != "" {
+		fields += " ip=" + strconv.Quote(ip)
+	}
+	value, err := json.Marshal(state)
+	if err != nil {
+		return
+	}
+	line := fmt.Sprintf("event=compliance.consent_updated actor_type=%s source=web consent_type=cookie_consent new_value=%s%s", actorType, strconv.Quote(string(value)), fields)
+	if err := s.auditLogger.WriteAudit(logging.AuditCategoryServer, line); err != nil {
+		log.Printf("failed to write consent audit event: %v", err)
+	}
+}
+
+func anonymizeConsentIP(value string) string {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if ip == nil {
+		return ""
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return net.IPv4(ipv4[0], ipv4[1], ipv4[2], 0).String()
+	}
+	ipv6 := ip.To16()
+	if ipv6 == nil {
+		return ""
+	}
+	for i := 6; i < len(ipv6); i++ {
+		ipv6[i] = 0
+	}
+	return ipv6.String()
 }

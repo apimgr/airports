@@ -372,6 +372,9 @@ func makeAuditEntry(category AuditCategory, line, previous string, now time.Time
 		actorIP = fields["actor_ip"]
 	}
 	actor := map[string]any{}
+	if actorType := fields["actor_type"]; actorType != "" {
+		actor["type"] = actorType
+	}
 	if actorIP != "" {
 		actor["ip"] = actorIP
 	}
@@ -381,7 +384,7 @@ func makeAuditEntry(category AuditCategory, line, previous string, now time.Time
 	details := make(map[string]any)
 	for key, value := range fields {
 		switch key {
-		case "event", "ip", "operator_ip", "result", "source", "reason", "actor", "actor_ip", "target_type", "target_id":
+		case "event", "ip", "operator_ip", "result", "source", "reason", "actor", "actor_type", "actor_ip", "target_type", "target_id":
 		case "details_source":
 			details["source"] = maskSensitiveAuditValue("source", value)
 		default:

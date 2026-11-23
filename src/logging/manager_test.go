@@ -478,6 +478,19 @@ func TestTokenLifecycleAuditUsesStructuredActorAndSource(t *testing.T) {
 	}
 }
 
+func TestComplianceAuditPreservesActorType(t *testing.T) {
+	entry, err := makeAuditEntry(AuditCategoryServer, `event=compliance.consent_updated actor_type=visitor source=web consent_type=cookie_consent`, auditChainGenesis, time.Now())
+	if err != nil {
+		t.Fatalf("make consent audit entry: %v", err)
+	}
+	if entry.Category != "compliance" || entry.Actor["type"] != "visitor" || entry.Actor["id"] != nil {
+		t.Fatalf("consent audit fields = %+v, want compliance category and visitor actor type without an anonymous user ID", entry)
+	}
+	if _, exists := entry.Details["actor_type"]; exists {
+		t.Fatalf("actor_type leaked into event details: %+v", entry.Details)
+	}
+}
+
 func TestWriteAuditSkipsDisabledCategory(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultLogManagerConfig()
