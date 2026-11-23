@@ -20,6 +20,7 @@ RUN go mod download
 
 # Copy source and build server + client
 COPY . .
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build \
         -trimpath \

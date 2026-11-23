@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/apimgr/airports/src/config"
 	graphqlpkg "github.com/apimgr/airports/src/graphql"
 	"github.com/apimgr/airports/src/mode"
 	swaggerpkg "github.com/apimgr/airports/src/swagger"
@@ -14,8 +15,8 @@ import (
 // setupRouter assembles the global middleware chain and application routes.
 func (s *Server) setupRouter() {
 	r := chi.NewRouter()
-	registerMetrics := func(path, service string) {
-		r.Get(path, metricsAuthMiddleware(
+	registerMetrics := func(router chi.Router, path, service string) {
+		router.Get(path, metricsAuthMiddleware(
 			metricsServiceToken(s.config.Server.Metrics, service),
 			s.config.Server.Metrics.Auth.AllowUnauthenticated,
 			s.metrics,
@@ -28,14 +29,13 @@ func (s *Server) setupRouter() {
 }
 
 // registerRoutes mounts the public web, API, metrics, debug, and error routes.
-func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, string)) {
+func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, string, string)) {
 	r.Get("/cli/binaries/{binary}", s.handleCLIBinaryDownload)
 	if s.brandingAssets != nil {
 		r.Handle("/branding-assets/*", s.brandingAssets.Handler())
 	}
-	r.Handle("/mcp", http.HandlerFunc(s.handleMCP))
-	r.Handle("/api/mcp", http.HandlerFunc(s.handleMCP))
-	r.Handle(s.APIBasePath()+"/server/mcp", http.HandlerFunc(s.handleMCP))
+	r.Post("/mcp", apiResponseHeaders(s.config.Server.APIVersion, s.handleMCP))
+	r.Post("/api/mcp", apiResponseHeaders(s.config.Server.APIVersion, s.handleMCP))
 
 	// Static files — serve with long-lived cache (1 year) per AI.md PART 9 caching rules.
 	// Files are embedded at build time; content is immutable per build.
@@ -85,9 +85,9 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	// /server/* pages (required by IDEA.md and AI.md spec)
 	r.Get("/server/about", s.handleServerAbout)
 	if s.config.Server.Metrics.Enabled {
-		registerMetrics("/server/metrics", "prometheus")
+		registerMetrics(r, "/server/metrics", "prometheus")
 		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics("/server/metrics/"+service, service)
+			registerMetrics(r, "/server/metrics/"+service, service)
 		}
 	}
 	r.Get("/server/help", s.handleServerHelp)
@@ -149,7 +149,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	requestBaseURL := func(r *http.Request) string {
 		return strings.TrimSuffix(RequestBaseURL(r), "/")
 	}
-	swaggerSpec := swaggerpkg.SpecHandler(Version, s.config.Server.APIVersion, requestBaseURL)
+	swaggerSpec := swaggerpkg.SpecHandlerWithRoutes(Version, s.config.Server.APIVersion, s.openAPIRouteSuperset, requestBaseURL)
 	graphqlQuery := graphqlpkg.QueryHandler(s.airports, s.geoip)
 
 	r.Get("/server/docs/swagger", s.handleServerSwaggerUI)
@@ -180,9 +180,9 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	r.Get("/api/autodiscover", s.handleAutodiscover)
 	if s.config.Server.Metrics.Enabled {
 		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics("/api/metrics/"+service, service)
+			registerMetrics(r, "/api/metrics/"+service, service)
 		}
-		registerMetrics("/api/metrics", "prometheus")
+		registerMetrics(r, "/api/metrics", "prometheus")
 	}
 
 	// Versioned API routes - ALL PUBLIC, NO AUTH
@@ -195,6 +195,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 				next.ServeHTTP(w, r)
 			})
 		})
+		r.Post("/server/mcp", s.handleMCP)
 
 		// API info
 		r.Get("/", s.handleAPIInfo)
@@ -202,11 +203,12 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 		// Versioned server API surface (canonical paths per AI.md PART 14).
 		r.Get("/server/healthz", s.handleServerHealthz)
 		r.Get("/server/healthz.txt", s.handleServerHealthz)
+		r.Get("/server/auth/check", s.handleAPITokenCheck)
 		if s.config.Server.Metrics.Enabled {
 			for _, service := range []string{"prometheus", "grafana", "loki"} {
-				registerMetrics(apiBase+"/server/metrics/"+service, service)
+				registerMetrics(r, "/server/metrics/"+service, service)
 			}
-			registerMetrics(apiBase+"/server/metrics", "prometheus")
+			registerMetrics(r, "/server/metrics", "prometheus")
 		}
 		r.Get("/server/about", s.handleServerAboutAPI)
 		r.Get("/server/help", s.handleServerHelpAPI)
@@ -283,9 +285,9 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	// are still expected to firewall this path/port from public access. When
 	// disabled, the path is unregistered and falls through to the themed 404.
 	if s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled {
-		registerMetrics("/metrics", "prometheus")
+		registerMetrics(r, "/metrics", "prometheus")
 		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics("/metrics/"+service, service)
+			registerMetrics(r, "/metrics/"+service, service)
 		}
 	}
 
@@ -304,4 +306,181 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 		s.renderErrorPage(w, req, http.StatusMethodNotAllowed)
 	})
 
+}
+
+func (s *Server) openAPIRoutes() []swaggerpkg.OpenAPIRoute {
+	if s == nil || s.router == nil {
+		return nil
+	}
+	apiBase := s.APIBasePath()
+	var routes []swaggerpkg.OpenAPIRoute
+	_ = chi.Walk(s.router, func(method, path string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if path != apiBase && !strings.HasPrefix(path, apiBase+"/") {
+			return nil
+		}
+		path = strings.TrimPrefix(path, apiBase)
+		if path == "" {
+			path = "/"
+		}
+		auth := strings.Contains(path, "/metrics") || strings.HasPrefix(path, "/server/mcp") || path == "/server/auth/check"
+		if strings.HasPrefix(path, "/server/preferences/tokens") && (method != http.MethodPost || path != "/server/preferences/tokens/primary") {
+			auth = true
+		}
+		route := swaggerpkg.OpenAPIRoute{Method: method, Path: path, Summary: method + " " + path, Auth: auth}
+		if strings.Contains(path, "/metrics") {
+			route.MountedWhen = "server.metrics.enabled"
+			route.Mounted = s.config.Server.Metrics.Enabled
+		}
+		if strings.HasPrefix(path, "/debug/") {
+			route.MountedWhen = "--debug"
+			route.Mounted = mode.ShouldShowDebugEndpoints()
+			if strings.HasPrefix(path, "/debug/pprof/") {
+				route.MountedWhen = "--debug && server.debug.pprof"
+				route.Mounted = route.Mounted && s.config.Server.Debug.Pprof
+			} else if path == "/debug/vars" {
+				route.MountedWhen = "--debug && server.debug.runtime_endpoints"
+				route.Mounted = route.Mounted && s.config.Server.Debug.RuntimeEndpoints
+			}
+			route.Auth = true
+		}
+		routes = append(routes, route)
+		return nil
+	})
+	return routes
+}
+
+func apiResponseHeaders(apiVersion string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-API-Version", apiVersion)
+		w.Header().Set("Cache-Control", "private, max-age=0, no-cache")
+		next(w, r)
+	}
+}
+
+func (s *Server) openAPIRouteSuperset() []swaggerpkg.OpenAPIRoute {
+	routes := s.openAPIRoutes()
+	// Root aliases and well-known resources are part of the embedded superset
+	// even though they are outside the versioned API namespace.
+	optionalRoot := []struct {
+		path, condition string
+		mounted         bool
+	}{
+		{"/healthz", "server.healthz.root.enabled", s.config.Server.Healthz.Root.Enabled},
+		{"/metrics", "server.metrics.root.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
+		{"/metrics/prometheus", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
+		{"/metrics/grafana", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
+		{"/metrics/loki", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
+		{"/llms.txt", "always", true},
+		{"/.well-known/security.txt", "always", true},
+		{"/.well-known/llms.txt", "always", true},
+		{"/.well-known/pgp-key.asc", "security.publish_pgp_key", s.config.Web.Security.PublishPGPKey},
+	}
+	for _, endpoint := range optionalRoot {
+		mountedWhen := endpoint.condition
+		if mountedWhen == "always" {
+			mountedWhen = ""
+		}
+		routes = append(routes, swaggerpkg.OpenAPIRoute{
+			Method: http.MethodGet, Path: endpoint.path, Summary: http.MethodGet + " " + endpoint.path,
+			MountedWhen: mountedWhen, Mounted: endpoint.mounted,
+		})
+	}
+	aliases := []swaggerpkg.OpenAPIRoute{
+		{Method: http.MethodGet, Path: "/api/swagger", Summary: "GET /api/swagger"},
+		{Method: http.MethodGet, Path: "/api/healthz", Summary: "GET /api/healthz"},
+		{Method: http.MethodGet, Path: "/api/healthz.txt", Summary: "GET /api/healthz.txt"},
+		{Method: http.MethodPost, Path: "/api/graphql", Summary: "POST /api/graphql"},
+		{Method: http.MethodPost, Path: "/api/mcp", Summary: "POST /api/mcp", Auth: true},
+		{Method: http.MethodPost, Path: "/mcp", Summary: "POST /mcp", Auth: true},
+		{Method: http.MethodGet, Path: "/api/autodiscover", Summary: "GET /api/autodiscover"},
+	}
+	routes = append(routes, aliases...)
+	for _, service := range []string{"", "/prometheus", "/grafana", "/loki"} {
+		path := "/api/metrics" + service
+		routes = append(routes, swaggerpkg.OpenAPIRoute{
+			Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
+			Auth: true, MountedWhen: "server.metrics.enabled", Mounted: s.config.Server.Metrics.Enabled,
+		})
+	}
+	metricsMounted := s.config.Server.Metrics.Enabled
+	for _, path := range []string{"/server/metrics", "/server/metrics/prometheus", "/server/metrics/grafana", "/server/metrics/loki"} {
+		found := false
+		for _, route := range routes {
+			if route.Method == http.MethodGet && route.Path == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			routes = append(routes, swaggerpkg.OpenAPIRoute{
+				Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
+				Auth: true, MountedWhen: "server.metrics.enabled", Mounted: metricsMounted,
+			})
+		}
+	}
+	debugMounted := mode.ShouldShowDebugEndpoints()
+	debugPaths := []string{
+		"/debug/config", "/debug/routes", "/debug/cache", "/debug/db",
+		"/debug/scheduler", "/debug/memory", "/debug/goroutines",
+		"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/profile", "/debug/pprof/symbol",
+		"/debug/pprof/trace", "/debug/pprof/heap", "/debug/pprof/goroutine", "/debug/pprof/allocs",
+		"/debug/pprof/block", "/debug/pprof/mutex", "/debug/pprof/threadcreate", "/debug/vars",
+	}
+	for _, path := range debugPaths {
+		apiPath := "/api" + path
+		condition := "--debug"
+		mounted := debugMounted
+		if strings.HasPrefix(path, "/debug/pprof/") {
+			condition = "--debug && server.debug.pprof"
+			mounted = mounted && s.config.Server.Debug.Pprof
+		} else if path == "/debug/vars" {
+			condition = "--debug && server.debug.runtime_endpoints"
+			mounted = mounted && s.config.Server.Debug.RuntimeEndpoints
+		}
+		routes = append(routes, swaggerpkg.OpenAPIRoute{
+			Method: http.MethodGet, Path: apiPath, Summary: http.MethodGet + " " + apiPath,
+			Auth: true, MountedWhen: condition, Mounted: mounted,
+		})
+	}
+	for _, path := range debugPaths {
+		found := false
+		for _, route := range routes {
+			if route.Method == http.MethodGet && route.Path == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			condition := "--debug"
+			mounted := debugMounted
+			if strings.HasPrefix(path, "/debug/pprof/") {
+				condition = "--debug && server.debug.pprof"
+				mounted = mounted && s.config.Server.Debug.Pprof
+			} else if path == "/debug/vars" {
+				condition = "--debug && server.debug.runtime_endpoints"
+				mounted = mounted && s.config.Server.Debug.RuntimeEndpoints
+			}
+			routes = append(routes, swaggerpkg.OpenAPIRoute{
+				Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
+				Auth: true, MountedWhen: condition, Mounted: mounted,
+			})
+		}
+	}
+	return routes
+}
+
+func OpenAPIRouteSupersetForBuild() []swaggerpkg.OpenAPIRoute {
+	wasDebugEnabled := mode.IsDebugEnabled()
+	mode.SetDebugEnabled(true)
+	defer mode.SetDebugEnabled(wasDebugEnabled)
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.Metrics.Enabled = true
+	cfg.Server.Debug.Pprof = true
+	cfg.Server.Debug.RuntimeEndpoints = true
+	router := chi.NewRouter()
+	server := &Server{config: cfg, router: router}
+	server.registerRoutes(router, func(routeRouter chi.Router, path, _ string) {
+		routeRouter.Get(path, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	})
+	return server.openAPIRouteSuperset()
 }

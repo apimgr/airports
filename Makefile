@@ -87,6 +87,7 @@ dev:
 		-e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
+			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
 			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
 			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
 		'; \
@@ -106,6 +107,7 @@ local: clean
 		-e GOOS=$(HOSTOS) -e GOARCH=$(HOSTARCH) -e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
+			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
 			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
 			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
 		'
@@ -126,6 +128,7 @@ build: clean
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
 			set -e; \
+			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
 			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \

@@ -261,6 +261,7 @@
     "page_title": "Documentación de la API",
     "page_description": "Explora la API REST de Airports y ejecuta solicitudes en este servidor.",
     "info_description": "API de información de ubicación de aeropuertos a nivel mundial con integración GeoIP",
+    "route_description": "Operación generada a partir de las rutas activas en este servidor.",
     "tag_airports": "Endpoints de datos de aeropuertos",
     "tag_geoip": "Endpoints de ubicación GeoIP",
     "tag_server": "Endpoints de salud y metadatos del servidor",

@@ -31,6 +31,7 @@ type mcpTool struct {
 	Annotations map[string]bool        `json:"annotations,omitempty"`
 	method      string
 	path        string
+	body        bool
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +166,9 @@ func (s *Server) mcpTools() []mcpTool {
 	})
 	apiPrefix := s.APIBasePath()
 	apiPrefix = strings.TrimSuffix(apiPrefix, "/")
-	openAPI := swagger.BuildSpec(Version, s.config.Server.APIVersion, "en")
+	openAPIRoutes := s.openAPIRouteSuperset()
+	openAPI := swagger.BuildEmbeddedSpecWithRoutes(Version, s.config.Server.APIVersion, "en", openAPIRoutes)
+	swagger.FilterMountedRoutes(openAPI, openAPIRoutes)
 	paths, _ := openAPI["paths"].(map[string]interface{})
 	tools := make([]mcpTool, 0, len(paths))
 	for apiPath, rawPathItem := range paths {
@@ -173,6 +176,9 @@ func (s *Server) mcpTools() []mcpTool {
 		for methodName, rawOperation := range pathItem {
 			method := strings.ToUpper(methodName)
 			if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete || !registered[method+" "+apiPrefix+apiPath] {
+				continue
+			}
+			if apiPath == "/server/mcp" || strings.HasPrefix(apiPath, "/server/preferences/tokens") {
 				continue
 			}
 			operation, _ := rawOperation.(map[string]interface{})
@@ -186,6 +192,7 @@ func (s *Server) mcpTools() []mcpTool {
 			}
 			properties := make(map[string]interface{})
 			required := make([]string, 0)
+			bodyOperation := false
 			if parameters, ok := operation["parameters"].([]map[string]interface{}); ok {
 				for _, parameter := range parameters {
 					location, _ := parameter["in"].(string)
@@ -209,7 +216,31 @@ func (s *Server) mcpTools() []mcpTool {
 					}
 				}
 			}
-			schema := map[string]interface{}{"type": "object", "properties": properties, "additionalProperties": false}
+			if requestBody, ok := operation["requestBody"].(map[string]interface{}); ok {
+				if content, ok := requestBody["content"].(map[string]interface{}); ok {
+					if jsonContent, ok := content["application/json"].(map[string]interface{}); ok {
+						if bodySchema, ok := jsonContent["schema"].(map[string]interface{}); ok {
+							bodyOperation = true
+							if bodyProperties, ok := bodySchema["properties"].(map[string]interface{}); ok {
+								for name, property := range bodyProperties {
+									properties[name] = property
+								}
+							}
+							switch bodyRequired := bodySchema["required"].(type) {
+							case []string:
+								required = append(required, bodyRequired...)
+							case []interface{}:
+								for _, value := range bodyRequired {
+									if name, ok := value.(string); ok {
+										required = append(required, name)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			schema := map[string]interface{}{"type": "object", "properties": properties, "additionalProperties": bodyOperation}
 			if len(required) > 0 {
 				schema["required"] = required
 			}
@@ -217,7 +248,7 @@ func (s *Server) mcpTools() []mcpTool {
 			tools = append(tools, mcpTool{
 				Name: name, Description: description, InputSchema: schema,
 				Annotations: annotations,
-				method:      method, path: apiPath,
+				method:      method, path: apiPath, body: bodyOperation,
 			})
 		}
 	}
@@ -228,6 +259,7 @@ func (s *Server) mcpTools() []mcpTool {
 func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string]interface{}) (interface{}, int, string) {
 	path := tool.path
 	query := url.Values{}
+	bodyValues := make(map[string]interface{})
 	for key, value := range arguments {
 		placeholder := "{" + key + "}"
 		if strings.Contains(path, placeholder) {
@@ -236,6 +268,10 @@ func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string
 				return nil, -32602, "A required path argument is missing or invalid."
 			}
 			path = strings.ReplaceAll(path, placeholder, url.PathEscape(text))
+			continue
+		}
+		if tool.body {
+			bodyValues[key] = value
 			continue
 		}
 		if text, ok := value.(string); ok {
@@ -256,8 +292,8 @@ func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string
 		target += "?" + query.Encode()
 	}
 	var body io.Reader
-	if tool.method == http.MethodPost {
-		encoded, err := json.Marshal(arguments)
+	if tool.body {
+		encoded, err := json.Marshal(bodyValues)
 		if err != nil {
 			return nil, -32602, "Arguments could not be encoded."
 		}
@@ -270,7 +306,7 @@ func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string
 	request.Body = io.NopCloser(body)
 	request.Header = r.Header.Clone()
 	request.Header.Set("Accept", "application/json")
-	if tool.method == http.MethodPost {
+	if tool.body {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	response := newMCPRecorder()

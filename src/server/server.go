@@ -642,7 +642,9 @@ func (s *Server) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 			endpoints = append(endpoints, method+" "+path)
 			return nil
 		})
-		openAPI := swaggerpkg.BuildSpec(Version, s.config.Server.APIVersion, "en")
+		openAPIRoutes := s.openAPIRouteSuperset()
+		openAPI := swaggerpkg.BuildEmbeddedSpecWithRoutes(Version, s.config.Server.APIVersion, "en", openAPIRoutes)
+		swaggerpkg.FilterMountedRoutes(openAPI, openAPIRoutes)
 		paths, _ := openAPI["paths"].(map[string]interface{})
 		sort.Strings(endpoints)
 		for _, route := range endpoints {

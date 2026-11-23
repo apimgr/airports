@@ -261,6 +261,7 @@
     "page_title": "API-Dokumentation",
     "page_description": "Erkunden Sie die Airports-REST-API und führen Sie Anfragen an diesen Server aus.",
     "info_description": "API für weltweite Flughafenstandortinformationen mit GeoIP-Integration",
+    "route_description": "Operation aus den auf diesem Server aktiven Routen generiert.",
     "tag_airports": "Flughafendaten-Endpunkte",
     "tag_geoip": "GeoIP-Standort-Endpunkte",
     "tag_server": "Server-Status- und Metadaten-Endpunkte",

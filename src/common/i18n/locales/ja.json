@@ -261,6 +261,7 @@
     "page_title": "API ドキュメント",
     "page_description": "Airports REST API を確認し、このサーバーにリクエストを実行できます。",
     "info_description": "GeoIP統合を備えた世界の空港位置情報API",
+    "route_description": "このサーバーで有効なルートから生成された操作です。",
     "tag_airports": "空港データエンドポイント",
     "tag_geoip": "GeoIPロケーションエンドポイント",
     "tag_server": "サーバーの状態とメタデータのエンドポイント",

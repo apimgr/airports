@@ -408,6 +408,7 @@ GET /healthz
 GET /server/healthz
 GET /api/healthz
 GET /api/{api_version}/server/healthz
+GET /api/{api_version}/server/auth/check
 GET /server/healthz.txt
 GET /api/healthz.txt
 GET /api/{api_version}/server/healthz.txt
@@ -460,6 +461,9 @@ GET /api/{api_version}/server/security/thanks
 GET /api/{api_version}/server/swagger
 POST /api/{api_version}/server/graphql
 ```
+
+`/api/{api_version}/server/auth/check` requires an operator or owner Bearer token
+and reports only its kind (`operator` or `owner`). It never returns the token.
 
 The About, Help, Terms, and MCP help endpoints return JSON objects with their
 documented `title`/`content`/`format` fields (Help also returns `pages`; MCP
@@ -575,6 +579,15 @@ Prometheus, Grafana, and Loki services are also available under
 bearer token configured under `server.metrics.auth.tokens`. A matching token
 is mandatory; firewalling the endpoint is additional defense in depth. Root
 metrics aliases can be disabled with `server.metrics.root.enabled: false`.
+
+## Debug API
+
+When debug mode is enabled, the diagnostics under `/debug/*` are also mounted
+at `/api/{api_version}/debug/*` and `/api/debug/*`. Every debug route requires
+the operator token from `server.token`; versioned routes include the standard
+API version and no-cache headers. The route set includes the custom diagnostics,
+pprof routes when `server.debug.pprof` is enabled, and `/vars` when
+`server.debug.runtime_endpoints` is enabled.
 
 ## Model Context Protocol
 

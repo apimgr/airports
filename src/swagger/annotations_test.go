@@ -61,9 +61,8 @@ func TestBuildSpec_Version(t *testing.T) {
 	}
 }
 
-// TestBuildSpec_RequiredPaths ensures every documented endpoint stays
-// present in the hand-maintained spec — a regression here means a route
-// was added/removed in the server without updating annotations.go.
+// TestBuildSpec_RequiredPaths ensures representative operation annotations
+// remain available for the mounted routes that have detailed metadata.
 func TestBuildSpec_RequiredPaths(t *testing.T) {
 	spec := BuildSpec("dev", "v1", "en")
 	paths, ok := spec["paths"].(map[string]interface{})
@@ -93,6 +92,33 @@ func TestBuildSpec_RequiredPaths(t *testing.T) {
 
 	if len(paths) != len(required) {
 		t.Errorf("paths has %d entries, want %d (spec may have drifted, update the required list too)", len(paths), len(required))
+	}
+}
+
+func TestBuildSpecWithRoutesAddsRequestSchemas(t *testing.T) {
+	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{{Method: "POST", Path: "/items", Summary: "Create item"}})
+	paths := spec["paths"].(map[string]interface{})
+	operation := paths["/items"].(map[string]interface{})["post"].(map[string]interface{})
+	body := operation["requestBody"].(map[string]interface{})
+	content := body["content"].(map[string]interface{})
+	jsonBody := content["application/json"].(map[string]interface{})
+	schema := jsonBody["schema"].(map[string]interface{})
+	if schema["type"] != "object" || schema["additionalProperties"] != true {
+		t.Fatalf("request schema = %#v, want an open JSON object", schema)
+	}
+}
+
+func TestFilterMountedRoutesRemovesDisabledSupersetOperations(t *testing.T) {
+	route := OpenAPIRoute{Method: "GET", Path: "/server/metrics", Summary: "metrics", Auth: true, MountedWhen: "server.metrics.enabled", Mounted: false}
+	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{route})
+	paths := spec["paths"].(map[string]interface{})
+	operation := paths[route.Path].(map[string]interface{})["get"].(map[string]interface{})
+	if operation["x-mounted-when"] != route.MountedWhen {
+		t.Fatalf("x-mounted-when = %v, want %q", operation["x-mounted-when"], route.MountedWhen)
+	}
+	FilterMountedRoutes(spec, []OpenAPIRoute{route})
+	if _, ok := paths[route.Path]; ok {
+		t.Fatalf("disabled conditional path %q remains in served spec", route.Path)
 	}
 }
 

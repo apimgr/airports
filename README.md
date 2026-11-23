@@ -171,6 +171,7 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 |----------|-------------|
 | `GET /server/healthz` | Health status (HTML) |
 | `GET /api/{api_version}/server/healthz` | Health status (JSON) |
+| `GET /api/{api_version}/server/auth/check` | Validate an operator or owner bearer token without returning it |
 | `GET /server/about` | Project description and version info (HTML) |
 | `GET /api/{api_version}/server/about` | Project description (JSON) |
 | `GET /server/help` | Usage and API documentation links (HTML) |
@@ -205,6 +206,7 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `/api/{api_version}/server/preferences/tokens` | Primary and linked owner-token management (primary Bearer required except issuance) |
 | `GET /server/help/mcp` | MCP setup and live tool reference |
 | `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
+| `GET /api/{api_version}/debug/*` | Operator-token-protected diagnostics when debug mode is enabled; direct alias at `/api/debug/*` |
 | `GET /server/docs/graphql` | GraphiQL UI |
 | `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
 | `POST /api/graphql` | Direct alias for the current-version GraphQL endpoint |

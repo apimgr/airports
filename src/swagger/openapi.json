@@ -1,0 +1,2997 @@
+{
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "Airports API",
+      "url": "https://github.com/apimgr/airports"
+    },
+    "description": "Global airport location information API with GeoIP integration",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "title": "Airports API",
+    "version": "dev"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/.well-known/llms.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_well_known_llms_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /.well-known/llms.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/.well-known/pgp-key.asc": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_well_known_pgp_key_asc",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /.well-known/pgp-key.asc",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "security.publish_pgp_key"
+      }
+    },
+    "/.well-known/security.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_well_known_security_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /.well-known/security.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/airports": {
+      "get": {
+        "description": "Get a paginated list of airports",
+        "operationId": "listAirports",
+        "parameters": [
+          {
+            "description": "Page number (default: 1)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Results per page (default: 250, max: 1000)",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Response format: json, csv, geojson",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of airports"
+          }
+        },
+        "summary": "List airports",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports.csv": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_csv",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports.csv",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/airports.geojson": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_geojson",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports.geojson",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/airports.json": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_json",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports.json",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/airports/autocomplete": {
+      "get": {
+        "description": "Autocomplete suggestions for airport name or code",
+        "operationId": "autocompleteAirports",
+        "parameters": [
+          {
+            "description": "Prefix query",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max suggestions (default: 10)",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Autocomplete suggestions"
+          }
+        },
+        "summary": "Airport autocomplete",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/nearby": {
+      "get": {
+        "description": "Find airports within a given radius of a lat/lon point",
+        "operationId": "nearbyAirports",
+        "parameters": [
+          {
+            "description": "Latitude",
+            "in": "query",
+            "name": "lat",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Longitude",
+            "in": "query",
+            "name": "lon",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Radius in km (default: 50)",
+            "in": "query",
+            "name": "radius",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Max results (default: 20)",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Distance units: metric (km) or imperial (mi)",
+            "in": "query",
+            "name": "units",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Airports sorted by distance"
+          }
+        },
+        "summary": "Airports within radius",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/nearby.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_nearby_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports/nearby.txt",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/search": {
+      "get": {
+        "description": "Full-text search across airport name, city, country, and codes",
+        "operationId": "searchAirports",
+        "parameters": [
+          {
+            "description": "Search query",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default: 50)",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Response format: json, csv, geojson, text",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of matching airports"
+          }
+        },
+        "summary": "Search airports",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/search.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_search_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports/search.txt",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/within": {
+      "get": {
+        "description": "Find all airports within a lat/lon bounding box",
+        "operationId": "airportsWithin",
+        "parameters": [
+          {
+            "description": "Minimum latitude",
+            "in": "query",
+            "name": "lat_min",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Maximum latitude",
+            "in": "query",
+            "name": "lat_max",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Minimum longitude",
+            "in": "query",
+            "name": "lon_min",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Maximum longitude",
+            "in": "query",
+            "name": "lon_max",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Airports within the bounding box"
+          }
+        },
+        "summary": "Airports within bounding box",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/{ident}": {
+      "get": {
+        "operationId": "getAirport",
+        "parameters": [
+          {
+            "description": "ICAO or IATA code",
+            "in": "path",
+            "name": "ident",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Response format: json, csv, geojson, text",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Airport object"
+          },
+          "404": {
+            "description": "Airport not found"
+          }
+        },
+        "summary": "Get airport by ICAO or IATA code",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/airports/{ident}.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_airports_ident_txt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ident",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /airports/{ident}.txt",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/api/autodiscover": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_autodiscover",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /api/autodiscover",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/api/debug/cache": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_cache",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/cache",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/config": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_config",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/config",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/db": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_db",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/db",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/goroutines": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_goroutines",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/goroutines",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/memory": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_memory",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/memory",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/pprof/": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/allocs": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_allocs",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/allocs",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/block": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_block",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/block",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/cmdline": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_cmdline",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/cmdline",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/goroutine": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_goroutine",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/goroutine",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/heap": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_heap",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/heap",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/mutex": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_mutex",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/mutex",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/profile": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_profile",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/profile",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/symbol": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_symbol",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/symbol",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/threadcreate": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_threadcreate",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/threadcreate",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/pprof/trace": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_pprof_trace",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/pprof/trace",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/api/debug/routes": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_routes",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/routes",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/scheduler": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_scheduler",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/scheduler",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/api/debug/vars": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_vars",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/vars",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.runtime_endpoints"
+      }
+    },
+    "/api/graphql": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_api_graphql",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "POST /api/graphql",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/api/healthz": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_healthz",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /api/healthz",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/api/healthz.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_healthz_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /api/healthz.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/api/mcp": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_api_mcp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /api/mcp",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_metrics",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/metrics",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/api/metrics/grafana": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_metrics_grafana",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/metrics/grafana",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/api/metrics/loki": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_metrics_loki",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/metrics/loki",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/api/metrics/prometheus": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_metrics_prometheus",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/metrics/prometheus",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/api/swagger": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_swagger",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /api/swagger",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/countries": {
+      "get": {
+        "description": "Get all countries that have airports in the dataset",
+        "operationId": "listCountries",
+        "responses": {
+          "200": {
+            "description": "List of countries"
+          }
+        },
+        "summary": "List countries",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/countries.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_countries_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /countries.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/debug/cache": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_cache",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/cache",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/config": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_config",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/config",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/db": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_db",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/db",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/goroutines": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_goroutines",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/goroutines",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/memory": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_memory",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/memory",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/pprof/": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/allocs": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_allocs",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/allocs",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/block": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_block",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/block",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/cmdline": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_cmdline",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/cmdline",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/goroutine": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_goroutine",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/goroutine",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/heap": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_heap",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/heap",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/mutex": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_mutex",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/mutex",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/profile": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_profile",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/profile",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/symbol": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_symbol",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/symbol",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/threadcreate": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_threadcreate",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/threadcreate",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/pprof/trace": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_pprof_trace",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/pprof/trace",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.pprof"
+      }
+    },
+    "/debug/routes": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_routes",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/routes",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/scheduler": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_scheduler",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/scheduler",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/vars": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_vars",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/vars",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug \u0026\u0026 server.debug.runtime_endpoints"
+      }
+    },
+    "/geoip": {
+      "get": {
+        "description": "Returns GeoIP location for the caller's IP address",
+        "operationId": "geoipCaller",
+        "responses": {
+          "200": {
+            "description": "GeoIP result"
+          }
+        },
+        "summary": "GeoIP lookup for caller",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/geoip.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_geoip_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /geoip.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/geoip/airports/nearby": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_geoip_airports_nearby",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /geoip/airports/nearby",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/geoip/{ip}": {
+      "get": {
+        "operationId": "geoipLookup",
+        "parameters": [
+          {
+            "description": "IPv4 or IPv6 address",
+            "in": "path",
+            "name": "ip",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GeoIP result"
+          }
+        },
+        "summary": "GeoIP lookup for IP",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/geoip/{ip}.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_geoip_ip_txt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ip",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /geoip/{ip}.txt",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_healthz",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /healthz",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.healthz.root.enabled"
+      }
+    },
+    "/llms.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_llms_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /llms.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/mcp": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_mcp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /mcp",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_metrics",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /metrics",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.root.enabled"
+      }
+    },
+    "/metrics/grafana": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_metrics_grafana",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /metrics/grafana",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.root.enabled \u0026\u0026 server.metrics.enabled"
+      }
+    },
+    "/metrics/loki": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_metrics_loki",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /metrics/loki",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.root.enabled \u0026\u0026 server.metrics.enabled"
+      }
+    },
+    "/metrics/prometheus": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_metrics_prometheus",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /metrics/prometheus",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.root.enabled \u0026\u0026 server.metrics.enabled"
+      }
+    },
+    "/server/about": {
+      "get": {
+        "description": "Returns build metadata including version, commit, and build date",
+        "operationId": "serverAbout",
+        "responses": {
+          "200": {
+            "description": "Server metadata"
+          }
+        },
+        "summary": "Server version info",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/auth/check": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_auth_check",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/auth/check",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/contact": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_contact",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/contact",
+        "tags": [
+          "server"
+        ]
+      },
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_contact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "accuracy": {
+                    "type": "string"
+                  },
+                  "captcha": {
+                    "type": "string"
+                  },
+                  "captcha_answer": {
+                    "type": "string"
+                  },
+                  "captcha_id": {
+                    "type": "string"
+                  },
+                  "captcha_response": {
+                    "type": "string"
+                  },
+                  "component": {
+                    "type": "string"
+                  },
+                  "confirmed": {
+                    "type": "string"
+                  },
+                  "copyrighted_work": {
+                    "type": "string"
+                  },
+                  "credit_handle": {
+                    "type": "string"
+                  },
+                  "credit_preference": {
+                    "type": "string"
+                  },
+                  "cve_requested": {
+                    "type": "string"
+                  },
+                  "disclosure_agreement": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "form_token": {
+                    "type": "string"
+                  },
+                  "g-recaptcha-response": {
+                    "type": "string"
+                  },
+                  "good_faith": {
+                    "type": "string"
+                  },
+                  "h-captcha-response": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "reported_url": {
+                    "type": "string"
+                  },
+                  "request_kind": {
+                    "type": "string"
+                  },
+                  "researcher_gpg": {
+                    "type": "string"
+                  },
+                  "review_token": {
+                    "type": "string"
+                  },
+                  "security_id": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string"
+                  },
+                  "signature": {
+                    "type": "string"
+                  },
+                  "step": {
+                    "type": "string"
+                  },
+                  "steps_to_reproduce": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "suggested_fix": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "timeline_days": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "website": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "POST /server/contact",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/dpo": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_dpo",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/dpo",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/graphql": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_graphql",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "operationName": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "variables": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "POST /server/graphql",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/healthz": {
+      "get": {
+        "description": "Returns server health status and loaded dataset counts",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "Health status"
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/healthz.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_healthz_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/healthz.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/help": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_help",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/help",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/help/mcp": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_help_mcp",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/help/mcp",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/mcp": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_mcp",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/mcp",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/metrics": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_metrics",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/metrics",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/server/metrics/grafana": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_metrics_grafana",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/metrics/grafana",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/server/metrics/loki": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_metrics_loki",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/metrics/loki",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/server/metrics/prometheus": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_metrics_prometheus",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/metrics/prometheus",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "server.metrics.enabled"
+      }
+    },
+    "/server/preferences": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_preferences",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/preferences",
+        "tags": [
+          "server"
+        ]
+      },
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "properties": {
+                  "lang": {
+                    "type": "string"
+                  },
+                  "theme": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "POST /server/preferences",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/sync": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_preferences_sync",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/preferences/sync",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/sync/import": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_preferences_sync_import",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/preferences/sync/import",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_preferences_tokens",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /server/preferences/tokens",
+        "tags": [
+          "server"
+        ]
+      },
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/preferences/tokens",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/primary": {
+      "delete": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "delete_server_preferences_tokens_primary",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "DELETE /server/preferences/tokens/primary",
+        "tags": [
+          "server"
+        ]
+      },
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens_primary",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "POST /server/preferences/tokens/primary",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/primary/reveal": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens_primary_reveal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/preferences/tokens/primary/reveal",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/primary/rotate": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens_primary_rotate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/preferences/tokens/primary/rotate",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/{id}": {
+      "delete": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "delete_server_preferences_tokens_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "DELETE /server/preferences/tokens/{id}",
+        "tags": [
+          "server"
+        ]
+      },
+      "patch": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "patch_server_preferences_tokens_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "PATCH /server/preferences/tokens/{id}",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/{id}/reveal": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens_id_reveal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/preferences/tokens/{id}/reveal",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/preferences/tokens/{id}/rotate": {
+      "post": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "post_server_preferences_tokens_id_rotate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "POST /server/preferences/tokens/{id}/rotate",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/privacy": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_privacy",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/privacy",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/security": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_security",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/security",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/security/policy": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_security_policy",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/security/policy",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/security/thanks": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_security_thanks",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/security/thanks",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/swagger": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_swagger",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/swagger",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/server/terms": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_terms",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/terms",
+        "tags": [
+          "server"
+        ]
+      }
+    },
+    "/settings": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_settings",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /settings",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/states/{country}": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_states_country",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "country",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /states/{country}",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/stats": {
+      "get": {
+        "description": "Returns aggregate statistics about the airport dataset",
+        "operationId": "airportStats",
+        "responses": {
+          "200": {
+            "description": "Statistics object"
+          }
+        },
+        "summary": "Dataset statistics",
+        "tags": [
+          "airports"
+        ]
+      }
+    },
+    "/stats.txt": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_stats_txt",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /stats.txt",
+        "tags": [
+          "server"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "API v1",
+      "url": "/api/v1"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Airport data endpoints",
+      "name": "airports"
+    },
+    {
+      "description": "GeoIP location endpoints",
+      "name": "geoip"
+    },
+    {
+      "description": "Server health and metadata endpoints",
+      "name": "server"
+    }
+  ]
+}

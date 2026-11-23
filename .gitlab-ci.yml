@@ -26,6 +26,7 @@ build:
     - OFFICIAL_SITE="${OFFICIAL_SITE:-}"
     - LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
     - EXT=""; if [ "$GOOS" = windows ]; then EXT=".exe"; fi
+    - GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen
     - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-${GOOS}-${GOARCH}${EXT}" ./src
     - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-cli-${GOOS}-${GOARCH}${EXT}" ./src/client
   artifacts:

@@ -24,7 +24,7 @@ README language count and this page whenever a locale is added or retired.
 
 ## Files and Source of Truth
 
-Locale files live in [`src/common/i18n/locales/`](../src/common/i18n/locales/).
+Locale files live in the repository's `src/common/i18n/locales/` directory.
 `en.json` defines the keys and source text. Do not translate keys or edit the
 English file while translating another language. Keep the same JSON structure,
 key order, and two-space indentation in each locale file. Files use UTF-8 JSON

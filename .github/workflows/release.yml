@@ -70,6 +70,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
+          GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen
           LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src
 

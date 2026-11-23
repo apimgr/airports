@@ -284,6 +284,26 @@ func TestMCPRequestFlow(t *testing.T) {
 	if len(tools) == 0 {
 		t.Fatal("MCP tool registry is empty")
 	}
+	var graphqlTool *mcpTool
+	for i := range tools {
+		if tools[i].path == "/server/graphql" {
+			graphqlTool = &tools[i]
+		}
+		if strings.HasPrefix(tools[i].path, "/server/preferences/tokens") {
+			t.Errorf("token management route %q must not be exposed as an MCP tool", tools[i].path)
+		}
+	}
+	if graphqlTool == nil {
+		t.Fatal("GraphQL operation is missing from MCP tools")
+	}
+	graphqlProperties := graphqlTool.InputSchema["properties"].(map[string]interface{})
+	if graphqlProperties["query"] == nil {
+		t.Fatal("GraphQL MCP tool has no query input schema")
+	}
+	required, _ := graphqlTool.InputSchema["required"].([]string)
+	if len(required) != 1 || required[0] != "query" {
+		t.Fatalf("GraphQL required inputs = %v, want [query]", required)
+	}
 	list := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`))
 	list.Header.Set("Content-Type", "application/json")
 	list.Header.Set("Authorization", "Bearer adm_test-token")

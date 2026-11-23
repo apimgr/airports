@@ -6,12 +6,9 @@ import (
 	"github.com/apimgr/airports/src/common/i18n"
 )
 
-// BuildSpec returns the hand-maintained OpenAPI 3.0 specification for the
-// Airports API. Until full auto-generation from handler annotations is
-// wired up, this file is the single source of truth for the spec served
-// at /api/{api_version}/server/swagger and the unversioned alias
-// /api/swagger (per AI.md PART 14).
-// BuildSpec returns the OpenAPI 3.0 spec for the Airports API.
+// BuildSpec returns the annotated OpenAPI 3.0 operation metadata for the
+// Airports API. The running router supplies the authoritative route and
+// method set through BuildSpecWithRoutes.
 // version is injected at runtime from the build-time Version variable so
 // the spec always reflects the running binary version. apiVersion is the
 // configured API path segment (server.api_version, default "v1") and must
@@ -227,4 +224,182 @@ func BuildSpec(version, apiVersion string, lang string, baseURL ...string) map[s
 		},
 		"components": map[string]interface{}{},
 	}
+}
+
+// OpenAPIRoute is route metadata collected from the live HTTP router.
+type OpenAPIRoute struct {
+	Method      string
+	Path        string
+	Summary     string
+	Auth        bool
+	MountedWhen string
+	Mounted     bool
+}
+
+// BuildSpecWithRoutes combines operation annotations with the running route
+// table so optional routes and compatibility surfaces stay in sync with the
+// handlers actually mounted for this process.
+func BuildSpecWithRoutes(version, apiVersion, lang string, routes []OpenAPIRoute, baseURL ...string) map[string]interface{} {
+	spec := BuildSpec(version, apiVersion, lang, baseURL...)
+	paths := spec["paths"].(map[string]interface{})
+	for _, route := range routes {
+		method := strings.ToLower(route.Method)
+		if method != "get" && method != "post" && method != "put" && method != "patch" && method != "delete" && method != "head" && method != "options" {
+			continue
+		}
+		pathItem, ok := paths[route.Path].(map[string]interface{})
+		if !ok {
+			pathItem = map[string]interface{}{}
+			paths[route.Path] = pathItem
+		}
+		operation, ok := pathItem[method].(map[string]interface{})
+		if !ok {
+			operation = map[string]interface{}{
+				"tags":        []string{openAPITag(route.Path)},
+				"operationId": openAPIOperationID(method, route.Path),
+				"summary":     route.Summary,
+				"description": i18n.TranslateText(lang, "swagger.route_description"),
+				"responses": map[string]interface{}{
+					"200": map[string]interface{}{"description": "Successful response"},
+					"400": map[string]interface{}{"description": "Invalid request"},
+				},
+			}
+			if parameters := openAPIPathParameters(route.Path); len(parameters) > 0 {
+				operation["parameters"] = parameters
+			}
+			if method == "post" || method == "put" || method == "patch" {
+				operation["requestBody"] = map[string]interface{}{
+					"required": method == "post" || method == "put",
+					"content": map[string]interface{}{
+						"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "additionalProperties": true}},
+					},
+				}
+			}
+			pathItem[method] = operation
+		}
+		applyOpenAPIRouteSchema(operation, route.Path, method)
+		if route.Auth {
+			operation["security"] = []map[string][]string{{"BearerAuth": {}}}
+		}
+		if route.MountedWhen != "" {
+			operation["x-mounted-when"] = route.MountedWhen
+		}
+	}
+	components := spec["components"].(map[string]interface{})
+	components["securitySchemes"] = map[string]interface{}{
+		"BearerAuth": map[string]string{"type": "http", "scheme": "bearer"},
+	}
+	return spec
+}
+
+func openAPIPathParameters(path string) []map[string]interface{} {
+	var parameters []map[string]interface{}
+	for {
+		start := strings.Index(path, "{")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(path[start:], "}")
+		if end < 0 {
+			break
+		}
+		name := path[start+1 : start+end]
+		parameters = append(parameters, map[string]interface{}{
+			"name": name, "in": "path", "required": true,
+			"schema": map[string]string{"type": "string"},
+		})
+		path = path[start+end+1:]
+	}
+	return parameters
+}
+
+func applyOpenAPIRouteSchema(operation map[string]interface{}, path, method string) {
+	if method == "post" && path == "/server/graphql" {
+		operation["requestBody"] = map[string]interface{}{
+			"required": true,
+			"content": map[string]interface{}{"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object", "required": []string{"query"},
+					"properties": map[string]interface{}{
+						"query":         map[string]string{"type": "string"},
+						"operationName": map[string]string{"type": "string"},
+						"variables":     map[string]string{"type": "object"},
+					}, "additionalProperties": false,
+				},
+			}},
+		}
+	}
+	if method == "post" && path == "/server/preferences" {
+		operation["requestBody"] = map[string]interface{}{
+			"required": true,
+			"content": map[string]interface{}{"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object", "properties": map[string]interface{}{
+						"theme": map[string]string{"type": "string"},
+						"lang":  map[string]string{"type": "string"},
+					}, "additionalProperties": true,
+				},
+			}},
+		}
+	}
+	if method == "post" && path == "/server/contact" {
+		fields := strings.Fields("name email type reported_url reason copyrighted_work good_faith accuracy signature request_kind subject message captcha_id captcha_answer captcha captcha_response g-recaptcha-response h-captcha-response website form_token step review_token confirmed security_id component endpoint severity summary steps_to_reproduce impact suggested_fix cve_requested timeline_days credit_preference credit_handle researcher_gpg disclosure_agreement")
+		properties := make(map[string]interface{}, len(fields))
+		for _, field := range fields {
+			properties[field] = map[string]string{"type": "string"}
+		}
+		operation["requestBody"] = map[string]interface{}{
+			"required": true,
+			"content": map[string]interface{}{"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"type": "object", "properties": properties, "additionalProperties": false},
+			}},
+		}
+	}
+}
+
+func FilterMountedRoutes(spec map[string]interface{}, routes []OpenAPIRoute) {
+	paths, _ := spec["paths"].(map[string]interface{})
+	for _, route := range routes {
+		if route.MountedWhen == "" {
+			continue
+		}
+		pathItem, ok := paths[route.Path].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		method := strings.ToLower(route.Method)
+		if !route.Mounted {
+			delete(pathItem, method)
+		} else if operation, ok := pathItem[method].(map[string]interface{}); ok {
+			delete(operation, "x-mounted-when")
+		}
+		if len(pathItem) == 0 {
+			delete(paths, route.Path)
+		}
+	}
+}
+
+func openAPITag(path string) string {
+	first := strings.Trim(strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)[0], "{}")
+	switch first {
+	case "geoip":
+		return "geoip"
+	case "airports", "countries", "states", "stats", "settings":
+		return "airports"
+	default:
+		return "server"
+	}
+}
+
+func openAPIOperationID(method, path string) string {
+	var b strings.Builder
+	b.WriteString(method)
+	for _, r := range path {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else if b.Len() > 0 && !strings.HasSuffix(b.String(), "_") {
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }

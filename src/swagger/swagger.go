@@ -85,3 +85,28 @@ func SpecHandler(version, apiVersion string, baseURLResolver ...func(*http.Reque
 		_, _ = w.Write(body)
 	}
 }
+
+// SpecHandlerWithRoutes serves a localized spec generated from the mounted
+// router routes plus the operation annotations in annotations.go.
+func SpecHandlerWithRoutes(version, apiVersion string, routes func() []OpenAPIRoute, baseURLResolver ...func(*http.Request) string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		lang := i18n.FromContext(r.Context())
+		var baseURL []string
+		if len(baseURLResolver) > 0 && baseURLResolver[0] != nil {
+			baseURL = append(baseURL, baseURLResolver[0](r))
+		}
+		var mounted []OpenAPIRoute
+		if routes != nil {
+			mounted = routes()
+		}
+		spec := BuildEmbeddedSpecWithRoutes(version, apiVersion, lang, mounted, baseURL...)
+		FilterMountedRoutes(spec, mounted)
+		body, err := json.MarshalIndent(spec, "", "  ")
+		if err != nil {
+			http.Error(w, i18n.TranslateText(lang, "errors.internal"), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(append(body, '\n'))
+	}
+}

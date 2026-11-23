@@ -261,6 +261,7 @@
     "page_title": "API 文档",
     "page_description": "浏览 Airports REST API，并向此服务器发送请求。",
     "info_description": "集成 GeoIP 的全球机场位置信息 API",
+    "route_description": "根据此服务器上启用的路由生成的操作。",
     "tag_airports": "机场数据端点",
     "tag_geoip": "GeoIP 位置端点",
     "tag_server": "服务器健康状况和元数据端点",

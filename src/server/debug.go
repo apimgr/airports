@@ -1,10 +1,12 @@
 package server
 
 import (
+	"crypto/subtle"
 	"expvar"
 	"net/http"
 	"net/http/pprof"
 	"runtime"
+	"strings"
 
 	cachepkg "github.com/apimgr/airports/src/cache"
 	"github.com/apimgr/airports/src/config"
@@ -24,24 +26,39 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
 	debugConfig := s.config.Server.Debug
 	runtime.SetBlockProfileRate(debugConfig.BlockProfileRate)
 	runtime.SetMutexProfileFraction(debugConfig.MutexProfileFraction)
+	s.registerDebugRouteGroup(r, "/debug", debugConfig, false)
+	s.registerDebugRouteGroup(r, s.APIBasePath()+"/debug", debugConfig, true)
+	s.registerDebugRouteGroup(r, "/api/debug", debugConfig, true)
+}
 
-	r.Route("/debug", func(r chi.Router) {
+func (s *Server) registerDebugRouteGroup(router chi.Router, prefix string, debugConfig config.DebugConfig, api bool) {
+	router.Route(prefix, func(r chi.Router) {
+		r.Use(s.requireOperatorToken)
+		if api {
+			r.Use(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("X-API-Version", s.config.Server.APIVersion)
+					w.Header().Set("Cache-Control", "private, max-age=0, no-cache")
+					next.ServeHTTP(w, r)
+				})
+			})
+		}
 		if debugConfig.Pprof {
-			r.HandleFunc("/pprof/", pprof.Index)
-			r.HandleFunc("/pprof/cmdline", pprof.Cmdline)
-			r.HandleFunc("/pprof/profile", pprof.Profile)
-			r.HandleFunc("/pprof/symbol", pprof.Symbol)
-			r.HandleFunc("/pprof/trace", pprof.Trace)
-			r.Handle("/pprof/heap", pprof.Handler("heap"))
-			r.Handle("/pprof/goroutine", pprof.Handler("goroutine"))
-			r.Handle("/pprof/allocs", pprof.Handler("allocs"))
-			r.Handle("/pprof/block", pprof.Handler("block"))
-			r.Handle("/pprof/mutex", pprof.Handler("mutex"))
-			r.Handle("/pprof/threadcreate", pprof.Handler("threadcreate"))
+			r.Get("/pprof/", pprof.Index)
+			r.Get("/pprof/cmdline", pprof.Cmdline)
+			r.Get("/pprof/profile", pprof.Profile)
+			r.Get("/pprof/symbol", pprof.Symbol)
+			r.Get("/pprof/trace", pprof.Trace)
+			r.Get("/pprof/heap", pprof.Handler("heap").ServeHTTP)
+			r.Get("/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
+			r.Get("/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
+			r.Get("/pprof/block", pprof.Handler("block").ServeHTTP)
+			r.Get("/pprof/mutex", pprof.Handler("mutex").ServeHTTP)
+			r.Get("/pprof/threadcreate", pprof.Handler("threadcreate").ServeHTTP)
 		}
 
 		if debugConfig.RuntimeEndpoints {
-			r.Handle("/vars", expvar.Handler())
+			r.Get("/vars", expvar.Handler().ServeHTTP)
 		}
 
 		// Custom debug endpoints.
@@ -49,10 +66,21 @@ func (s *Server) registerDebugRoutes(r chi.Router) {
 		r.Get("/routes", s.handleDebugRoutes)
 		r.Get("/cache", s.handleDebugCache)
 		r.Get("/db", s.handleDebugDB)
-		r.Get("/data", s.handleDebugData)
 		r.Get("/scheduler", s.handleDebugScheduler)
 		r.Get("/memory", s.handleDebugMemory)
 		r.Get("/goroutines", s.handleDebugGoroutines)
+	})
+}
+
+func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		provided := bearerCredential(r)
+		expected := strings.TrimSpace(s.config.Server.Token)
+		if expected == "" || len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			s.writeErrorJSON(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "A valid operator Bearer token is required.")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -173,21 +201,6 @@ func (s *Server) handleDebugGoroutines(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(buf[:n])
-}
-
-// handleDebugData returns airport data service statistics. This project
-// has no separate DB layer — airports.AirportDataService holds the in-memory
-// dataset, so its Stats() is the debug data source.
-func (s *Server) handleDebugData(w http.ResponseWriter, r *http.Request) {
-	if s.airports == nil {
-		s.respondItem(w, http.StatusOK, map[string]interface{}{
-			"configured": false,
-		})
-		return
-	}
-
-	stats := s.airports.Stats()
-	s.respondItem(w, http.StatusOK, stats)
 }
 
 // handleDebugScheduler returns scheduler task status.

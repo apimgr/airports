@@ -78,6 +78,18 @@ pipeline {
                     env.HAS_CLI = sh(script: '[ -d src/client ] && echo true || echo false', returnStdout: true).trim()
                 }
                 sh 'mkdir -p ${BINDIR} ${RELDIR}'
+                sh '''
+                    docker run --rm \
+                        --name "${PROJECT_NAME}-openapi-gen" \
+                        -v ${WORKSPACE}:/app \
+                        -v ${GO_CACHE:-$HOME/go/pkg/mod}:/usr/local/share/go/pkg/mod \
+                        -v ${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}:/usr/local/share/go/cache \
+                        -w /app \
+                        -e CGO_ENABLED=0 \
+                        -e GOFLAGS=-buildvcs=false \
+                        casjaysdev/go:latest \
+                        sh -c 'GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen'
+                '''
                 echo "Build type: ${BUILD_TYPE}, Version: ${VERSION}"
             }
         }
