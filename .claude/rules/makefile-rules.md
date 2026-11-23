@@ -11,7 +11,7 @@
 - Double an existing `v` prefix (`vv1.2.3`)
 - Copy or symlink binaries anywhere (`/usr/local/bin`, PATH, between `binaries/`↔`releases/`) — run in place
 - Skip or weaken the coverage gate (`-short`, `-count=0`, ignore directives) — 60% minimum always enforced
-- Let `release.txt` be overridden by env var or derived value when the file exists — file always wins
+- Give an explicitly set user `VERSION` env var priority over a non-empty `release.txt`
 
 ## CRITICAL - ALWAYS DO
 
@@ -22,7 +22,7 @@
 - Run `make dev` → `make test` → `./tests/run_tests.sh` → `make local` → `./tests/incus.sh` → `make build` in that order before a release
 - Strip binaries before packaging into `releases/` (`make release`)
 - Delete/replace the existing `daily` release each build — only one daily release may ever exist
-- Derive version from `release.txt` (wins) > `VERSION` env var > `devel` fallback
+- Derive local version from explicit `VERSION` env var > non-empty `release.txt` > short commit ID (`devel` outside Git)
 
 ## Key Rules Summary
 
@@ -38,7 +38,7 @@
 | Required env flags | `CGO_ENABLED=0`, `GOFLAGS=-buildvcs=false` on all Docker Go invocations |
 | Binary naming | Server: `{project_name}[-os-arch[.exe]]`; CLI: `{project_name}-cli[-os-arch[.exe]]` |
 | Output dirs | `binaries/` (build artifacts, gitignored), `releases/` (packaged, with `version.txt`) |
-| Version source | `release.txt` (wins) > `VERSION` env > `devel` fallback |
+| Local version source | Explicit `VERSION` env > non-empty `release.txt` > short commit ID (`devel` outside Git); CI uses tag/devel/beta rules |
 | Version tag `v` | Add only to numeric semver (`1.2.3`→`v1.2.3`); never to text/timestamp (`dev`, `beta`, `20251218...`) |
 | Release types | Stable (semver tag, unlimited), Beta (`{ts}-beta`, unlimited), Daily (`{ts}`, max 1 rolling) |
 | Coverage gate | 60% minimum via `go test -cover`; CI + local `make test`; never skip |

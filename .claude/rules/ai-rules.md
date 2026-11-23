@@ -21,7 +21,7 @@
 - Read the relevant AI.md PART(s) before implementing; re-verify every 3-5 changes (drift check)
 - Treat server apps as internet-facing and hostile-traffic-exposed by default
 - Validate/sanitize all input; parameterized queries only; name columns explicitly (never `SELECT *`)
-- Give every feature a web route (HTML) AND a matching `/api/{api_version}/...` route (JSON)
+- Pair each user-facing API route with an HTML page that presents the same data, and each page with its API route; system-only and explicitly machine-only routes may be API-only per AI.md PART 1 and PART 14
 - Verify with real tools before claiming "done" (`make test`, curl, build, etc.) — never "looks right"
 - Keep IDEA.md in sync with actual features; keep README/docs/Swagger/GraphQL in sync with code
 - Use intent-revealing names — no bare `Mode`, `Type`, `Status`, `Config`, `Get()`, `New()`, etc.

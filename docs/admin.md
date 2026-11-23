@@ -104,7 +104,7 @@ airports --maintenance pgp delete
 airports --maintenance secret rotate installation_secret
 airports --maintenance secret rotate encryption_key
 airports --maintenance token list
-airports --maintenance token revoke PREFIX
+airports --maintenance token revoke PREFIX [--yes]
 airports --maintenance data export --owner PREFIX --output airports-export.json
 airports --maintenance data delete --owner PREFIX
 airports --maintenance compliance report
@@ -124,6 +124,20 @@ level with `server.compliance.fedramp_impact_level` (`Low`, `Moderate`, or
 the application cannot verify the hosting provider's physical data location.
 This report is not a certification or an assessment that an external standard
 is met.
+
+`audit.log` uses JSON Lines. Each entry includes a unique ID, UTC timestamp to
+milliseconds, event, category, severity, actor, result, and a `prev` SHA-256
+link to the preceding line. The first entry uses 64 zeroes; the first entry
+after rotation continues the chain. The server verifies the active file at
+startup and the file being closed at rotation, records a broken chain once as
+`security.audit_chain_broken`, and continues appending. `keep: none` removes
+rotated files; a local chain anchor preserves continuity for the active file.
+The compliance report prints `intact (N entries)` or
+`broken at <file>:<line>`.
+
+Token revocation asks for the linked-token prefix or primary owner's ID. A
+primary-token revocation deletes the owner, all tokens, and its resources in
+one database transaction. `--yes` skips the typed confirmation for scripts.
 
 Data exports contain owner and token metadata plus owned resources, never token
 values or hashes. Airports currently has no owner-owned resource records.
@@ -167,12 +181,17 @@ server:
 ```
 
 The metrics include HTTP, database, cache, scheduler, system, Go runtime,
-authentication, rate-limit, Tor, and airport request measurements. Memory cache
-metrics include exact live entry count and logical key/value bytes; Valkey/Redis
-reports client-observed hits and misses only, because server-wide size and
-eviction counters cannot be attributed to this application instance. The Grafana
-dashboard is served by the `grafana` service token and uses the same per-service
-authentication rule.
+authentication, rate-limit, Tor, and airport request measurements. Cache metrics
+include hits, misses, evictions, current item count, and current bytes. Memory
+cache size and bytes are exact for the live in-process entries. Valkey/Redis
+scans only this cache's configured key prefix and sums live key count and Redis
+logical key and value bytes. Repeated SCAN results count once. If Redis scanning
+or key inspection fails, size and eviction samples are omitted and the previous
+complete snapshot is retained. Evictions are inferred from previously observed
+keys that disappear before their TTL, so external deletions can also count and
+an eviction between scrapes may be missed. Raw cache keys are never metric
+labels. The Grafana dashboard is served by the `grafana` service token and uses
+the same per-service authentication rule.
 
 - **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/{api_version}/server/healthz` (JSON).
 - **About endpoint**: `GET /server/about` shows the project description, features, links, and version.

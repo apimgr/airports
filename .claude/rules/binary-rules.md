@@ -7,7 +7,7 @@
 - Ship anything but a single static binary — `CGO_ENABLED=0`, pure Go, no runtime deps
 - Embed security databases (GeoIP/blocklists/CVE/Trivy) in the binary — always downloaded to `{data_dir}/security/`
 - Hand-roll flag parsing for the server binary — stdlib `flag` only (single-command, no subcommands)
-- Implement UI mode flags (`--tui`, `--cli`, `--gui`, `--mode tui/cli/gui`) — display mode is ALWAYS auto-detected; `--mode` is production/development only
+- Implement UI mode flags (`--tui`, `--cli`, `--gui`, `--mode tui/cli/gui`) — display mode is ALWAYS auto-detected; server `--mode` selects production, development, or explicit debug mode
 - Add short flags beyond `-h`/`-v` — everything else is long-form only
 - Use Electron/web-based GUI for the CLI — native toolkit only (GTK4/Qt6, Cocoa, Win32)
 - Put CLI config/data/cache/logs in system directories — CLI runtime state is ALWAYS user-scope, even when invoked by root

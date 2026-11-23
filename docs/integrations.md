@@ -138,6 +138,31 @@ settings may also use the documented `SMTP_*` environment variables.
 
 This project has no user accounts, so transactional email (signup, password reset) does not exist.
 
+## Outbound Webhooks
+
+Webhook destinations are configured per notification role under
+`server.contact.{admin,security,abuse,general}.webhooks`; an empty role-specific
+transport follows the same fallback order as its email recipient. Supported
+adapters are `telegram`, `discord`, `slack`, `mattermost`, `pushover`, `gotify`,
+and `generic`. The `generic` adapter sends JSON containing the role, event,
+subject, body, severity, timestamp, project name/version, app URL, and an
+optional tracking ID. Destination URLs and signing secrets are private config
+and are redacted from debug output. See [configuration.md](./configuration.md)
+for destination examples.
+
+Every delivery includes `X-Webhook-Signature` (`sha256=<hex HMAC-SHA256>` over
+the exact request body), `X-Webhook-Timestamp` (Unix seconds),
+`X-Webhook-ID` (UUID v7 idempotency key), `X-Webhook-Event`, and a project
+`User-Agent`. The per-destination signing secret is generated when needed and
+stored in `secrets.yml` with mode `0600`; it is never returned by an API or
+printed. Receivers should compare signatures in constant time and reject
+timestamps more than five minutes from their current time.
+
+Non-2xx responses are retried with increasing delays of 1 minute, 5 minutes,
+15 minutes, 1 hour, 6 hours, and 24 hours. Retries preserve the webhook ID so
+receivers can deduplicate them. After the final failure, the server logs
+`notify.webhook_failed` with rate limiting.
+
 ## Self-Update — GitHub Releases
 
 Manual `airports --update check|yes` checks GitHub Releases for the configured

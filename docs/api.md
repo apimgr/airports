@@ -393,6 +393,8 @@ GET /api/{api_version}/geoip/airports/nearby
 
 ## Health Endpoints
 
+The JSON response reports Tor as an object with `enabled`, `running`, `status`, and `hostname`. I2P also includes `state` (the provider lifecycle) and `provider`. For example, an opted-out I2P network reports `enabled: false`, `status: "disabled"`, `state: "disabled"`, and `provider: "none"`; an enabled configuration with no installed provider reports `enabled: false`, `status: "disabled"`, `state: "no_provider"`, and `provider: "none"`. The `checks.i2p` key is omitted in both cases.
+
 ### Server Health (root/versioned alias)
 
 ```http
@@ -471,12 +473,16 @@ manage tokens.
 The one-shot security report status page is available at
 `GET /server/security/report/{tracking_id}` and has no API mirror. Contact
 `GET` returns the field descriptors, a newly created CAPTCHA, and a
-form token. `POST` submissions use `step=submit` to validate and return a
-review without delivering the report, then repeat the fields with
-`step=confirm`, the review token, and `confirmed=true` to deliver. CAPTCHA
-challenges are one-use and expire after ten minutes. Security reports are
-accepted only through a valid security ID from the security page or
-`security.txt`.
+form token. The form offers abuse, DMCA, and privacy reports; security reports
+are accepted only through a valid security ID from the security page or
+`security.txt`. `POST` submissions use `step=submit` to validate and return a
+review without delivery, then repeat every field with `step=confirm`, the
+review token, and `confirmed=true` to deliver. Form tokens enforce minimum
+completion time and single use; review tokens enforce a confirmation delay and
+bind the review to the submitted fields. CAPTCHA challenges are one-use and
+expire after ten minutes. Accepted reports are limited by client IP, sender
+email, and a global window; content checks reject markup, blocked terms/domains,
+and disallowed links. The response does not disclose which content rule failed.
 
 The DPO endpoint returns `name`, `email`, and an absolute `privacy_url`. Its
 email uses `server.contact.dpo.email`, then `server.contact.general.email`;

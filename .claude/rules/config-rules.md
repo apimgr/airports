@@ -19,8 +19,8 @@
 
 - Validate every config value on load; on invalid input, log a warning and substitute the default — server must still start
 - Accept the full truthy/falsy word set (yes/no, on/off, enable/disable, y/n, t/f, etc.), case-insensitive, via `config.ParseBool`/`config.IsTruthy`
-- Resolve mode as `--mode` CLI > `MODE` env > default `production`; resolve debug as `--debug` CLI > `DEBUG` env (truthy) > `--mode debug`/`MODE=debug` alias > default `false`
-- Treat `MODE=debug`/`--mode debug` as `development` + debug on, but let an explicitly set `DEBUG` env or `--debug` flag override the alias
+- Resolve mode as `--mode` CLI > `MODE` env > `server.mode` in `server.yml` > default `production`; resolve debug as `--debug` CLI > `DEBUG` env (truthy) > `--mode debug`/`MODE=debug` default-on behavior > default `false`
+- Treat `MODE=debug`/`--mode debug` as the distinct `debug` mode with diagnostics on by default; an explicitly set `DEBUG` env or `--debug` flag overrides the debug flag without changing the selected mode
 - Keep debug endpoints (`/debug/pprof/*`, `/debug/vars`, `/debug/config`, `/debug/routes`, `/debug/cache`, `/debug/db`, `/debug/scheduler`) gated strictly behind the debug flag, never behind `development` mode alone
 - Sanitize any config dumped via `/debug/config` (redact secrets)
 - Resolve FQDN/proto/port/baseurl in reverse-proxy-preferred order, honoring proxy headers only from trusted peers; Tor requests are priority-0 and bypass the trust gate entirely
@@ -36,8 +36,8 @@
 | Config file name/location | `server.yml` only (never `.yaml`); root `/etc/{internal_org}/{internal_name}/server.yml`, user `~/.config/{internal_org}/{internal_name}/server.yml`; auto-migrate `server.yaml` → `server.yml` on startup |
 | Env var classes | Runtime vars (`NO_COLOR`, `TERM`, `DOMAIN`, `MODE`, `DATABASE_*`, `SMTP_*`) always re-checked; init-only vars (`CONFIG_DIR`, `DATA_DIR`, `LOG_DIR`, `PORT`, `LISTEN`, `APPLICATION_*`) apply once on first run only |
 | Port default | Random unused port 64000-64999 on first run, then persisted; port 80/443 auto-enable Let's Encrypt/SSL; port 0 = OS-assigned |
-| Four operational states | Production (default), Production+Debug, Development, Development+Debug — see behavior tables for logging/caching/error verbosity per state |
-| Config precedence | CLI flag > env var > config file > built-in default (mode/debug); `--mode`/`--debug` always win |
+| Six operational states | Production, Production+Debug, Development, Development+Debug, Debug with diagnostics off, Debug with diagnostics on — see AI.md PART 6 behavior tables |
+| Config precedence | `--mode` > `MODE` > `server.mode` > default; `--debug` > `DEBUG` > debug-mode default > false |
 | Config validation | Invalid value → log warning, apply default, continue startup — never crash |
 | Base URL | `baseurl` resolved: `X-Forwarded-Prefix` > `X-Forwarded-Path` > `X-Script-Name` > config/CLI `server.baseurl`/`--baseurl` > default `/` |
 | Trusted proxies | Private ranges + loopback + link-local always trusted; `server.trusted_proxies.additional` adds public IP/CIDR/DNS; ungated direct deployments should leave `additional: []` |

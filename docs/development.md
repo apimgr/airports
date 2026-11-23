@@ -10,7 +10,7 @@ The build runs entirely inside Docker. You **do not** need Go installed on the h
 
 Optional:
 
-- [Incus](https://linuxcontainers.org/incus/) for full-OS integration tests on systemd.
+- [Incus](https://linuxcontainers.org/incus/) for full-OS integration tests on systemd and OpenRC.
 
 ## Clone and Build
 
@@ -73,22 +73,35 @@ live in `src/server/`.
 make test                  # Go unit tests inside Docker
 ./tests/run_tests.sh       # Auto-detect Incus or Docker, run integration suite
 ./tests/docker.sh          # Build the current tree and test it in Docker
-./tests/incus.sh [systemd|openrc|all] # Test service lifecycle in Incus; defaults to both init systems
+./tests/incus.sh [systemd|openrc|all] # Test Debian/systemd and Alpine/OpenRC; defaults to both
+./tests/e2e.sh             # On-demand SSR, no-JS, and full-browser E2E suite in Docker
 ```
 
 The Go integration tests live under `tests/integration/` and end-to-end tests
-under `tests/e2e/`.
+under `tests/e2e/`. The browser E2E suite is run separately on demand; it is
+not part of `make test` or `tests/run_tests.sh`.
 
-The Docker test compose file (`docker/docker-compose.test.yml`) **must** be copied to a temp dir before running — never run from the project directory:
+The Docker integration and E2E scripts copy
+`docker/docker-compose.test.yml` into a project-scoped OS temp directory. Each
+run uses a unique Compose project and a test port in the 64000–64999 range,
+then removes its own containers, network, volumes, and temporary files after a
+successful run. The E2E script retains its temp directory and browser artifacts
+after a failure for diagnosis. Do not run the test compose file from the project
+directory or start it manually; use the scripts above so test resources remain
+isolated.
 
-```bash
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/apimgr/airports-XXXXXX")
-mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
-chown -R 1000:1000 "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
-cp docker/docker-compose.test.yml "$TEMP_DIR/docker-compose.yml"
-cd "$TEMP_DIR" && docker compose up --abort-on-container-exit
-rm -rf "$TEMP_DIR"
-```
+The Incus suite defaults to `all` and runs Debian/systemd and numbered
+Alpine/OpenRC cases sequentially. The suite creates uniquely named instances
+on a dedicated temporary Incus network, installs the service dependencies
+(Tor and I2P included), then verifies the native service file, enable/active state,
+restart PID, stop/start behavior, API responses, content negotiation, and
+binary renaming. It checks Tor with and without its provider binary, I2P's
+system-container default-off behavior, explicit enablement, opt-out, and
+missing-provider behavior. Finally it restarts the system container and checks
+service persistence, disable/reinstall/uninstall, and application data removal.
+`TOR_WAIT` and `I2P_WAIT` set the bootstrap wait periods (300 and 600 seconds by
+default); `REQUIRE_OVERLAY=1` makes unavailable overlay bootstrapping fail.
+`INCUS_IMAGE_SYSTEMD` and `INCUS_IMAGE_OPENRC` can override the default images.
 
 Commit changes through the repository's `gitcommit` workflow and follow the
 current project and global commit instructions.

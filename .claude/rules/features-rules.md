@@ -26,8 +26,8 @@
 ## CRITICAL - ALWAYS DO
 
 - Fall back to the embedded default email template when no custom override file exists in
-  `{config_dir}/template/email/`; validate templates (unknown variables, empty subject/body)
-  before saving
+  `{config_dir}/template/email/`; validate configured templates on load and with
+  `{project_name} email test --dry-run`
 - Suppress `scheduler_error` when a more specific failure event (`backup_failed`,
   `ssl_renewal_failed`) already fired for the same execution — one notification, not two
 - Persist scheduler task state (`last_run`, `next_run`, `run_count`, `fail_count`) in `server.db`;
@@ -58,7 +58,7 @@
 | Metrics naming | snake_case, unit suffix (`_seconds`/`_bytes`), counters end `_total`; low-cardinality labels only (never user_id/request_id/IP) |
 | Backup format | `.tar.gz` or `.tar.gz.enc` (AES-256-GCM, Argon2id key derivation); `{project_name}_backup_YYYY-MM-DD[_HHMMSS].tar.gz[.enc]` full + `{project_name}-daily.tar.gz[.enc]` incremental + optional `-hourly` |
 | Backup schedule | `backup_daily` at 02:00 (full+daily incremental, default 2 files kept), `backup_hourly` disabled by default; retention by `max_backups`/`keep_weekly`/`keep_monthly`/`keep_yearly`/`max_total_size` |
-| Compliance mode | If `server.compliance.enabled`, backups are BLOCKED until an encryption password is set |
+| Compliance mode | If any `server.compliance` standard is enabled, backups are BLOCKED until an encryption password is set |
 | Restore | `{project_name} --maintenance restore <file>`; verifies checksum/manifest/decrypt before proceeding; requires `server.token` unless DB is empty |
 | Self-update command | `--update [check\|yes\|branch {stable\|beta\|daily}]` (alias `--maintenance update`); default `yes`; channels are cumulative (beta ⊇ stable, daily ⊇ beta ⊇ stable); checksum-verified download, platform-specific binary swap + service restart |
 | Update config | `server.update.branch`, `server.update.auto_install` (default false — notify only), `server.update.defer_days` (0-365, gates scheduled task only) |

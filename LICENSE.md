@@ -252,6 +252,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/tklauser/go-sysconf` | v0.4.0 | BSD-3-Clause | Copyright (c) 2018-2022, Tobias Klauser | [notice](https://github.com/tklauser/go-sysconf/blob/v0.4.0/LICENSE) |
 | `github.com/tklauser/numcpus` | v0.12.0 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/tklauser/numcpus/blob/v0.12.0/LICENSE) |
 | `github.com/transip/gotransip/v6` | v6.26.2 | MIT | Copyright (c) 2018 TransIP B.V. | [notice](https://github.com/transip/gotransip/blob/v6.26.2/LICENSE) |
+| `github.com/tursodatabase/libsql-client-go` | v0.0.0-20260528064733-9d5d30a29a60 | MIT | 2023-2024 Turso Authors | [notice](https://github.com/tursodatabase/libsql-client-go/blob/9d5d30a29a60/LICENSE) |
 | `github.com/ucloud/ucloud-sdk-go` | v0.22.63 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/ucloud/ucloud-sdk-go/blob/v0.22.63/LICENSE) |
 | `github.com/ultradns/ultradns-go-sdk` | v1.8.1-20250722213956-faef419 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/ultradns/ultradns-go-sdk/blob/v1.8.1-20250722213956-faef419/LICENSE) |
 | `github.com/vinyldns/go-vinyldns/vinyldns` | v0.9.17 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/vinyldns/go-vinyldns/blob/v0.9.17/LICENSE) |

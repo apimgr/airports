@@ -5,6 +5,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 [![CI](https://github.com/apimgr/airports/actions/workflows/ci.yml/badge.svg)](https://github.com/apimgr/airports/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/apimgr/airports)](https://github.com/apimgr/airports/releases)
 [![License](https://img.shields.io/github/license/apimgr/airports)](LICENSE.md)
+[![Docs](https://readthedocs.org/projects/apimgr-airports/badge/?version=latest)](https://apimgr-airports.readthedocs.io)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/apimgr/airports/pkgs/container/airports)
 
 ## About
@@ -12,10 +13,6 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary with zero runtime dependencies.
 
 **No user accounts or admin panel. Airport data and public server information are unauthenticated and read-only. Metrics require per-service bearer tokens.**
-
-## Official Site
-
-<https://github.com/apimgr/airports>
 
 ## Features
 
@@ -101,6 +98,8 @@ airports-cli
 # Examples
 airports-cli get KJFK
 airports-cli search "New York"
+airports-cli JFK
+airports-cli --limit 10 "New York"
 airports-cli nearby 40.63 -73.77 10
 airports-cli --server https://YOUR_SERVER health
 ```

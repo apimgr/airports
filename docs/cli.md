@@ -45,10 +45,10 @@ Running `airports` with no flags starts the server in the foreground, creating d
 | `--maintenance pgp <action>` | `server.token` or root | Manage the security-report keypair (`generate`, `rotate`, `publish`, `export`, `import`, `delete`) |
 | `--maintenance secret rotate <name>` | `server.token` or root | Rotate `installation_secret` or `encryption_key` |
 | `--maintenance token list` | `server.token` or root | List owner-token metadata |
-| `--maintenance token revoke <prefix>` | `server.token` or root | Revoke an owner token by prefix |
+| `--maintenance token revoke <prefix> [--yes]` | `server.token` or root | Revoke a linked token or delete the primary token's owner and its data; typed confirmation unless `--yes` |
 | `--maintenance data export --owner <prefix>` | `server.token` or root | Export owner and resource data as JSON |
 | `--maintenance data delete --owner <prefix> [--yes]` | `server.token` or root | Delete an owner and its data |
-| `--maintenance compliance report` | `server.token` or root | Print aggregate compliance settings and event counts |
+| `--maintenance compliance report` | `server.token` or root | Print aggregate compliance settings, event counts, and audit-chain integrity |
 
 ### Shell Integration
 
@@ -129,6 +129,7 @@ airports-cli [flags] <command> [args...]
 | Command | Description |
 |---------|-------------|
 | `search <query>` | Free-text search by name, city, or code |
+| `<query>` | Bare arguments are treated as a free-text search (for example, `airports-cli JFK`) |
 | `get <code>` | Fetch a single airport by ICAO or IATA code |
 | `nearby <lat> <lon> [n]` | N closest airports to a coordinate (optional result count) |
 | `health` | Show server health status |
@@ -147,6 +148,7 @@ Starting `airports-cli` without a command selects the interface from the current
 | `--config NAME` | — | Config profile name (default: `cli.yml`) |
 | `--api-version VERSION` | — | API version path segment (default: `v1`) |
 | `--format FORMAT` | — | Output format: `json`\|`yaml`\|`text` |
+| `--limit N` | `AIRPORTS_LIMIT` | Maximum search results, from 1 to 1000 (default: 20; configurable with `defaults.limit` in `cli.yml`) |
 | `--json` | — | Output as JSON (default) |
 | `--yaml` | — | Output as YAML |
 | `--color {auto\|yes\|no}` | — | Color output (default: `auto`, respects `NO_COLOR`) |
@@ -165,12 +167,14 @@ airports-cli --shell help                 # show shell help
 
 ### Configuration
 
-Server URL, token, color, and language are saved to `~/.config/apimgr/airports/cli.yml` (or the profile named by `--config`) on first run, with the server URL stored under the nested `server.primary` key. Command-line flags take precedence over saved values; `AIRPORTS_SERVER_PRIMARY` and `AIRPORTS_TOKEN` provide environment overrides when flags are omitted. There is no built-in localhost fallback: interactive setup tests the server health endpoint before saving the URL, and non-interactive use requires `--server`, `AIRPORTS_SERVER_PRIMARY`, or a saved server URL.
+Server URL, token, color, language, and the default search limit are saved to `~/.config/apimgr/airports/cli.yml` (or the profile named by `--config`), with the server URL stored under `server.primary` and the limit under `defaults.limit`. Command-line flags take precedence over environment and saved values; `AIRPORTS_SERVER_PRIMARY`, `AIRPORTS_TOKEN`, and `AIRPORTS_LIMIT` provide environment overrides when flags are omitted. There is no built-in localhost fallback: interactive setup tests the server health endpoint before saving the URL, and non-interactive use requires `--server`, `AIRPORTS_SERVER_PRIMARY`, or a saved server URL.
 
 ### Examples
 
 ```bash
 airports-cli search "kennedy"
+airports-cli JFK
+airports-cli --limit 10 "New York"
 airports-cli get KJFK
 airports-cli nearby 40.7128 -74.0060 5
 airports-cli --server https://airports.example.com health

@@ -32,7 +32,7 @@
 - Validate forms with HTML5 attributes first (`required`, `pattern`, `type=email`), `:user-invalid` for zero-JS error styling, inline `aria-describedby` errors on blur
 - Use toast for non-blocking confirmations, modal (native `<dialog>`) for decisions/input/destructive confirmation — never interchange them
 - Render the theme toggle, cookie-consent banner, and site announcement banner server-side so they work with zero JavaScript; JS only removes the reload round-trip
-- Populate `/server/about`, `/server/help`, `/server/privacy`, `/server/contact`, `/server/terms` from real `IDEA.md` content — never generic placeholder text
+- Populate `/server/about` and `/server/help` from real IDEA.md content; source `/server/contact` from its `server.contact.*` and `server.pages.contact.*` configuration, and follow the AI.md-defined sources for privacy and terms pages
 - Serve `/sitemap.xml` dynamically (homepage priority 1.0, public pages 0.8, never API routes or auth-gated pages)
 - Validate/sanitize any remote-fetched branding image (HTTPS only, block private/loopback/internal IPs, size + MIME-type limits, ≤5 redirects)
 
@@ -52,6 +52,6 @@
 | Cookie consent | Always shown (we use cookies) until `cookie_consent` cookie set; categories: essential (always) / preferences / analytics; decline blocks all tracking/third-party embeds |
 | PWA | `manifest.json` + `sw.js` + `offline.html`; icons 72–512px + maskable; cache-first static, network-first HTML, network-only+queue for API |
 | Response format | `{"ok":true,"data":{}}` / `{"ok":false,"error":"CODE","message":"..."}`; text responses `OK: ...` / `ERROR: CODE: message`; all non-HTML responses end with one `\n` |
-| Standard pages | `/server/about`, `/server/privacy`, `/server/contact`, `/server/help`, `/server/terms` — content sourced from IDEA.md, never placeholders |
+| Standard pages | `/server/about` and `/server/help` use IDEA.md; `/server/contact` uses its config; privacy and terms follow their AI.md content-source rules |
 
 For complete details, see AI.md PART 16.

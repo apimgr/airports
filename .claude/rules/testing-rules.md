@@ -5,8 +5,8 @@
 ## CRITICAL - NEVER DO
 
 - Run `go build`/`go test`/binaries directly on the local machine — Go is not installed there; always Docker (`casjaysdev/go:latest`) or Incus
-- Skip either test phase — `*_test.go` (`make test`) and `./tests/*.sh` are both required, neither replaces the other
-- Commit with `go test -cover` below 60%, or with any endpoint from IDEA.md untested
+- Skip `make test` before committing or the applicable manual binary checks before release; E2E is on demand
+- Commit when `make test` fails or coverage is below 60%
 - Use `docker-compose.yml` / `docker-compose.dev.yml` as AI — human-only; AI uses `docker-compose.test.yml` via `tests/` scripts
 - Put runtime/test data under the project directory or bare `/tmp` — always `/tmp/{project_org}/{internal_name}-XXXXXX/`
 - Use `pkill -f`/`killall`/`kill -9` first, or any `docker *prune`/`rm -rf` broad sweep — project-scoped exact PID/name only
@@ -19,7 +19,7 @@
 ## CRITICAL - ALWAYS DO
 
 - Create/update the matching `*_test.go` in the same work pass whenever package logic is added or changed
-- Run `make test` (Phase 1, toolchain gate) before every commit; run `./tests/run_tests.sh` (Phase 2, manual) before release
+- Run `make test` (Phase 1, toolchain gate) before every commit; run binary validation scripts in `./tests/` manually before release. E2E is on demand and is not a commit gate
 - Test every route with all applicable Accept headers (`text/html`+`text/plain` for frontend; `application/json`+`text/plain` for API) and every `.txt` endpoint
 - Maintain `tests/run_tests.sh`, `tests/docker.sh`, `tests/incus.sh` (executable, WTFPL header), auto-detecting Incus (preferred) then Docker (fallback)
 - Keep `docs/` covering the full shipped surface (browser, CLI, API, config, well-known/discovery) with the 8 required pages (index, installation, configuration, api, cli, security, integrations, development)
@@ -33,7 +33,7 @@
 
 | Area | Rule |
 |------|------|
-| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate) + Phase 2 `./tests/*.sh` (100% endpoint coverage, manual/pre-release) |
+| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `./tests/*.sh` is manual binary validation before release; `./tests/e2e.sh` is on-demand and never part of the commit gate |
 | Test file naming | `config_test.go`, `server_test.go`, `*_handler_test.go`, `mode_test.go`, `ssl_test.go`, `paths_test.go` — colocated with source |
 | Coverage tooling | `go test -cover -coverprofile=coverage.out ./...` + `go tool cover -func=coverage.out`; CI fails build if `< 60` |
 | Integration container | Incus `debian:latest` (preferred, systemd) or Docker `casjaysdev/go:latest`/`alpine:latest` (fallback) |
@@ -42,7 +42,7 @@
 | RTD config | `mkdocs.yml` (Material theme, dark/light/auto) + `.readthedocs.yaml` (`os: ubuntu-24.04`, latest stable Python) |
 | RTD URL | `https://{project_org}-{project_name}.readthedocs.io` or `https://{project_name}.readthedocs.io` |
 | i18n locale files | `src/common/i18n/locales/{lang}.json`, embedded via `go:embed`, shared by ALL binaries |
-| Supported languages | en, es, zh, fr, ar (rtl), de, ja — all binaries support all languages, no partial support |
+| Supported languages | Minimum: en, es, fr, ar (rtl), de, it; this project also supports zh and ja. Every registered language must have complete locale-key parity |
 | i18n fallback | Missing key → `en` value; unsupported lang → `en`; never error |
 | a11y standard | WCAG 2.1 AA — 4.5:1 text contrast, 3:1 UI/focus, full keyboard nav, 44x44px touch targets |
 | a11y testing tools | axe DevTools, WAVE, Lighthouse, NVDA/VoiceOver, manual keyboard-only pass |

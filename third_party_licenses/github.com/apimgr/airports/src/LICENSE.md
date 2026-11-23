@@ -34,21 +34,19 @@ Airport data is sourced from OurAirports and is in the public domain. No attribu
 ### GeoIP Databases
 
 Source: [sapics/ip-location-db](https://github.com/sapics/ip-location-db)
-License: CC BY 4.0 (ASN, country, and city data)
+License: PDDL (ASN and country data); CC BY 4.0 (DB-IP city data)
 
 | Database | License | Underlying Source(s) |
 |----------|---------|-----------------------|
-| ASN | CC BY 4.0 | RouteViews, NRO, DB-IP (merged) |
-| Country | CC BY 4.0 | NRO (RIR whois + geofeed + ASN data, merged) |
+| ASN | PDDL | iptoasn.com (RouteViews / RIR data) |
+| Country | PDDL | iptoasn.com (RIR data) |
 | City | CC BY 4.0 | DB-IP |
 
-All three databases are licensed CC BY 4.0, and attribution is a license
-condition. Both notices below are required together — MaxMind GeoLite2 is
+The DB-IP attribution is required because the City database is used. The ASN
+and country datasets are PDDL and require no attribution. MaxMind GeoLite2 is
 not used by this project:
 
 [IP Geolocation by DB-IP](https://db-ip.com/)
-
-Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO).
 
 ### Go Dependencies
 
@@ -101,6 +99,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/aws/aws-sdk-go-v2/service/sts` | v1.42.0 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/aws/aws-sdk-go-v2/blob/service/sts/v1.42.0/service/sts/LICENSE.txt) |
 | `github.com/aws/smithy-go` | v1.25.0 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/aws/smithy-go/blob/v1.25.0/LICENSE) |
 | `github.com/aws/smithy-go/internal/sync/singleflight` | v1.25.0 | BSD-3-Clause | Copyright (c) 2009 The Go Authors. All rights reserved. | [notice](https://github.com/aws/smithy-go/blob/v1.25.0/internal/sync/singleflight/LICENSE) |
+| `github.com/aymerick/douceur` | v0.2.0 | MIT | Copyright (c) 2015 Aymerick JEHANNE | [notice](https://github.com/aymerick/douceur/blob/v0.2.0/LICENSE) |
 | `github.com/aziontech/azionapi-go-sdk/idns` | v0.144.0 | MIT | Copyright (c) 2022 Azion Technologies | [notice](https://github.com/aziontech/azionapi-go-sdk/blob/v0.144.0/LICENSE.md) |
 | `github.com/baidubce/bce-sdk-go` | v0.9.265 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/baidubce/bce-sdk-go/blob/v0.9.265/LICENSE) |
 | `github.com/benbjohnson/clock` | v1.3.5 | MIT | Copyright (c) 2014 Ben Johnson | [notice](https://github.com/benbjohnson/clock/blob/v1.3.5/LICENSE) |
@@ -110,6 +109,8 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/cenkalti/backoff/v4` | v4.3.0 | MIT | Copyright (c) 2014 Cenk Altı | [notice](https://github.com/cenkalti/backoff/blob/v4.3.0/LICENSE) |
 | `github.com/cenkalti/backoff/v5` | v5.0.3 | MIT | Copyright (c) 2014 Cenk Altı | [notice](https://github.com/cenkalti/backoff/blob/v5.0.3/LICENSE) |
 | `github.com/cespare/xxhash/v2` | v2.3.0 | MIT | Copyright (c) 2016 Caleb Spare | [notice](https://github.com/cespare/xxhash/blob/v2.3.0/LICENSE.txt) |
+| `github.com/cloudflare/circl` | v1.6.3 | BSD-3-Clause | Copyright (c) 2019 Cloudflare. All rights reserved. | [notice](https://github.com/cloudflare/circl/blob/v1.6.3/LICENSE) |
+| `github.com/cloudflare/circl/ecc/p384` | v1.6.3 | BSD-3-Clause | Copyright (c) 2018, Brendan McMillion. All rights reserved. | [notice](https://github.com/cloudflare/circl/blob/v1.6.3/ecc/p384/LICENSE) |
 | `github.com/clbanning/mxj/v2` | v2.7.0 | MIT | Copyright (c) 2012-2021 Charles Banning <clbanning@gmail.com>.  All rights reserved. | [notice](https://github.com/clbanning/mxj/blob/v2.7.0/LICENSE) |
 | `github.com/cretz/bine` | v0.2.0 | MIT | Copyright (c) 2018 Chad Retz | [notice](https://github.com/cretz/bine/blob/v0.2.0/LICENSE) |
 | `github.com/dimchansky/utfbom` | v1.1.1 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/dimchansky/utfbom/blob/v1.1.1/LICENSE) |
@@ -153,6 +154,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/googleapis/gax-go/v2` | v2.21.0 | BSD-3-Clause | Copyright 2016, Google Inc. | [notice](https://github.com/googleapis/gax-go/blob/v2.21.0/v2/LICENSE) |
 | `github.com/gophercloud/gophercloud` | v1.14.1 | Apache-2.0 | Copyright 2012-2013 Rackspace, Inc. | [notice](https://github.com/gophercloud/gophercloud/blob/v1.14.1/LICENSE) |
 | `github.com/gophercloud/utils` | v0.0.0-20231010081019-80377eca5d56 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/gophercloud/utils/blob/80377eca5d56/LICENSE) |
+| `github.com/gorilla/css` | v1.0.1 | BSD-3-Clause | Copyright (c) 2023 The Gorilla Authors. All rights reserved. | [notice](https://github.com/gorilla/css/blob/v1.0.1/LICENSE) |
 | `github.com/hashicorp/errwrap` | v1.0.0 | MPL-2.0 | See linked upstream license/NOTICE | [notice](https://github.com/hashicorp/errwrap/blob/v1.0.0/LICENSE) |
 | `github.com/hashicorp/go-cleanhttp` | v0.5.2 | MPL-2.0 | See linked upstream license/NOTICE | [notice](https://github.com/hashicorp/go-cleanhttp/blob/v0.5.2/LICENSE) |
 | `github.com/hashicorp/go-multierror` | v1.1.1 | MPL-2.0 | See linked upstream license/NOTICE | [notice](https://github.com/hashicorp/go-multierror/blob/v1.1.1/LICENSE) |
@@ -184,6 +186,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/mimuret/golang-iij-dpf/pkg` | v0.9.1 | MIT | Copyright (c) 2021 Manabu Sonoda | [notice](https://github.com/mimuret/golang-iij-dpf/blob/v0.9.1/LICENSE) |
 | `github.com/mitchellh/go-homedir` | v1.1.0 | MIT | Copyright (c) 2013 Mitchell Hashimoto | [notice](https://github.com/mitchellh/go-homedir/blob/v1.1.0/LICENSE) |
 | `github.com/mitchellh/mapstructure` | v1.5.0 | MIT | Copyright (c) 2013 Mitchell Hashimoto | [notice](https://github.com/mitchellh/mapstructure/blob/v1.5.0/LICENSE) |
+| `github.com/microcosm-cc/bluemonday` | v1.0.27 | BSD-3-Clause | Copyright (c) 2014, David Kitchen | [notice](https://github.com/microcosm-cc/bluemonday/blob/v1.0.27/LICENSE.md) |
 | `github.com/modern-go/concurrent` | v0.0.0-20180306012644-bacd9c7ef1dd | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/modern-go/concurrent/blob/bacd9c7ef1dd/LICENSE) |
 | `github.com/modern-go/reflect2` | v1.0.3-0.20250322232337-35a7c28c31ee | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/modern-go/reflect2/blob/35a7c28c31ee/LICENSE) |
 | `github.com/munnerz/goautoneg` | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause | Copyright (c) 2011, Open Knowledge Foundation Ltd. | [notice](https://github.com/munnerz/goautoneg/blob/a7dc8b61c822/LICENSE) |
@@ -216,6 +219,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/prometheus/client_model/go` | v0.6.2 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/prometheus/client_model/blob/v0.6.2/LICENSE) |
 | `github.com/prometheus/common` | v0.66.1 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/prometheus/common/blob/v0.66.1/LICENSE) |
 | `github.com/prometheus/procfs` | v0.16.1 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/prometheus/procfs/blob/v0.16.1/LICENSE) |
+| `github.com/ProtonMail/go-crypto` | v1.5.2 | BSD-3-Clause | Copyright (c) 2009 The Go Authors. All rights reserved. | [notice](https://github.com/ProtonMail/go-crypto/blob/v1.5.2/LICENSE) |
 | `github.com/redis/go-redis/v9` | v9.21.0 | BSD-2-Clause | Copyright (c) 2013 The github.com/redis/go-redis Authors. | [notice](https://github.com/redis/go-redis/blob/v9.21.0/LICENSE) |
 | `github.com/regfish/regfish-dnsapi-go` | v0.1.1 | MIT | Copyright (c) 2024 regfish GmbH | [notice](https://github.com/regfish/regfish-dnsapi-go/blob/v0.1.1/LICENSE) |
 | `github.com/remyoudompheng/bigfft` | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause | Copyright (c) 2012 The Go Authors. All rights reserved. | [notice](https://github.com/remyoudompheng/bigfft/blob/24d4a6f8daec/LICENSE) |
@@ -257,6 +261,7 @@ This inventory covers dependencies reported by `go-licenses csv ./...`. Linked u
 | `github.com/yandex-cloud/go-sdk/services/dns/v1` | v0.0.54 | MIT | Copyright (c) 2018 YANDEX LLC | [notice](https://github.com/yandex-cloud/go-sdk/blob/services/dns/v0.0.54/services/dns/LICENSE) |
 | `github.com/yandex-cloud/go-sdk/v2` | v2.92.0 | MIT | Copyright (c) 2018 YANDEX LLC | [notice](https://github.com/yandex-cloud/go-sdk/blob/v2.92.0/LICENSE) |
 | `github.com/youmark/pkcs8` | v0.0.0-20240726163527-a2c0da244d78 | MIT | Copyright (c) 2014 youmark | [notice](https://github.com/youmark/pkcs8/blob/a2c0da244d78/LICENSE) |
+| `github.com/yuin/goldmark` | v1.8.7 | MIT | Copyright (c) 2019 Yusuke Inuzuka | [notice](https://github.com/yuin/goldmark/blob/v1.8.7/LICENSE) |
 | `go.mongodb.org/mongo-driver` | v1.17.9 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/mongodb/mongo-go-driver/blob/v1.17.9/LICENSE) |
 | `go.opentelemetry.io/auto/sdk` | v1.2.1 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/open-telemetry/opentelemetry-go-instrumentation/blob/sdk/v1.2.1/sdk/LICENSE) |
 | `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp` | v0.67.0 | Apache-2.0 | copyright notice that is included in or attached to the work | [notice](https://github.com/open-telemetry/opentelemetry-go-contrib/blob/instrumentation/net/http/otelhttp/v0.67.0/instrumentation/net/http/otelhttp/LICENSE) |

@@ -8,17 +8,8 @@
 ## AI.md compliance status
 
 - [ ] Full compliance sweep against AI.md PART 0-33 and FINAL CHECKPOINT. The earlier completed
-      status was inaccurate: `AUDIT.AI.md` still contains unresolved findings, and this project is
-      not yet fully aligned. Resolve or verify every finding against AI.md before marking complete.
-
-- [ ] PART 1 API naming: replace bare exported `Config`/`Status` types and generic exported
-      functions with spec-compliant names and comments; keep behavior and call sites consistent.
-
-- [ ] PART 6 diagnostics: SQL and cache operations are debug-gated across database, scheduler,
-      backup, maintenance recovery, cache backends, and rate limiting. Query argument values are
-      omitted, cache keys are hashed, and enabled request/response body logs are bounded and
-      sanitized. Still wire `slog` diagnostics to configured log files and apply the configured
-      global/mode log-level filtering; run the project lint gate when available.
+      status was inaccurate, and this project is not yet fully aligned. Use AI.md itself as the
+      checklist and source of truth; AUDIT.AI.md is stale and is not an authority or a task list.
 
 - [ ] PART 7 display behavior: `TERM=dumb` now forces CLI mode even when TUI/GUI is configured,
       and disables color/emoji overrides across the CLI and server banner. Focused display, client,
@@ -31,8 +22,11 @@
 
 - [ ] PART 11 compliance configuration: all eleven standards now have independent `server.yml`
       booleans, any enabled standard activates encrypted-backup enforcement, and the maintenance
-      report lists enabled standards. Standard-specific behaviors and privacy/data-rights workflows
-      remain incomplete; do not represent the standards as fully enforced until those are resolved.
+      report lists enabled standards. JSONL audit entries, ULID IDs, SHA-256 chaining, startup and
+      rotation verification, one-time chain-break reporting, and the compliance report integrity
+      result are implemented; final full-suite/lint/review verification is pending. Standard-
+      specific behaviors and privacy/data-rights workflows remain incomplete; do not represent the
+      standards as fully enforced until those are resolved.
 
 - [ ] PART 12 public contact and hooks: the contact page now issues single-use arithmetic
       challenges and the POST handler validates them, checks bounded fields, and submits through
@@ -52,8 +46,6 @@
       now discovers matching CLI assets/checksums from the project GitHub Release and streams the
       platform asset through `/cli/binaries`; `cli.binary_download.require_auth` is configurable.
 
-- [ ] PART 17 template tools: validate unknown template variables before save and implement the
-      specified editor/autocomplete/preview behavior once its API-only editing surface is clear.
 - [ ] PART 20: per-service routes and token separation are wired, and the Grafana dashboard has
       panels for every required category. All application-owned metric families, including the
       five Go runtime metrics, use the required `airports_` prefix; the generic process collector

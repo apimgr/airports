@@ -293,11 +293,42 @@ server:
       captcha: simple             # simple | recaptcha | hcaptcha
       captcha_site_key: ""        # required for recaptcha and hcaptcha
       captcha_secret_key: ""      # required for recaptcha and hcaptcha
+      antispam:
+        honeypot: true
+        min_fill_seconds: 3
+        max_age_seconds: 43200
+        per_ip: 5
+        per_email: 3
+        global: 60
+        window: 1h
+        max_links: 10
+        reject_markup: true
+        blocked_words: []
+        blocked_email_domains: []
+        strikes: 3
+        ban_hours: 24
+        review_min_seconds: 2
+        review_max_seconds: 900
+        duplicate_window_hours: 24
       success_message: "Thank you for your message. We'll respond soon."
 ```
 
-Submissions are sent to the effective general email address; SMTP must be
-enabled and configured.
+The report form offers abuse, DMCA, and privacy requests; security reports use
+the separate security-report flow. Each submission passes a server-rendered
+review and confirmation step before delivery. Abuse and DMCA reports resolve
+to the abuse recipient, privacy requests to the DPO recipient, and configured
+webhooks follow the same per-role fallback order. SMTP must be enabled for
+email delivery. CAPTCHA verification fails closed; Tor and I2P always use the
+built-in simple challenge, and clearnet reCAPTCHA/hCaptcha forms keep the
+simple challenge as a no-JavaScript fallback.
+
+The antispam values control minimum form-fill time, token lifetime, accepted
+submission limits, allowed same-site links, markup rejection, blocked words
+and email domains, strike bans, review timing, and duplicate suppression.
+Setting an individual numeric limit to `0` disables that rule. IP and strike
+limits are skipped for Tor and I2P requests; per-email and global limits still
+apply. Rejections are logged as `contact.spam_blocked` with only a reason and
+client IP, never submitted content.
 
 The server's CLI binary endpoint reads matching versioned assets and
 `sha256.txt` from the `apimgr/airports` GitHub Release. Downloads are public by
@@ -381,6 +412,140 @@ server:
         enabled: true
         schedule: "*/5 * * * *"
 ```
+
+## Database and Cache
+
+The database stores runtime state such as owners, tokens, scheduler history,
+and audit events. Operator configuration stays in `server.yml`, `yaml.d/`,
+and `secrets.yml`; it is never stored in the database. SQLite is the default
+and writes `{data_dir}/db/server.db`. Remote libSQL/Turso is selected with
+`driver: libsql`; credentials belong in `secrets.yml`.
+
+```yaml
+server:
+  database:
+    driver: sqlite                 # sqlite | libsql
+    url: ""                        # local path or remote libsql URL
+    pool:
+      max_open: 5
+      max_idle: 2
+      max_lifetime: 5m
+      max_idle_time: 1m
+  cache:
+    type: memory                   # none | memory | valkey | redis
+    url: ""                        # use URL or host/port credentials
+    host: localhost
+    port: 6379
+    username: ""
+    password: ""                   # secret value belongs in secrets.yml
+    db: 0
+    tls: false
+    tls_skip_verify: true
+    tls_ca: ""
+    tls_cert: ""
+    tls_key: ""
+    pool_size: 10
+    min_idle: 2
+    timeout: 5s
+    prefix: "airports:"
+    ttl: 1h
+```
+
+The default cache is in-process memory and is cleared when the process stops.
+Use Valkey or Redis when rate-limit and cache state needs to be shared across
+instances. For TLS, configure the CA and client certificate/key file names
+under `{config_dir}/ssl/` as required.
+
+## Backup and Restore
+
+Backups are written under `{backup_dir}`. Retention settings live under
+`server.backup.retention`; zero weekly/monthly/yearly values disable those
+periodic copies. `max_total_size` accepts a percentage or an absolute size.
+The backup password is a secret and should be stored in `secrets.yml`.
+Compliance mode is active when any standard is enabled, and backups then
+require encryption.
+
+```yaml
+server:
+  backup:
+    retention:
+      max_backups: 1
+      keep_weekly: 0
+      keep_monthly: 0
+      keep_yearly: 0
+      max_total_size: "10%"
+  restore:
+    max_archive_size: 1G
+    max_expanded_size: 4G
+    max_files: 10000
+    max_file_size: 512M
+    max_ratio: 100
+```
+
+Old backups are removed only after the new backup passes its verification
+checks. Restore limits bound compressed size, expanded size, file count,
+individual file size, and expansion ratio. See [admin.md](./admin.md) for
+backup, restore, retention, and recovery operations.
+
+## Metrics
+
+Metrics are internal operational endpoints. Each service has an independent
+bearer token, generated into `secrets.yml` when missing. Keep authentication
+enabled on public networks; `allow_unauthenticated` is intended only behind a
+firewall.
+
+```yaml
+server:
+  metrics:
+    enabled: true
+    root:
+      enabled: true
+    auth:
+      allow_unauthenticated: false
+      tokens:
+        prometheus: ""              # generated secret
+        grafana: ""                 # generated secret
+        loki: ""                    # generated secret
+    include_system: true
+    include_runtime: true
+    loki:
+      max_entries: 1000
+      max_age: 1h
+```
+
+The service-specific endpoints are `/server/metrics/prometheus`,
+`/server/metrics/grafana`, and `/server/metrics/loki`; root aliases such as
+`/metrics` are controlled by `server.metrics.root.enabled`. See
+[admin.md](./admin.md) for scraper setup and dashboard operations.
+
+## Compliance Settings
+
+All standards are disabled by default and are configured independently in
+`server.compliance`. Enabling any standard activates encrypted-backup
+enforcement and the applicable configured retention policy. The compliance
+report summarizes settings and controls; it is not a certification or legal
+determination.
+
+```yaml
+server:
+  compliance:
+    gdpr: false
+    ccpa: false
+    hipaa: false
+    soc2: false
+    pci_dss: false
+    iso27001: false
+    fedramp: false
+    lgpd: false
+    pipeda: false
+    appi: false
+    pdpa: false
+```
+
+The standards have different requirements and should only be enabled when the
+operator has configured the corresponding controls. See [security.md](./security.md)
+for the security model and `airports --maintenance compliance report` for the
+effective configured requirements.
 
 ## Environment Variables
 
