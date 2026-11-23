@@ -72,8 +72,8 @@ live in `src/server/`.
 ```bash
 make test                  # Go unit tests inside Docker
 ./tests/run_tests.sh       # Auto-detect Incus or Docker, run integration suite
-./tests/docker.sh          # Force Docker-based integration
-./tests/incus.sh           # Force Incus VM (preferred — systemd available)
+./tests/docker.sh          # Build the current tree and test it in Docker
+./tests/incus.sh [systemd|openrc|all] # Test service lifecycle in Incus; defaults to both init systems
 ```
 
 The Go integration tests live under `tests/integration/` and end-to-end tests

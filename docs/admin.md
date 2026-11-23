@@ -110,6 +110,21 @@ airports --maintenance data delete --owner PREFIX
 airports --maintenance compliance report
 ```
 
+The compliance report lists enabled standards and current configuration facts:
+consent storage, configured data retention and DPO contact availability, CCPA
+opt-out applicability, backup retention and encryption, TLS, audit-log status,
+enabled audit categories, security-report retention, aggregate owner/resource
+counts, recent compliance events, and the last backup time. It also lists
+matrix-derived requirements such as minimum audit retention and the shortest
+specified breach deadline. These are required settings, not proof that the
+corresponding controls are implemented or operating. Configure GDPR residency
+regions with `server.compliance.gdpr_allowed_regions` and the FedRAMP impact
+level with `server.compliance.fedramp_impact_level` (`Low`, `Moderate`, or
+`High`). FedRAMP's US-only residency requirement is reported as a requirement;
+the application cannot verify the hosting provider's physical data location.
+This report is not a certification or an assessment that an external standard
+is met.
+
 Data exports contain owner and token metadata plus owned resources, never token
 values or hashes. Airports currently has no owner-owned resource records.
 Deletion removes the owner's tokens and record transactionally and retains only
@@ -119,7 +134,46 @@ requires explicit confirmation.
 
 ## Monitoring
 
-- **Prometheus metrics**: `GET /metrics` (Prometheus text exposition format).
+Metrics are internal operational endpoints. Restrict them to the monitoring network
+with a firewall or reverse-proxy rule; do not expose `/metrics` or `/server/metrics`
+publicly. Each service uses its own bearer token, generated into `secrets.yml` at
+startup when missing. Send it in `Authorization: Bearer <token>`; query-string
+tokens are not accepted.
+
+| Endpoint | Service token | Response |
+|----------|---------------|----------|
+| `GET /metrics` or `/server/metrics` | `prometheus` | Prometheus text exposition, including all exported metrics |
+| `GET /server/metrics/grafana` | `grafana` | Importable Grafana dashboard JSON with a Prometheus datasource variable |
+| `GET /server/metrics/loki` | `loki` | Bounded recent log entries in Loki push-stream JSON format |
+
+The service endpoints also have versioned and unversioned API aliases. Root
+aliases (`/metrics[/{service}]`) can be disabled with
+`server.metrics.root.enabled: false`. Configure metrics under
+`server.metrics` in `server.yml` or `yaml.d/metrics.yml`:
+
+```yaml
+server:
+  metrics:
+    enabled: true
+    root:
+      enabled: true
+    auth:
+      allow_unauthenticated: false
+    include_system: true
+    include_runtime: true
+    loki:
+      max_entries: 1000
+      max_age: 1h
+```
+
+The metrics include HTTP, database, cache, scheduler, system, Go runtime,
+authentication, rate-limit, Tor, and airport request measurements. Memory cache
+metrics include exact live entry count and logical key/value bytes; Valkey/Redis
+reports client-observed hits and misses only, because server-wide size and
+eviction counters cannot be attributed to this application instance. The Grafana
+dashboard is served by the `grafana` service token and uses the same per-service
+authentication rule.
+
 - **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/{api_version}/server/healthz` (JSON).
 - **About endpoint**: `GET /server/about` shows the project description, features, links, and version.
 - **Docker healthcheck**: built in (`airports --status`).
@@ -135,6 +189,7 @@ The binary includes its own scheduler — **never depend on host cron or systemd
 | Blocklist refresh | `0 4 * * *` | Fetch configured blocklists |
 | CVE refresh | `0 5 * * *` | Update vulnerability data |
 | Update check | `0 6 * * *` | Check release metadata |
+| Disk check | `*/5 * * * *` | Warn operators when a data, log, or backup volume is low |
 | Token cleanup | `*/15 * * * *` | Remove expired/revoked token state |
 | Log rotation | `0 0 * * *` | Rotate application logs |
 | Backup | `0 2 * * *` | Create a scheduled backup (five retained by default) |

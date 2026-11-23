@@ -140,7 +140,24 @@ This project has no user accounts, so transactional email (signup, password rese
 
 ## Self-Update — GitHub Releases
 
-When `airports --update` is invoked, the server checks GitHub Releases for its configured channel, downloads the matching `{os}/{arch}` binary, verifies the SHA-256 checksum, and replaces itself in place via atomic rename. Channels are `stable`, `beta`, and `devel`; `daily`, `rolling`, `dev`, and `development` are accepted aliases for `devel` and are stored canonically. The `devel` channel compares release publication time with the running binary's embedded build epoch and ignores `defer_days`.
+Manual `airports --update check|yes` checks GitHub Releases for the configured
+channel; `yes` downloads the matching `{os}/{arch}` binary, verifies its
+SHA-256 checksum, and replaces the executable. The built-in daily `update_check`
+task also checks releases. With `auto_install: true`, a server started as root
+stages an eligible update and exits with code 75 so its supervisor can restart
+it and install the verified binary. Other installations notify the admins and
+wait for an explicit restart. Channels are `stable`, `beta`, and `devel`;
+`daily`, `rolling`, `dev`, and `development` are aliases for `devel`. The
+`devel` channel compares release publication time with the running binary's
+embedded build epoch and ignores `defer_days`.
+
+```yaml
+server:
+  update:
+    branch: stable
+    auto_install: false
+    defer_days: 0
+```
 
 Disabled inside Docker — the user is instructed to `docker pull` instead.
 

@@ -361,6 +361,27 @@ server:
     binary: ""
 ```
 
+The built-in `disk_check` task runs every five minutes by default and checks
+the filesystems containing the data, log, and backup directories. Low-disk
+notifications are deduplicated per volume, repeat at most every 24 hours while
+usage remains high, and reset after usage falls five percentage points below
+the configured threshold.
+
+```yaml
+server:
+  notifications:
+    disk_low:
+      enabled: true
+      threshold_percent: 85
+      check_interval: 5m
+      repeat: 24h
+  scheduler:
+    tasks:
+      disk_check:
+        enabled: true
+        schedule: "*/5 * * * *"
+```
+
 ## Environment Variables
 
 The variables below are the ones the server actually reads (this list is

@@ -6,7 +6,6 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 [![Release](https://img.shields.io/github/v/release/apimgr/airports)](https://github.com/apimgr/airports/releases)
 [![License](https://img.shields.io/github/license/apimgr/airports)](LICENSE.md)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?logo=docker)](https://github.com/apimgr/airports/pkgs/container/airports)
-[![Documentation](https://readthedocs.org/projects/apimgr-airports/badge/?version=latest)](https://apimgr-airports.readthedocs.io/en/latest/)
 
 ## About
 
@@ -107,6 +106,8 @@ airports-cli --server https://YOUR_SERVER health
 ```
 
 With no command, the client opens a TUI in a terminal or a native GUI in a supported local desktop session when built with `-tags gui`. The TUI includes a general API explorer. Command output defaults to JSON; use `--format text` for plain text. Color output respects `NO_COLOR`.
+
+The native GUI labels its controls and supports keyboard focus, modal error dialogs, and Escape dismissal. The current `gogpu/ui` version does not provide platform screen-reader adapters (UIA, AT-SPI2, or NSAccessibility); use the TUI with `AIRPORTS_SCREEN_READER=1` or the CLI for screen-reader access.
 
 ---
 
