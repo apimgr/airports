@@ -136,7 +136,7 @@ server:
 Store `server.notifications.email.smtp.password` in `secrets.yml`. SMTP
 settings may also use the documented `SMTP_*` environment variables.
 
-This project has no user accounts, so transactional email (signup, password reset) does not exist.
+This project has no login accounts, so transactional email (signup, password reset) does not exist. Anonymous owner identities are managed with owner tokens and do not use email login.
 
 ## Outbound Webhooks
 
@@ -210,7 +210,7 @@ Compatible with Docker, Podman, containerd, and any OCI-compliant runtime.
 
 ## What the Server Does NOT Integrate With
 
-- **No OAuth / OIDC / SAML** — no user accounts exist.
+- **No OAuth / OIDC / SAML** — no login accounts exist.
 - **No external database server required** — embedded SQLite for operational state.
 - **External cache is optional** — in-process memory is the default; Redis or Valkey can be configured for shared cache and rate-limit state.
 - **No external scheduler** — built-in cron (do not deploy host cron / systemd timers).

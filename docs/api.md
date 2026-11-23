@@ -26,6 +26,10 @@ alias is disabled unless `server.healthz.root.enabled` is true.
 - **Search**: `GET /airports/search?q=...`
 - **Nearby airports**: `GET /airports/nearby?lat=...&lon=...`
 - **Airport details**: `GET /airports/{ident}`
+- **Statistics**: `GET /stats`
+- **GeoIP lookup**: `GET /geoip`
+- **Server pages**: `GET /server/about`, `/server/help`, `/server/help/mcp`, `/server/healthz`, `/server/privacy`, `/server/preferences`, `/server/preferences/sync`, `/server/preferences/tokens`, `/server/dpo`, `/server/terms`, `/server/contact`, `/server/security`, `/server/security/policy`, `/server/security/thanks`, `/server/security/report/{tracking_id}`, `/server/docs/swagger`, and `/server/docs/graphql`
+- **Security report status**: `/server/security/report/{tracking_id}` is a one-time emailed link; it shows triage status only and has no API mirror.
 
 These pages use the same airport data as the API and remain usable without JavaScript.
 
@@ -39,7 +43,7 @@ absolute for the current request host; feed responses support `ETag`,
 
 ## Authentication
 
-Airport data and public information endpoints require no authentication. Metrics endpoints require an independent bearer token for each service (`prometheus`, `grafana`, or `loki`); network ACLs are additional defense in depth. There are no user accounts or admin panel. See [security.md](./security.md) for the full security model.
+Public airport-data and informational reads require no authentication. Owner-token management, MCP, and metrics use the credential requirements described below. There are no login accounts or admin panel. See [security.md](./security.md) for the full security model.
 
 ## `.txt` / Plain-Text Support
 
@@ -194,6 +198,8 @@ GET /api/{api_version}/airports/nearby
 - `radius` (float, optional) - Search radius (default: 50, max: 500)
 - `limit` (int, optional) - Max results (default: 20)
 - `units` (string, optional) - `imperial` (default) or `metric`
+
+The default radius is 50 miles. Use `units=metric` to interpret the radius in kilometers.
 
 **Response:**
 ```json
@@ -516,6 +522,10 @@ POST /api/graphql
 **Interactive Playground**: `/server/docs/graphql`
 
 There is no GET-based GraphQL endpoint and no `/api/{api_version}/graphql` or `/api/{api_version}/docs` path — those were removed; use the paths above.
+
+GraphQL `nearby` uses kilometers and defaults to a 50 km radius. The REST
+`/airports/nearby` endpoint defaults to a 50 mile radius and accepts
+`units=metric` for kilometers.
 
 ### Example Query
 

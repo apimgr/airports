@@ -12,7 +12,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 
 Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary with zero runtime dependencies.
 
-**No user accounts or admin panel. Airport data and public server information are unauthenticated and read-only. Metrics require per-service bearer tokens.**
+**No login accounts or admin panel. Public airport-data and server-information reads are unauthenticated. Owner-token management uses the primary owner token; MCP uses linked owner tokens; metrics use per-service bearer tokens. The airport dataset remains read-only.**
 
 ## Features
 
@@ -146,8 +146,13 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /api/{api_version}/airports` | List airports (paginated) |
 | `GET /api/{api_version}/airports/{ident}` | Airport by ICAO/IATA code |
 | `GET /api/{api_version}/airports/search?q=...` | Search by name, city, country |
-| `GET /api/{api_version}/airports/nearby?lat=...&lon=...&radius=...` | Airports within radius (km) |
+| `GET /api/{api_version}/airports/nearby?lat=...&lon=...&radius=...` | Airports within radius (miles by default; pass `units=metric` for kilometers) |
 | `GET /api/{api_version}/airports/within?min_lat=...&max_lat=...&min_lon=...&max_lon=...` | Airports in bounding box |
+| `GET /api/{api_version}/airports/autocomplete?q=...` | Airport suggestions for a partial query |
+| `GET /api/{api_version}/airports.json`, `/airports.csv`, `/airports.geojson` | Full dataset exports |
+| `GET /api/{api_version}/countries`, `/states/{country}` | Airport counts by country and region |
+| `GET /api/{api_version}/stats` | Dataset statistics |
+| `GET /api/{api_version}/geoip`, `/geoip/{ip}` | Approximate location for the caller or a supplied IP |
 
 ### Public web pages
 
@@ -157,6 +162,8 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /airports/{ident}` | Airport detail page |
 | `GET /airports/search?q=...` | Airport search page |
 | `GET /airports/nearby` | Nearby and bounding-box results |
+| `GET /stats` | Airport dataset statistics |
+| `GET /geoip` | Caller location and nearby airports when available |
 
 ### Server endpoints
 
@@ -182,7 +189,12 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /server/security/thanks` | Security acknowledgments (HTML) |
 | `GET /api/{api_version}/server/security/thanks` | Security acknowledgments (JSON) |
 | `GET /server/preferences` | Language and theme preferences |
+| `GET /server/preferences/sync` | Import or export shareable language and theme preferences |
 | `GET /server/preferences/tokens` | View and manage owner and linked tokens with the owner cookie; without it, only token issue and restore forms appear |
+| `GET /server/contact` | Public abuse, DMCA, privacy, or security report form |
+| `GET /server/security/report/{tracking_id}` | One-time emailed security report status; report contents are not shown |
+| `GET /api/{api_version}/server/contact` | Contact form descriptors and challenge (JSON) |
+| `POST /api/{api_version}/server/contact` | Submit a validated public report |
 | `POST /server/consent` | Save cookie consent choices |
 | `POST /server/ccpa` | Save or clear the CCPA opt-out choice |
 | `GET /sitemap.xml` | Search-engine sitemap for allowed public pages |
@@ -195,8 +207,10 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
 | `GET /server/docs/graphql` | GraphiQL UI |
 | `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
+| `POST /api/graphql` | Direct alias for the current-version GraphQL endpoint |
 | `GET /server/metrics/{service}` | Prometheus, Grafana, or Loki metrics (per-service bearer token required) |
 | `GET /api/metrics/{service}` | Metrics alias (per-service bearer token required) |
+| `GET /api/{api_version}/server/metrics/{service}` | Versioned metrics endpoint (per-service bearer token required) |
 
 The health JSON keeps I2P's normalized `status` separate from its provider
 `state` (`disabled`, `no_provider`, `starting`, `building`, `running`, or
@@ -234,7 +248,7 @@ curl -q -LSsf http://YOUR_SERVER/api/{api_version}/airports/KJFK
 curl -q -LSsf "http://YOUR_SERVER/api/{api_version}/airports/search?q=Heathrow"
 
 # Nearby airports (50 km radius)
-curl -q -LSsf "http://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.63&lon=-73.77&radius=50"
+curl -q -LSsf "http://YOUR_SERVER/api/{api_version}/airports/nearby?lat=40.63&lon=-73.77&radius=50&units=metric"
 
 # Export as GeoJSON
 curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_version}/airports

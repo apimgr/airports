@@ -2,16 +2,18 @@
 
 ## Posture in One Sentence
 
-Airports is a public, read-only reference API. There are **no user accounts** and **no admin panel**. Public informational HTML pages and data APIs are unauthenticated; owner-token management is scoped to the owner cookie, and a small set of Tor process-control routes is available only to loopback callers for CLI-to-server communication. Abuse prevention rests on rate limiting, request-size limits, strict input validation, and transport hardening.
+Airports is a public, read-only airport reference API. There are **no login accounts** and **no admin panel**. Public page and airport-data reads are unauthenticated. Anonymous owner identities use primary and linked tokens; MCP and metrics require their appropriate tokens, and owner-token management is scoped to the primary owner token. A small set of Tor process-control routes is available only to loopback callers for CLI-to-server communication. Abuse prevention rests on rate limiting, request-size limits, strict input validation, and transport hardening.
 
 ## What Exists
 
 | Surface | Auth | Notes |
 |---------|------|-------|
-| Public HTML pages | None | Public read-only |
+| Public HTML page reads | None | Public; forms accept only their documented submissions |
 | `/server/preferences/tokens` | Owner token cookie | Lists and manages only the token owner's credentials and linked tokens; without a valid owner cookie, only token issue/restore forms appear |
-| Public REST endpoints (`/api/{api_version}/...`) | None | Public read-only data and server information |
+| Airport REST endpoints (`/api/{api_version}/airports`, `/countries`, `/states`, `/stats`, `/geoip`) | None | Public read-only airport and location data |
+| Public server information (`/api/{api_version}/server/*`) | Varies by route | Information reads are public; contact submissions and owner-token management follow their route-specific controls |
 | GraphQL (`/api/{api_version}/server/graphql`, alias `/api/graphql`) | None | Public read-only; depth + complexity limited |
+| MCP (`/api/{api_version}/server/mcp`, `/api/mcp`, `/mcp`) | Linked owner bearer token | Cookies are ignored; primary owner and operator tokens are not accepted |
 | Metrics (`/server/metrics/{service}`, `/api/metrics/{service}`, `/api/{api_version}/server/metrics/{service}`, `/metrics/{service}`) | Per-service bearer token | Network ACL is additional defense in depth; unauthenticated access is not allowed |
 | `/server/healthz` | None | Public |
 | Tor control (`/server/tor/*`) | Loopback peer | Internal CLI-to-server channel; remote peers receive 404 |
@@ -22,7 +24,8 @@ Airports is a public, read-only reference API. There are **no user accounts** an
 | Boundary | Trust | Notes |
 |----------|-------|-------|
 | Embedded airport dataset | Fully trusted | Static, compiled into the binary |
-| MaxMind / ip-location-db downloads | Trusted via HTTPS + checksum | Used only for caller GeoIP |
+| ip-location-db downloads | Trusted via HTTPS + published checksum | Used only for caller GeoIP |
+| OpenStreetMap tile service | External public service | Visitor browsers load tiles directly; the provider receives visitor IPs and viewed map areas; the server does not proxy tiles |
 | Incoming HTTP requests | **Untrusted** | All input validated; GeoIP lookup is best-effort |
 | CI/CD build pipeline | Trusted | Produces signed binaries |
 
@@ -143,8 +146,8 @@ allowed origin.
 ## Threats Explicitly Out of Scope
 
 - Admin panel compromise — no admin panel exists.
-- Account enumeration / credential stuffing — no accounts exist.
-- IDOR — no user-scoped resources exist.
+- Account enumeration / credential stuffing — no login accounts exist.
+- Airport records are public and have no user-scoped ownership. Owner-token management and private security-report status remain scoped to their credentials.
 - Live ATIS / METAR / NOTAM tampering — not provided.
 
 ## `.well-known` and Discovery Files

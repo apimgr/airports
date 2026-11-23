@@ -2,7 +2,7 @@
 
 ## No Web Admin Panel
 
-**Airports has no admin web panel, user accounts, or login flow.** Public airport data is read-only. Metrics endpoints use service-specific bearer tokens, and the Tor process-control routes accept loopback callers only.
+**Airports has no admin web panel, login accounts, or login flow.** Public airport data is read-only. Anonymous owner identities use owner tokens; metrics endpoints use service-specific bearer tokens, and the Tor process-control routes accept loopback callers only.
 
 All operator tasks happen out-of-band via:
 
