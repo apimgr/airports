@@ -33,6 +33,7 @@
 | Spec hierarchy | SPEC.md > AI.md > global CLAUDE.md; AI.md wins over IDEA.md if they conflict |
 | Container-only dev | `make dev` / `make local` / `make build` / `make test` — never bare `go build` |
 | Security posture | Fail secure, least privilege, defense in depth, secure by default |
+| Client requirement | Every project ships the CLI client; PART 32 has no skip case |
 | Error messages | User: minimal. Operator/log: actionable. Never leak stack traces, paths, internals |
 | Naming | files `lowercase_snake.go`; public `PascalCase`; private `camelCase`; booleans `isX/hasX/canX` |
 | Commit workflow | `gitcommit --dir {dir} all` only; never plain `git commit`/`git push` |

@@ -11,7 +11,7 @@
 - Assign different UID and GID values to the service account — they MUST match
 - Give the service account a real shell or login capability (must be `/sbin/nologin`, `/usr/bin/false`, or VSA-equivalent)
 - Uninstall (`--service --uninstall`) without an explicit `[y/N]` confirmation prompt before deleting data/user
-- Have `--service --install` perform user/group creation or directory setup itself — that belongs to normal server startup, not the install flag
+- Skip the idempotent user/group and directory setup during `--service --install` — init scripts may need the service account before first start; user-service installs create no system account
 - Ship a service manager integration (systemd/OpenRC/SysVinit/runit/rc.d/launchd/Windows) that's missing from the platform detection matrix
 
 ## CRITICAL - ALWAYS DO
@@ -44,7 +44,7 @@
 | FreeBSD rc.d path | `/usr/local/etc/rc.d/{internal_name}` |
 | launchd plist path | `/Library/LaunchDaemons/{plist_name}.plist` (`launchctl load/unload`) |
 | Windows service impl | `golang.org/x/sys/windows/svc` + `svc.Run` |
-| `--service --install` | detect init system → write service file → enable → start; user creation happens at binary startup, not here |
+| `--service --install` | detect init system → run idempotent directory/user setup → write service file → enable → start; user-service installs create no system account |
 | `--service --uninstall` | requires `[y/N]` confirmation; deletes data/user; binary itself is left behind |
 | `--service --disable` | stop + disable only; config/data/user remain for re-enable |
 

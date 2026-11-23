@@ -53,7 +53,7 @@
 | Auth identity rules | constant-time compares; identical auth error msg+timing; opaque external IDs; never echo credentials |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `CSP`, `Permissions-Policy`, `Referrer-Policy`, HSTS (SSL only), `Reporting-Endpoints`/`Report-To`/`NEL` |
 | CSP default | `default-src 'self'`, `script-src 'self'` (no inline), `object-src 'none'`, report to `/api/{api_version}/server/reports/csp` |
-| Secrets | `installation_secret`, `cookie_signing_key`, `csrf_token_secret` in `server.db`; `server.security.encryption_key` (AES-256-GCM) in `server.yml`; never logged/returned via API |
+| Secrets | Generated HMAC secrets and rotation rows in `server.db` `app_secrets`; credentials, including `server.security.encryption_key`, at rest in `secrets.yml`; never logged/returned via API |
 | Log files | `access.log`(apache), `server.log`(text), `error.log`(text), `audit.log`(json only, tamper-evident, append-only), `security.log`(fail2ban), `auth.log`(syslog) |
 | Log levels | `info` normal ops, `warn` failed/recoverable, `error` needs attention, `critical` security incidents/server failure |
 | Log rotation defaults | access.log monthly; audit.log daily; all others weekly,50MB; `keep: none` by default |
