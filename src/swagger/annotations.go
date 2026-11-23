@@ -25,7 +25,7 @@ func BuildSpec(version, apiVersion string, lang string, baseURL ...string) map[s
 	if apiVersion == "" {
 		apiVersion = "v1"
 	}
-	t := func(key string) string { return i18n.T(lang, key) }
+	t := func(key string) string { return i18n.TranslateText(lang, key) }
 	prefix := ""
 	if len(baseURL) > 0 {
 		prefix = strings.TrimSuffix(baseURL[0], "/")

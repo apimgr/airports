@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "nav.preferences"}}</h1>
+        <p class="page-lead">{{t "consent.preferences_desc"}}</p>
+    </header>
+    <form method="post" action="{{path "/server/preferences"}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <input type="hidden" name="consent_form" value="1">
+        <input type="hidden" name="redirect" value="/">
+        <section class="section-card" aria-labelledby="preferences-appearance">
+            <h2 id="preferences-appearance">{{t "preferences.appearance"}}</h2>
+            <div class="form-group">
+                <label for="preferences-theme-select">{{t "theme.toggle"}}</label>
+                <select class="form-input" id="preferences-theme-select" name="theme">
+                    <option value="auto" {{if eq .SelectedTheme "auto"}}selected{{end}}>{{t "theme.auto"}}</option>
+                    <option value="dark" {{if eq .SelectedTheme "dark"}}selected{{end}}>{{t "theme.dark"}}</option>
+                    <option value="light" {{if eq .SelectedTheme "light"}}selected{{end}}>{{t "theme.light"}}</option>
+                </select>
+            </div>
+        </section>
+        <section class="section-card" aria-labelledby="preferences-language">
+            <h2 id="preferences-language">{{t "preferences.language"}}</h2>
+            <div class="form-group">
+                <label for="preferences-lang">{{t "preferences.language"}}</label>
+                <select class="form-input" id="preferences-lang" name="lang">
+                    <option value="auto" lang="{{.DetectedLanguage}}" {{if eq .SelectedLanguage "auto"}}selected{{end}}>{{tf "preferences.automatic_detected" "language" .DetectedLanguageName}}</option>
+                    {{range .Languages}}<option value="{{.Code}}" lang="{{.Code}}" {{if eq $.SelectedLanguage .Code}}selected{{end}}>{{.NativeName}}</option>{{end}}
+                </select>
+            </div>
+        </section>
+        <section class="section-card" aria-labelledby="preferences-privacy">
+            <h2 id="preferences-privacy">{{t "privacy.title"}}</h2>
+            <div class="form-group"><label><input type="checkbox" checked disabled> {{t "privacy.essential_label"}} — {{.EssentialCookieDescription}}</label></div>
+            <div class="form-group"><label><input type="checkbox" name="consent_preferences" value="true" {{if .ConsentPreferences}}checked{{end}} {{if not .PreferencesCategoryEnabled}}disabled{{end}}> {{t "privacy.preferences_label"}} — {{.ConsentPreferencesDescription}}</label></div>
+            <div class="form-group"><label><input type="checkbox" name="consent_analytics" value="true" {{if .ConsentAnalytics}}checked{{end}} {{if not .AnalyticsCategoryEnabled}}disabled{{end}}> {{t "privacy.analytics_label"}} — {{.ConsentAnalyticsDescription}}</label></div>
+            {{if .Privacy.Data.Sold}}
+            <div class="form-group"><label><input type="checkbox" name="ccpa_opt_out" value="true" {{if .CCPAOptedOut}}checked{{end}}> {{t "privacy.ccpa_opt_out"}}</label></div>
+            {{end}}
+        </section>
+        <div class="form-actions">
+            <a class="btn btn-secondary" href="{{path "/"}}">{{t "common.cancel"}}</a>
+            <button class="btn btn-secondary" type="button" popovertarget="preferences-reset">{{t "preferences.reset"}}</button>
+            <button class="btn btn-primary" type="submit">{{t "preferences.save"}}</button>
+        </div>
+    </form>
+    <div id="preferences-reset" class="confirm-popover" popover>
+        <p>{{t "preferences.reset_warning"}}</p>
+        <form method="post" action="{{path "/server/preferences"}}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="action" value="reset">
+            <input type="hidden" name="redirect" value="/">
+            <button class="btn btn-danger" type="submit">{{t "preferences.erase_everything"}}</button>
+            <button class="btn btn-secondary" type="button" popovertarget="preferences-reset" popovertargetaction="hide">{{t "common.cancel"}}</button>
+        </form>
+    </div>
+    <section class="section-card" aria-labelledby="preferences-more-heading">
+        <h2 id="preferences-more-heading">{{t "preferences.more_heading"}}</h2>
+        <ul class="hub-list">
+            {{range .PreferencePages}}
+            <li class="hub-item"><a class="hub-link" href="{{path .Path}}"><span class="hub-title">{{.Title}}</span><span class="hub-desc">{{.Description}}</span></a></li>
+            {{end}}
+        </ul>
+    </section>
+</div>
+{{end}}

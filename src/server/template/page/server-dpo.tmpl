@@ -1,0 +1,21 @@
+{{define "content"}}
+<div class="container container-sm">
+    <header class="page-header">
+        <h1 class="page-title">{{t "dpo.title"}}</h1>
+        <p class="page-lead">{{t "dpo.lead"}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="dpo-contact">
+        <h2 id="dpo-contact">{{t "dpo.contact_heading"}}</h2>
+        {{if .Name}}<p>{{.Name}}</p>{{end}}
+        {{if .Email}}
+        <p>{{t "dpo.email_label"}}: <a href="mailto:{{.Email}}">{{.Email}}</a></p>
+        {{else}}
+        <p>{{t "dpo.no_email"}} <a href="{{.BaseURL}}/server/security">{{t "dpo.security_link"}}</a>.</p>
+        {{end}}
+    </section>
+    <section class="section-card" aria-labelledby="dpo-more">
+        <h2 id="dpo-more">{{t "dpo.more_heading"}}</h2>
+        <p>{{t "dpo.more_text"}} <a href="{{.BaseURL}}/server/privacy">{{t "nav.privacy"}}</a> {{t "dpo.or"}} <a href="{{.BaseURL}}/server/security">{{t "dpo.security_link"}}</a>.</p>
+    </section>
+</div>
+{{end}}

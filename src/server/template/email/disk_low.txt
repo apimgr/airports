@@ -1,0 +1,17 @@
+Subject: Disk Space Low - {app_name}
+---
+DISK SPACE LOW
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+Disk usage crossed the configured warning threshold.
+
+Path: {path}
+Used: {used_percent}%
+Free: {free}
+Threshold: {threshold_percent}%
+
+--
+{app_name}
+{app_url}

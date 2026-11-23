@@ -19,7 +19,7 @@ func TestMaintenanceWriteGateRejectsMutations(t *testing.T) {
 	})
 	t.Cleanup(func() { SetHealthRuntimeState(HealthRuntimeState{}) })
 
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Maintenance.SelfHealing.RetryInterval = "45s"
 	s := &Server{config: cfg}
 	nextCalled := false
@@ -68,7 +68,7 @@ func TestMaintenanceWriteGateAllowsReadOnlyMethods(t *testing.T) {
 	})
 	t.Cleanup(func() { SetHealthRuntimeState(HealthRuntimeState{}) })
 
-	s := &Server{config: config.DefaultConfig()}
+	s := &Server{config: config.DefaultApplicationConfig()}
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
 		t.Run(method, func(t *testing.T) {
 			nextCalled := false

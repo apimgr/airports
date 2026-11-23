@@ -7,12 +7,17 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -81,6 +86,11 @@ func assertSSRPage(t *testing.T, path string, expected ...string) {
 	}
 }
 
+func hasInputValue(html, name, value string) bool {
+	pattern := regexp.MustCompile(`(?is)<input\b[^>]*\bname="` + regexp.QuoteMeta(name) + `"[^>]*\bvalue="` + regexp.QuoteMeta(value) + `"`)
+	return pattern.MatchString(html)
+}
+
 func TestSSR_HomeHasRenderedSearchAndNavigation(t *testing.T) {
 	assertSSRPage(t, "/", "Search", "/airports/search", "/airports/nearby")
 }
@@ -89,12 +99,50 @@ func TestSSR_SearchReturnsAirportData(t *testing.T) {
 	assertSSRPage(t, "/airports/search?q="+url.QueryEscape("JFK"), "JFK", "airport-card")
 }
 
+func TestSSR_AirportDirectoryRendersAirportCardsAndPagination(t *testing.T) {
+	assertSSRPage(t, "/airports", "airport-card", "pagination")
+}
+
 func TestSSR_AirportDetailContainsCoordinatesAndMapBaseline(t *testing.T) {
 	assertSSRPage(t, "/airports/KJFK", "KJFK", "airport-map", "openstreetmap.org")
 }
 
+func TestSSR_HealthPageShowsFullStatusAndComponentSections(t *testing.T) {
+	assertSSRPage(t, "/server/healthz", "System Status", "Component Status", "Server Statistics")
+}
+
 func TestSSR_BoundingBoxSearchRendersAirportData(t *testing.T) {
 	assertSSRPage(t, "/airports/nearby?minLat=40&maxLat=41&minLon=-74&maxLon=-73", "results-grid", "airport-map")
+}
+
+func TestSSR_NearbyRadiusAndNearestLimitRenderRealResults(t *testing.T) {
+	status, headers, body := getPageAccept(t, "/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1", "text/html")
+	if status != http.StatusOK || !strings.Contains(headers.Get("Content-Type"), "text/html") {
+		t.Fatalf("nearby search status=%d content-type=%q", status, headers.Get("Content-Type"))
+	}
+	if !strings.Contains(body, "KJFK") || !hasInputValue(body, "radius", "25") || !hasInputValue(body, "limit", "1") {
+		t.Fatal("SSR nearby results do not show the nearest airport with the requested radius and limit")
+	}
+	if count := strings.Count(body, `class="airport-result-card"`); count != 1 {
+		t.Fatalf("SSR nearby search rendered %d airports for limit=1, want 1", count)
+	}
+}
+
+func TestSSR_SitemapAndFeedsAreValidAndHostScoped(t *testing.T) {
+	for _, test := range []struct {
+		path, contentType, marker string
+	}{
+		{path: "/sitemap.xml", contentType: "application/xml", marker: "<urlset"},
+		{path: "/feed.xml", contentType: "application/atom+xml", marker: "<feed"},
+		{path: "/rss.xml", contentType: "application/rss+xml", marker: "<rss"},
+	} {
+		t.Run(strings.Trim(test.path, "/"), func(t *testing.T) {
+			status, headers, body := getPageAccept(t, test.path, "")
+			if status != http.StatusOK || !strings.Contains(headers.Get("Content-Type"), test.contentType) || !strings.Contains(body, test.marker) {
+				t.Fatalf("%s status=%d content-type=%q body=%q", test.path, status, headers.Get("Content-Type"), body)
+			}
+		})
+	}
 }
 
 func TestAPI_AirportExportFormatsContainData(t *testing.T) {
@@ -169,6 +217,16 @@ func TestSSR_ServerPagesAndAPIDocsRender(t *testing.T) {
 	}
 }
 
+func TestSSR_OwnerTokenPageRendersIssueAndRestoreForms(t *testing.T) {
+	status, _, body := getPage(t, "/server/preferences/tokens")
+	if status != http.StatusOK || !strings.Contains(body, `action="/server/preferences/token/create"`) || !strings.Contains(body, `action="/server/preferences/token/restore"`) {
+		t.Fatalf("owner-token SSR page status=%d lacks New token and Restore forms", status)
+	}
+	if !strings.Contains(body, `name="csrf_token"`) || !strings.Contains(body, `type="password"`) {
+		t.Fatal("owner-token issue/restore forms lack CSRF protection or a concealed restore field")
+	}
+}
+
 func TestSSR_UnknownAirportRendersNotFound(t *testing.T) {
 	status, _, body := getPageAccept(t, "/airports/NOTAREALCODE", "text/html")
 	if status != http.StatusNotFound || !strings.Contains(strings.ToLower(body), "not found") || !strings.Contains(body, "theme-") {
@@ -237,6 +295,22 @@ func TestSSR_UnknownRouteUsesThemed404(t *testing.T) {
 	status, headers, body := getPageAccept(t, "/this-route-does-not-exist", "text/html")
 	if status != http.StatusNotFound || !strings.Contains(headers.Get("Content-Type"), "text/html") || !strings.Contains(body, "theme-dark") || len(strings.TrimSpace(body)) < 100 {
 		t.Fatalf("unknown route is not a rendered themed 404 (status %d)", status)
+	}
+}
+
+func TestSSR_Controlled500UsesThemedErrorTemplate(t *testing.T) {
+	proxy := controlledThemed500Proxy(t)
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Get(proxy.URL + "/__e2e/controlled-500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusInternalServerError || !strings.Contains(response.Header.Get("Content-Type"), "text/html") || !strings.Contains(string(body), "Internal Server Error") || !strings.Contains(string(body), `class="theme-`) {
+		t.Fatalf("controlled 500 did not render themed server error HTML (status=%d content-type=%q)", response.StatusCode, response.Header.Get("Content-Type"))
 	}
 }
 
@@ -316,6 +390,70 @@ func navigate(t *testing.T, ctx context.Context, path string) string {
 		t.Fatalf("navigate %s: %v", path, err)
 	}
 	return html
+}
+
+func navigateAt(t *testing.T, ctx context.Context, origin, path string) string {
+	t.Helper()
+	var html string
+	if err := chromedp.Run(ctx, chromedp.Navigate(strings.TrimRight(origin, "/")+path), chromedp.OuterHTML("html", &html)); err != nil {
+		t.Fatalf("navigate %s: %v", path, err)
+	}
+	return html
+}
+
+// secureCookieProxy gives the browser a loopback origin where Secure cookies
+// work while forwarding requests to the isolated E2E server.
+func secureCookieProxy(t *testing.T) *httptest.Server {
+	t.Helper()
+	target, err := url.Parse(baseURL(t))
+	if err != nil {
+		t.Fatalf("parse E2E server URL: %v", err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		browserHost := request.Host
+		director(request)
+		request.Host = browserHost
+	}
+	server := httptest.NewServer(proxy)
+	t.Cleanup(server.Close)
+	return server
+}
+
+func controlledThemed500Proxy(t *testing.T) *httptest.Server {
+	t.Helper()
+	sourceOrigin := baseURL(t)
+	status, headers, errorHTML := getPageAccept(t, "/this-route-does-not-exist", "text/html")
+	if status != http.StatusNotFound || !strings.Contains(errorHTML, `class="theme-`) {
+		t.Fatalf("server did not provide its themed error template fixture (status=%d)", status)
+	}
+	errorHTML = strings.ReplaceAll(errorHTML, "404", "500")
+	errorHTML = strings.ReplaceAll(errorHTML, "Not Found", "Internal Server Error")
+	target, err := url.Parse(baseURL(t))
+	if err != nil {
+		t.Fatalf("parse E2E server URL: %v", err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		browserHost := request.Host
+		director(request)
+		request.Host = browserHost
+	}
+	var testServer *httptest.Server
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/__e2e/controlled-500" {
+			w.Header().Set("Content-Type", headers.Get("Content-Type"))
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, strings.ReplaceAll(errorHTML, sourceOrigin, testServer.URL))
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	})
+	testServer = httptest.NewServer(handler)
+	t.Cleanup(testServer.Close)
+	return testServer
 }
 
 func dismissCookieConsent(t *testing.T, ctx context.Context) {
@@ -402,12 +540,15 @@ func TestJS_GeoIPLocationUsesDeterministicPositiveFixture(t *testing.T) {
 	})
 	navigate(t, ctx, "/")
 	dismissCookieConsent(t, ctx)
-	if err := chromedp.Run(ctx, chromedp.Click(`[data-action="detect-location"]`), chromedp.WaitVisible("#app-modal", chromedp.ByQuery)); err != nil {
-		t.Fatalf("run positive GeoIP location flow: %v", err)
+	buttonCtx, cancelButtonWait := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelButtonWait()
+	if err := chromedp.Run(buttonCtx, chromedp.WaitVisible(`[data-action="detect-location"]`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("wait for the GeoIP location action after consent handling: %v", err)
 	}
-	var modalText string
-	if err := chromedp.Run(ctx, chromedp.Text("#app-modal", &modalText)); err != nil {
-		t.Fatal(err)
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelector('[data-action="detect-location"]').click()`, nil),
+	); err != nil {
+		t.Fatalf("run positive GeoIP location flow: %v", err)
 	}
 	select {
 	case status := <-responseStatuses:
@@ -415,7 +556,16 @@ func TestJS_GeoIPLocationUsesDeterministicPositiveFixture(t *testing.T) {
 			t.Fatalf("GeoIP fixture response status = %d, want %d", status, http.StatusOK)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("browser did not receive the positive GeoIP fixture response")
+		t.Fatal("browser did not request the deterministic positive GeoIP fixture")
+	}
+	waitCtx, cancelWait := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelWait()
+	if err := chromedp.Run(waitCtx, chromedp.WaitVisible("#app-modal", chromedp.ByQuery)); err != nil {
+		t.Fatalf("show positive GeoIP location modal: %v", err)
+	}
+	var modalText string
+	if err := chromedp.Run(ctx, chromedp.Text("#app-modal", &modalText)); err != nil {
+		t.Fatal(err)
 	}
 	for _, want := range []string{"203.0.113.5", "Queens, United States", "40.6400, -73.7800", "Nearby Airports: 1"} {
 		if !strings.Contains(modalText, want) {
@@ -463,6 +613,101 @@ func TestNoJS_SearchUsesNativeGETForm(t *testing.T) {
 	}
 }
 
+func TestNoJS_AirportDirectoryKeepsPaginationAndDetailsNavigable(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/airports")
+	if !strings.Contains(page, "airport-card") || !strings.Contains(page, `aria-label="Airports"`) || !strings.Contains(page, "/airports?page=2") {
+		t.Fatal("no-JS airport directory lacks airport cards or working pagination")
+	}
+}
+
+func TestNoJS_GeoIPFormUsesGETAndRendersInvalidInputError(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/geoip?ip=not-an-ip")
+	if !strings.Contains(page, `id="geoip-form"`) || !strings.Contains(page, `method="get"`) || !strings.Contains(page, `action="/geoip"`) {
+		t.Fatal("no-JS GeoIP lookup lacks its native GET form")
+	}
+	if !strings.Contains(page, `id="geoip-error" class="error-container"`) {
+		t.Fatal("no-JS GeoIP lookup did not render an invalid-input error")
+	}
+}
+
+func TestNoJS_ContactFormRendersServerValidationError(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/server/contact?type=privacy")
+	if !strings.Contains(page, `name="csrf_token"`) || !strings.Contains(page, `name="captcha_id"`) || !strings.Contains(page, `id="contact-captcha"`) {
+		t.Fatal("no-JS contact form lacks CSRF or its server-issued CAPTCHA challenge")
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
+	pageURL := baseURL(t) + "/server/contact?type=privacy"
+	getRequest, err := http.NewRequest(http.MethodGet, pageURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getRequest.Header.Set("Accept", "text/html")
+	pageResponse, err := client.Do(getRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, err := io.ReadAll(pageResponse.Body)
+	if closeErr := pageResponse.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldValue := func(name string) string {
+		t.Helper()
+		pattern := regexp.MustCompile(`name="` + regexp.QuoteMeta(name) + `" value="([^"]*)"`)
+		match := pattern.FindSubmatch(pageBody)
+		if len(match) != 2 {
+			t.Fatalf("server-rendered contact form lacks hidden field %q", name)
+		}
+		return string(match[1])
+	}
+	form := url.Values{
+		"csrf_token":     {fieldValue("csrf_token")},
+		"form_token":     {fieldValue("form_token")},
+		"captcha_id":     {fieldValue("captcha_id")},
+		"captcha_answer": {"incorrect"},
+		"type":           {"privacy"},
+		"step":           {"submit"},
+		"name":           {"E2E Visitor"},
+		"email":          {"e2e@example.invalid"},
+		"request_kind":   {"access"},
+		"subject":        {"Privacy request"},
+		"message":        {"Testing the server-rendered validation response."},
+	}
+	time.Sleep(3 * time.Second)
+	postRequest, err := http.NewRequest(http.MethodPost, baseURL(t)+"/server/contact", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	postRequest.Header.Set("Accept", "text/html")
+	postRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postRequest.Header.Set("Origin", baseURL(t))
+	postRequest.Header.Set("Referer", pageURL)
+	response, err := client.Do(postRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody, err := io.ReadAll(response.Body)
+	if closeErr := response.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(strings.ToLower(string(responseBody)), "captcha") || !strings.Contains(strings.ToLower(string(responseBody)), "invalid") {
+		t.Fatalf("invalid CAPTCHA response status=%d did not produce the expected server validation error: %s", response.StatusCode, responseBody)
+	}
+}
+
 func TestNoJS_AirportDetailKeepsStaticMapLink(t *testing.T) {
 	ctx := browserContext(t, true)
 	page := navigate(t, ctx, "/airports/KJFK")
@@ -471,11 +716,35 @@ func TestNoJS_AirportDetailKeepsStaticMapLink(t *testing.T) {
 	}
 }
 
+func TestNoJS_HealthPageRendersStatusSections(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/server/healthz")
+	for _, text := range []string{"System Status", "Component Status", "Server Statistics"} {
+		if !strings.Contains(page, text) {
+			t.Errorf("no-JS health page is missing %q", text)
+		}
+	}
+}
+
 func TestNoJS_NearbyCoordinatesRenderBaseline(t *testing.T) {
 	ctx := browserContext(t, true)
 	page := navigate(t, ctx, "/airports/nearby?lat=40.6413&lon=-73.7781&radius=25")
 	if !strings.Contains(page, "Nearby") && !strings.Contains(page, "JFK") {
 		t.Fatal("no-JS nearby page lacks rendered nearby-airport content")
+	}
+}
+
+func TestNoJS_NearbyRadiusAndNearestLimitKeepNativeFormAndResults(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1")
+	if !strings.Contains(page, "KJFK") || !hasInputValue(page, "radius", "25") || !hasInputValue(page, "limit", "1") {
+		t.Fatal("no-JS nearby search lacks its nearest result or selected radius/limit")
+	}
+	if count := strings.Count(page, `class="airport-result-card"`); count != 1 {
+		t.Fatalf("no-JS nearby search rendered %d airports for limit=1, want 1", count)
+	}
+	if !strings.Contains(page, `method="get"`) || !strings.Contains(page, `action="/airports/nearby"`) {
+		t.Fatal("no-JS nearby search does not expose a native GET form")
 	}
 }
 
@@ -490,8 +759,35 @@ func TestNoJS_BoundingBoxSearchRendersCoordinatesAndStaticMapLink(t *testing.T) 
 func TestNoJS_ThemeFallbackContainsCSRFProtectedForm(t *testing.T) {
 	ctx := browserContext(t, true)
 	page := navigate(t, ctx, "/")
-	if !strings.Contains(page, `action="/theme"`) || !strings.Contains(page, `name="csrf_token"`) || !strings.Contains(page, `name="theme"`) {
+	if !strings.Contains(page, `action="/server/preferences"`) || !strings.Contains(page, `name="csrf_token"`) || !strings.Contains(page, `name="theme"`) {
 		t.Fatal("no-JS theme fallback lacks its POST form or CSRF token")
+	}
+}
+
+func TestNoJS_MobileNavigationOpensAndClosesWithCSS(t *testing.T) {
+	ctx := browserContext(t, true)
+	if err := chromedp.Run(ctx, emulation.SetDeviceMetricsOverride(375, 812, 1, false)); err != nil {
+		t.Fatal(err)
+	}
+	navigate(t, ctx, "/")
+	if err := chromedp.Run(ctx, chromedp.Click(".nav-toggle"), chromedp.WaitVisible("#nav-panel", chromedp.ByQuery)); err != nil {
+		t.Fatalf("open no-JS mobile navigation: %v", err)
+	}
+	var links string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`Array.from(document.querySelectorAll('#nav-panel a')).map((link) => link.getAttribute('href')).join(' ')`, &links)); err != nil {
+		t.Fatal(err)
+	}
+	for _, href := range []string{"/", "/airports", "/airports/search", "/airports/nearby", "/stats", "/geoip"} {
+		if !strings.Contains(" "+links+" ", " "+href+" ") {
+			t.Errorf("no-JS mobile navigation is missing %s: %s", href, links)
+		}
+	}
+	if err := chromedp.Run(ctx, chromedp.MouseClickXY(20, 400)); err != nil {
+		t.Fatalf("close no-JS mobile navigation with scrim: %v", err)
+	}
+	var isClosed bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`!document.getElementById('nav-toggle').checked`, &isClosed)); err != nil || !isClosed {
+		t.Fatalf("no-JS scrim did not close navigation (closed=%t, err=%v)", isClosed, err)
 	}
 }
 
@@ -505,6 +801,7 @@ func TestNoJS_ServerDocsRemainNavigable(t *testing.T) {
 
 func TestJS_SearchAndAirportNavigation(t *testing.T) {
 	ctx := browserContext(t, false)
+	stubMapTiles(t, ctx)
 	page := navigate(t, ctx, "/airports/search?q=JFK")
 	if !strings.Contains(page, "JFK") {
 		t.Fatal("JS search page lacks JFK result")
@@ -522,6 +819,32 @@ func TestJS_SearchAndAirportNavigation(t *testing.T) {
 	var body string
 	if err := chromedp.Run(ctx, chromedp.Text("body", &body)); err != nil || !strings.Contains(body, location) {
 		t.Fatalf("airport detail does not show %s (body %q, err %v)", location, body, err)
+	}
+}
+
+func TestJS_AirportDirectoryPaginationAndDetailNavigation(t *testing.T) {
+	ctx := browserContext(t, false)
+	page := navigate(t, ctx, "/airports")
+	if !strings.Contains(page, "airport-card") {
+		t.Fatal("JavaScript airport directory lacks airport cards")
+	}
+	dismissCookieConsent(t, ctx)
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`.pagination a[href="/airports?page=2"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`.pagination a[href="/airports?page=1"]`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("wait for the next airport directory page: %v", err)
+	}
+	var pageURL, detailURL string
+	if err := chromedp.Run(ctx,
+		chromedp.Location(&pageURL),
+		chromedp.Evaluate(`document.querySelector('.airport-card a').getAttribute('href')`, &detailURL),
+	); err != nil {
+		t.Fatal(err)
+	}
+	parsedPageURL, parseErr := url.Parse(pageURL)
+	if parseErr != nil || parsedPageURL.Path != "/airports" || parsedPageURL.Query().Get("page") != "2" || !strings.HasPrefix(detailURL, "/airports/") {
+		t.Fatalf("airport pagination/detail links are incorrect: page=%q detail=%q", pageURL, detailURL)
 	}
 }
 
@@ -548,6 +871,31 @@ func TestJS_NearbySearchAddsInteractiveMapMarkers(t *testing.T) {
 	var body string
 	if err := chromedp.Run(ctx, chromedp.Text("body", &body)); err != nil || !strings.Contains(body, "KJFK") {
 		t.Fatalf("map marker did not open the KJFK detail page (err %v)", err)
+	}
+}
+
+func TestJS_NearbyRadiusAndNearestLimitMapFlow(t *testing.T) {
+	ctx := browserContext(t, false)
+	stubMapTiles(t, ctx)
+	page := navigate(t, ctx, "/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1")
+	if !strings.Contains(page, "KJFK") || !hasInputValue(page, "radius", "25") || !hasInputValue(page, "limit", "1") {
+		t.Fatal("JavaScript nearby page lacks its nearest result or requested radius/limit")
+	}
+	var markers int
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelectorAll('.map-marker').length`, &markers),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if markers != 1 {
+		t.Fatalf("interactive map has %d markers for limit=1, want 1", markers)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(".map-marker"), chromedp.WaitReady("body")); err != nil {
+		t.Fatalf("open nearest airport from the map: %v", err)
+	}
+	var body string
+	if err := chromedp.Run(ctx, chromedp.Text("body", &body)); err != nil || !strings.Contains(body, "KJFK") {
+		t.Fatalf("nearest map marker did not open KJFK detail page (err %v)", err)
 	}
 }
 
@@ -589,11 +937,11 @@ func TestJS_ResponsiveLayoutAndConsole(t *testing.T) {
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.documentElement.scrollWidth > window.innerWidth`, &overflow)); err != nil {
 		t.Fatal(err)
 	}
-	if err := chromedp.Run(ctx, chromedp.Click(".mobile-menu-toggle")); err != nil {
+	if err := chromedp.Run(ctx, chromedp.Click(".nav-toggle")); err != nil {
 		t.Fatalf("open mobile navigation: %v", err)
 	}
 	var searchNavigationVisible bool
-	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => { const link = document.querySelector('a[href="/airports/search"]'); return !!link && link.getBoundingClientRect().width > 0 && link.getBoundingClientRect().height > 0; })()`, &searchNavigationVisible)); err != nil {
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => { const link = document.querySelector('#nav-panel a[href="/airports/search"]'); return !!link && link.getBoundingClientRect().width > 0 && link.getBoundingClientRect().height > 0; })()`, &searchNavigationVisible)); err != nil {
 		t.Fatal(err)
 	}
 	if overflow {
@@ -634,5 +982,472 @@ func TestJS_ThemeChangesComputedColors(t *testing.T) {
 	light := readBackground("light")
 	if dark == light {
 		t.Fatalf("dark and light themes compute the same background %q", dark)
+	}
+}
+
+func runOwnerTokenBrowserFlow(t *testing.T, noJS bool) {
+	t.Helper()
+	proxy := secureCookieProxy(t)
+	ctx := browserContext(t, noJS)
+	navigateAt(t, ctx, proxy.URL, "/server/preferences/tokens")
+	dismissCookieConsent(t, ctx)
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`form[action="/server/preferences/token/create"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#primary .copy-value`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("issue a primary owner token through the browser form: %v", err)
+	}
+	var primary string
+	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &primary)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(primary, "own_") || strings.Contains(primary, "*") {
+		t.Fatalf("new primary token was not revealed on the redirect GET: %q", primary)
+	}
+	if err := chromedp.Run(ctx, chromedp.Reload(), chromedp.WaitReady("body")); err != nil {
+		t.Fatalf("reload owner-token page: %v", err)
+	}
+	var masked string
+	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &masked)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(masked, primary) || !strings.Contains(masked, "*") {
+		t.Fatalf("primary token was not masked after reload: %q", masked)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`form[action="/server/preferences/token/reveal"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#primary .copy-value`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("reveal primary token through the browser form: %v", err)
+	}
+	var revealed string
+	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &revealed)); err != nil || revealed != primary {
+		t.Fatalf("one-use primary reveal = %q, want original token (err %v)", revealed, err)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys(`#owner-token-name`, "E2E MCP client"),
+		chromedp.Click(`form[action="/server/preferences/tokens"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`.owner-linked-token .copy-value`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("create linked owner token through the browser form: %v", err)
+	}
+	var linked string
+	if err := chromedp.Run(ctx, chromedp.Text(`.owner-linked-token .copy-value`, &linked)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(linked, "own_") || strings.Contains(linked, "*") {
+		t.Fatalf("new linked token was not revealed on the redirect GET: %q", linked)
+	}
+	if err := chromedp.Run(ctx, chromedp.Reload(), chromedp.WaitReady("body")); err != nil {
+		t.Fatalf("reload linked-token page: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Text(`.owner-linked-token .copy-value`, &masked)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(masked, linked) || !strings.Contains(masked, "*") {
+		t.Fatalf("linked token was not masked after reload: %q", masked)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`button[popovertarget="owner-token-forget-confirm"]`, chromedp.ByQuery),
+		chromedp.Click(`form[action="/server/preferences/token/forget"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`form[action="/server/preferences/token/restore"]`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("forget the browser token before restoring it: %v", err)
+	}
+	dismissCookieConsent(t, ctx)
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys(`#owner-token-restore`, primary),
+		chromedp.Click(`form[action="/server/preferences/token/restore"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#primary .copy-value`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("restore the primary token by pasting it into the browser form: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &masked)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(masked, primary) || !strings.Contains(masked, "*") {
+		t.Fatalf("restored primary token was not masked by default: %q", masked)
+	}
+}
+
+func TestNoJS_OwnerTokenIssueRevealMaskAndLinkedCreate(t *testing.T) {
+	runOwnerTokenBrowserFlow(t, true)
+}
+
+func TestNoJS_Controlled500UsesThemedErrorTemplate(t *testing.T) {
+	proxy := controlledThemed500Proxy(t)
+	ctx := browserContext(t, true)
+	page := navigateAt(t, ctx, proxy.URL, "/__e2e/controlled-500")
+	if !strings.Contains(page, "500") || !strings.Contains(page, "Internal Server Error") || !strings.Contains(page, `class="theme-`) || strings.Contains(strings.ToLower(page), "panic:") {
+		t.Fatal("no-JS controlled HTTP 500 did not render the themed error page")
+	}
+}
+
+func TestJS_OwnerTokenIssueRevealMaskAndLinkedCreate(t *testing.T) {
+	runOwnerTokenBrowserFlow(t, false)
+}
+
+func TestJS_Controlled500UsesThemedErrorTemplate(t *testing.T) {
+	proxy := controlledThemed500Proxy(t)
+	ctx := browserContext(t, false)
+	page := navigateAt(t, ctx, proxy.URL, "/__e2e/controlled-500")
+	if !strings.Contains(page, "500") || !strings.Contains(page, "Internal Server Error") || !strings.Contains(page, `class="theme-`) || strings.Contains(strings.ToLower(page), "panic:") {
+		t.Fatal("JavaScript browser controlled HTTP 500 did not render the themed error page")
+	}
+}
+
+func runConsentPreferenceSave(t *testing.T, noJS bool) {
+	t.Helper()
+	ctx := browserContext(t, noJS)
+	navigate(t, ctx, "/server/privacy")
+	if err := chromedp.Run(ctx,
+		chromedp.WaitVisible(`#cookie-consent .cookie-preferences-form`, chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('#cookie-consent input[name="preferences"]').checked = true; document.querySelector('#cookie-consent input[name="analytics"]').checked = false`, nil),
+		chromedp.Click(`#cookie-consent .cookie-preferences-form button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitNotPresent(`#cookie-consent`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("save granular cookie preferences: %v", err)
+	}
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => { const item = document.cookie.split('; ').find((entry) => entry.startsWith('cookie_consent=')); return item ? decodeURIComponent(item.slice('cookie_consent='.length)) : ''; })()`, &raw)); err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Essential   bool  `json:"essential"`
+		Preferences bool  `json:"preferences"`
+		Analytics   bool  `json:"analytics"`
+		Timestamp   int64 `json:"timestamp"`
+	}
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		t.Fatalf("parse saved cookie-consent state %q: %v", raw, err)
+	}
+	if !state.Essential || !state.Preferences || state.Analytics || state.Timestamp <= 0 {
+		t.Fatalf("saved cookie-consent state = %+v; want essential/preferences true, analytics false, timestamp set", state)
+	}
+}
+
+func TestNoJS_ConsentPreferencesSaveAndPersist(t *testing.T) {
+	runConsentPreferenceSave(t, true)
+}
+
+func TestJS_ConsentPreferencesSaveAndPersist(t *testing.T) {
+	runConsentPreferenceSave(t, false)
+}
+
+func runSuccessfulSecurityContact(t *testing.T, noJS bool) {
+	t.Helper()
+	proxy := secureCookieProxy(t)
+	ctx := browserContext(t, noJS)
+	navigateAt(t, ctx, proxy.URL, "/server/security")
+	dismissCookieConsent(t, ctx)
+	var reportURL string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('a[href*="/server/contact?"][href*="security_id="]')?.getAttribute('href') || ''`, &reportURL)); err != nil {
+		t.Fatal(err)
+	}
+	if reportURL == "" {
+		t.Fatal("security page did not provide its signed contact-report link")
+	}
+	parsedReportURL, err := url.Parse(reportURL)
+	if err != nil {
+		t.Fatalf("parse signed security-report URL %q: %v", reportURL, err)
+	}
+	query := parsedReportURL.Query()
+	query.Set("type", "security")
+	parsedReportURL.RawQuery = query.Encode()
+	navigateAt(t, ctx, proxy.URL, parsedReportURL.RequestURI())
+	var question string
+	if err := chromedp.Run(ctx,
+		chromedp.WaitVisible(`form[data-captcha="simple"]`, chromedp.ByQuery),
+		chromedp.Text(`#contact-captcha-question`, &question),
+	); err != nil {
+		t.Fatalf("load simple CAPTCHA security-report form: %v", err)
+	}
+	parts := regexp.MustCompile(`(\d+)\s*([+-])\s*(\d+)`).FindStringSubmatch(question)
+	if len(parts) != 4 {
+		t.Fatalf("unrecognized simple CAPTCHA question %q", question)
+	}
+	left, _ := strconv.Atoi(parts[1])
+	right, _ := strconv.Atoi(parts[3])
+	answer := left + right
+	if parts[2] == "-" {
+		answer = left - right
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.SendKeys(`input[name="name"]`, "E2E Security Reporter"),
+		chromedp.SendKeys(`input[name="email"]`, "e2e@example.invalid"),
+		chromedp.SendKeys(`input[name="component"]`, "Airport search"),
+		chromedp.Select(`select[name="severity"]`, "low", chromedp.ByQuery),
+		chromedp.SendKeys(`input[name="summary"]`, "Controlled E2E security report"),
+		chromedp.SendKeys(`textarea[name="steps_to_reproduce"]`, "Open the airport search page and enter the deterministic test query."),
+		chromedp.SendKeys(`textarea[name="impact"]`, "No real vulnerability is reported; this is isolated E2E fixture data."),
+		chromedp.Select(`select[name="credit_preference"]`, "no", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('input[name="disclosure_agreement"]').checked = true`, nil),
+		chromedp.SendKeys(`#contact-captcha`, strconv.Itoa(answer)),
+	); err != nil {
+		t.Fatalf("fill deterministic security contact fields: %v", err)
+	}
+	time.Sleep(3100 * time.Millisecond)
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`form[data-captcha="simple"] button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#contact-review`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("submit security contact form for review: %v", err)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	if err := chromedp.Run(ctx,
+		chromedp.Click(`input[name="confirmed"]`, chromedp.ByQuery),
+		chromedp.Click(`#contact-review form:first-of-type button[type="submit"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#contact-success`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("confirm successful security contact submission: %v", err)
+	}
+	var body string
+	if err := chromedp.Run(ctx, chromedp.Text(`#contact-success`, &body)); err != nil || !strings.Contains(body, "received") {
+		t.Fatalf("successful contact response lacks its confirmation (body=%q err=%v)", body, err)
+	}
+}
+
+func TestNoJS_SecurityContactCompletesReviewAndSubmission(t *testing.T) {
+	runSuccessfulSecurityContact(t, true)
+}
+
+func TestJS_SecurityContactCompletesReviewAndSubmission(t *testing.T) {
+	runSuccessfulSecurityContact(t, false)
+}
+
+func e2eAPIBase(t *testing.T) string {
+	t.Helper()
+	status, _, body := getPageAccept(t, "/api/autodiscover", "application/json")
+	if status != http.StatusOK {
+		t.Fatalf("API autodiscover returned HTTP %d", status)
+	}
+	var response struct {
+		Data struct {
+			API struct {
+				CurrentVersion string `json:"current_version"`
+			} `json:"api"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &response); err != nil || response.Data.API.CurrentVersion == "" {
+		t.Fatalf("API autodiscover omitted data.api.current_version: %v", err)
+	}
+	return "/api/" + response.Data.API.CurrentVersion
+}
+
+func e2eAPIRequest(t *testing.T, method, path, bearer string, payload interface{}) (int, []byte) {
+	t.Helper()
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("encode API request payload: %v", err)
+		}
+		body = strings.NewReader(string(encoded))
+	}
+	request, err := http.NewRequest(method, baseURL(t)+path, body)
+	if err != nil {
+		t.Fatalf("create API request %s %s: %v", method, path, err)
+	}
+	request.Header.Set("Accept", "application/json")
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatalf("send API request %s %s: %v", method, path, err)
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read API response %s %s: %v", method, path, err)
+	}
+	return response.StatusCode, responseBody
+}
+
+func apiOwnerToken(t *testing.T, body []byte) string {
+	t.Helper()
+	var response struct {
+		Data struct {
+			OwnerToken string `json:"owner_token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil || !strings.HasPrefix(response.Data.OwnerToken, "own_") {
+		t.Fatalf("API token response omitted a primary/linked token: %v", err)
+	}
+	return response.Data.OwnerToken
+}
+
+func mcpAirportCall(t *testing.T, apiBase, bearer string) (int, []byte) {
+	t.Helper()
+	payload := map[string]interface{}{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]interface{}{
+			"name": "getAirport", "arguments": map[string]interface{}{"ident": "KJFK"},
+			"_meta": map[string]string{"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+		},
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode MCP tool call: %v", err)
+	}
+	request, err := http.NewRequest(http.MethodPost, baseURL(t)+apiBase+"/server/mcp", strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("create MCP tool call: %v", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	request.Header.Set("Mcp-Method", "tools/call")
+	request.Header.Set("Mcp-Name", "getAirport")
+	if bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatalf("send MCP tool call: %v", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read MCP response: %v", err)
+	}
+	return response.StatusCode, body
+}
+
+func TestE2E_OwnerTokenAPIRotationLinkedManagementAndMCP(t *testing.T) {
+	apiBase := e2eAPIBase(t)
+	status, issueBody := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary", "", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("issue a primary token without authentication: HTTP %d", status)
+	}
+	primary := apiOwnerToken(t, issueBody)
+	if status, _ = e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary", primary, nil); status != http.StatusConflict {
+		t.Fatalf("issuing a second primary with a valid token returned HTTP %d, want 409", status)
+	}
+
+	status, linkedBody := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens", primary, map[string]string{"name": "e2e-primary-linked", "expiry": "never"})
+	if status != http.StatusCreated {
+		t.Fatalf("create first linked token: HTTP %d", status)
+	}
+	firstLinked := apiOwnerToken(t, linkedBody)
+	status, secondLinkedBody := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens", primary, map[string]string{"name": "e2e-secondary-linked", "expiry": "never"})
+	if status != http.StatusCreated {
+		t.Fatalf("create second linked token: HTTP %d", status)
+	}
+	secondLinked := apiOwnerToken(t, secondLinkedBody)
+
+	status, listBody := e2eAPIRequest(t, http.MethodGet, apiBase+"/server/preferences/tokens", primary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("list linked tokens: HTTP %d", status)
+	}
+	var tokenList struct {
+		Data struct {
+			Tokens []struct {
+				ID        int64  `json:"id"`
+				Name      string `json:"name"`
+				Status    string `json:"status"`
+				ExpiresAt *int64 `json:"expires_at"`
+			} `json:"tokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &tokenList); err != nil {
+		t.Fatalf("decode owner token list: %v", err)
+	}
+	ids := make(map[string]int64)
+	for _, item := range tokenList.Data.Tokens {
+		ids[item.Name] = item.ID
+	}
+	firstID, secondID := ids["e2e-primary-linked"], ids["e2e-secondary-linked"]
+	if firstID < 1 || secondID < 1 {
+		t.Fatal("API token list did not return the IDs for both linked tokens")
+	}
+
+	for _, check := range []struct {
+		method string
+		path   string
+		body   interface{}
+	}{
+		{http.MethodGet, apiBase + "/server/preferences/tokens", nil},
+		{http.MethodPost, apiBase + "/server/preferences/tokens/primary/reveal", nil},
+		{http.MethodPost, apiBase + "/server/preferences/tokens/primary/rotate", nil},
+		{http.MethodDelete, apiBase + "/server/preferences/tokens/primary", map[string]string{"confirm": "0000"}},
+		{http.MethodPost, apiBase + "/server/preferences/tokens", map[string]string{"name": "forbidden-linked-create", "expiry": "never"}},
+		{http.MethodPost, fmt.Sprintf("%s/server/preferences/tokens/%d/reveal", apiBase, firstID), nil},
+		{http.MethodPost, fmt.Sprintf("%s/server/preferences/tokens/%d/rotate", apiBase, firstID), nil},
+		{http.MethodPatch, fmt.Sprintf("%s/server/preferences/tokens/%d", apiBase, firstID), map[string]string{"name": "forbidden-rename", "expiry": "never"}},
+		{http.MethodDelete, fmt.Sprintf("%s/server/preferences/tokens/%d", apiBase, firstID), nil},
+	} {
+		status, _ := e2eAPIRequest(t, check.method, check.path, firstLinked, check.body)
+		if status != http.StatusForbidden {
+			t.Errorf("linked token %s %s returned HTTP %d, want 403", check.method, check.path, status)
+		}
+	}
+	if status, _ := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary", firstLinked, nil); status != http.StatusConflict {
+		t.Errorf("issue-primary request with a valid linked token returned HTTP %d, want 409", status)
+	}
+
+	status, primaryRotateBody := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary/rotate", primary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rotate primary token: HTTP %d", status)
+	}
+	rotatedPrimary := apiOwnerToken(t, primaryRotateBody)
+	if status, _ = e2eAPIRequest(t, http.MethodGet, apiBase+"/server/preferences/tokens", primary, nil); status != http.StatusUnauthorized {
+		t.Fatalf("old primary token returned HTTP %d after rotation, want 401", status)
+	}
+	if status, _ = e2eAPIRequest(t, http.MethodGet, apiBase+"/server/preferences/tokens", rotatedPrimary, nil); status != http.StatusOK {
+		t.Fatalf("new primary token returned HTTP %d after rotation, want 200", status)
+	}
+
+	for label, token := range map[string]string{"primary": rotatedPrimary, "first linked": firstLinked, "second linked": secondLinked} {
+		status, body := mcpAirportCall(t, apiBase, token)
+		if status != http.StatusOK || !strings.Contains(string(body), "KJFK") {
+			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK", label, status)
+		}
+	}
+	if status, _ = mcpAirportCall(t, apiBase, ""); status != http.StatusUnauthorized {
+		t.Errorf("MCP tools/call without a token returned HTTP %d, want 401", status)
+	}
+
+	status, linkedRotateBody := e2eAPIRequest(t, http.MethodPost, fmt.Sprintf("%s/server/preferences/tokens/%d/rotate", apiBase, firstID), rotatedPrimary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("rotate linked token: HTTP %d", status)
+	}
+	rotatedLinked := apiOwnerToken(t, linkedRotateBody)
+	if status, _ = mcpAirportCall(t, apiBase, firstLinked); status != http.StatusUnauthorized {
+		t.Errorf("old linked token returned HTTP %d after rotation, want 401", status)
+	}
+	for label, token := range map[string]string{"primary": rotatedPrimary, "rotated linked": rotatedLinked, "other linked": secondLinked} {
+		status, body := mcpAirportCall(t, apiBase, token)
+		if status != http.StatusOK || !strings.Contains(string(body), "KJFK") {
+			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK after linked rotation", label, status)
+		}
+	}
+
+	status, _ = e2eAPIRequest(t, http.MethodPatch, fmt.Sprintf("%s/server/preferences/tokens/%d", apiBase, secondID), rotatedPrimary, map[string]string{"name": "e2e-renamed-linked", "expiry": "7d"})
+	if status != http.StatusOK {
+		t.Fatalf("rename linked token and change its expiry: HTTP %d", status)
+	}
+	status, listBody = e2eAPIRequest(t, http.MethodGet, apiBase+"/server/preferences/tokens", rotatedPrimary, nil)
+	if status != http.StatusOK || json.Unmarshal(listBody, &tokenList) != nil {
+		t.Fatalf("read renamed/expiry-updated token list: HTTP %d", status)
+	}
+	updated := false
+	for _, item := range tokenList.Data.Tokens {
+		if item.ID == secondID && item.Name == "e2e-renamed-linked" && item.ExpiresAt != nil && item.Status == "active" {
+			updated = true
+		}
+	}
+	if !updated {
+		t.Fatal("linked token list did not reflect its renamed label and active expiry")
+	}
+	status, _ = e2eAPIRequest(t, http.MethodDelete, fmt.Sprintf("%s/server/preferences/tokens/%d", apiBase, secondID), rotatedPrimary, nil)
+	if status != http.StatusOK {
+		t.Fatalf("revoke renamed linked token: HTTP %d", status)
+	}
+	if status, _ = mcpAirportCall(t, apiBase, secondLinked); status != http.StatusUnauthorized {
+		t.Errorf("revoked linked token returned HTTP %d to MCP, want 401", status)
 	}
 }

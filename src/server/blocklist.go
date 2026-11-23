@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -164,11 +165,13 @@ type BlockStore struct {
 	permanent  []permanentBlock
 	temporary  map[string]*IPBlock
 	downloaded []netip.Prefix
+	trusted    []netip.Prefix
+	loaded     bool
 }
 
 // NewBlockStore builds a BlockStore from the config-file permanent block
 // list. Malformed entries are logged and skipped, never fatal.
-func NewBlockStore(entries []config.BlockedIPEntry) *BlockStore {
+func NewBlockStore(entries []config.BlockedIPEntry, trustedRanges ...string) *BlockStore {
 	bs := &BlockStore{
 		temporary: make(map[string]*IPBlock),
 	}
@@ -190,6 +193,12 @@ func NewBlockStore(entries []config.BlockedIPEntry) *BlockStore {
 				Reason: reason,
 			},
 		})
+	}
+	for _, raw := range trustedRanges {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
+		if err == nil {
+			bs.trusted = append(bs.trusted, prefix.Masked())
+		}
 	}
 	return bs
 }
@@ -315,6 +324,7 @@ func (bs *BlockStore) LoadDownloadedNetset(path string) error {
 	defer func() { _ = f.Close() }()
 
 	var prefixes []netip.Prefix
+	skipped := 0
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -323,6 +333,11 @@ func (bs *BlockStore) LoadDownloadedNetset(path string) error {
 		}
 		prefix, ok := parseCIDROrIP(line, "blocklist_update")
 		if !ok {
+			skipped++
+			continue
+		}
+		if !prefix.Addr().Is4() || blocklistPrefixProtected(prefix, bs.trusted) {
+			skipped++
 			continue
 		}
 		prefixes = append(prefixes, prefix)
@@ -332,17 +347,71 @@ func (bs *BlockStore) LoadDownloadedNetset(path string) error {
 	}
 
 	bs.mu.Lock()
+	if len(prefixes) == 0 {
+		bs.mu.Unlock()
+		return fmt.Errorf("blocklist_update: downloaded netset contains no usable IPv4 entries")
+	}
 	bs.downloaded = prefixes
+	bs.loaded = true
 	bs.mu.Unlock()
+	if skipped > 0 {
+		log.Printf("blocklist_update: skipped %d invalid, non-IPv4, or protected entries", skipped)
+	}
 
 	return nil
+}
+
+// BlocklistHealthStatus reports only a safe status for the built-in list.
+func (bs *BlockStore) BlocklistHealthStatus(securityDir string, maxAge time.Duration, now time.Time) string {
+	if bs == nil {
+		return "error"
+	}
+	bs.mu.RLock()
+	loaded := bs.loaded
+	bs.mu.RUnlock()
+	if !loaded {
+		return "error"
+	}
+	updated, err := os.ReadFile(filepath.Join(securityDir, "blocklists", ".last_updated"))
+	if err != nil {
+		return "degraded"
+	}
+	when, err := time.Parse(time.RFC3339, strings.TrimSpace(string(updated)))
+	if err != nil || when.IsZero() || now.Sub(when) > maxAge || when.After(now.Add(time.Minute)) {
+		return "degraded"
+	}
+	return "ok"
 }
 
 // fireholLevel1URL is the FireHOL level1 netset feed (aggregates Spamhaus
 // DROP/EDROP + Dshield, public and free to use, no license restriction).
 // Declared as a var (not a const) so tests can point it at an unreachable
 // URL to exercise the fail-open download-failure path.
-var fireholLevel1URL = "https://iplists.firehol.org/files/firehol_level1.netset"
+var fireholLevel1URL = "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset"
+
+var blocklistProtectedRanges = []string{
+	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+	"169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16",
+}
+
+func blocklistPrefixProtected(candidate netip.Prefix, configuredTrusted []netip.Prefix) bool {
+	protected := append(append([]string(nil), blocklistProtectedRanges...), defaultTrustedProxyCIDRs...)
+	for _, raw := range protected {
+		trusted, err := netip.ParsePrefix(raw)
+		if err != nil || trusted.Addr().Is4() != candidate.Addr().Is4() {
+			continue
+		}
+		if candidate.Contains(trusted.Addr()) || trusted.Contains(candidate.Addr()) {
+			return true
+		}
+	}
+	for _, trusted := range configuredTrusted {
+		if trusted.Addr().Is4() && (candidate.Contains(trusted.Addr()) || trusted.Contains(candidate.Addr())) {
+			return true
+		}
+	}
+	return false
+}
 
 // downloadNetsetFile downloads url to dest with a 30s timeout and a
 // descriptive User-Agent, mirroring the fail-open, atomic-rename pattern
@@ -385,13 +454,23 @@ func downloadNetsetFile(dest, url string) error {
 // it only returns an error when there is no previous list to fall back
 // on, so the scheduler's retry_on_fail can kick in.
 func UpdateBlocklist(store *BlockStore, projectName string) error {
-	dir := filepath.Join(paths.GetSecurityDir(projectName), "blocklists")
+	return UpdateBlocklistInDir(store, paths.GetSecurityDir(projectName), projectName)
+}
+
+// UpdateBlocklistInDir downloads, validates, then atomically installs the
+// built-in FireHOL list under the configured data directory.
+func UpdateBlocklistInDir(store *BlockStore, securityDir, projectName string) error {
+	dir := filepath.Join(securityDir, "blocklists")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("blocklist_update: failed to create %s: %w", dir, err)
 	}
 
-	finalPath := filepath.Join(dir, "firehol_level1.netset")
+	finalPath := filepath.Join(dir, "firehol_level1.txt")
 	tempPath := finalPath + ".tmp"
+	lastUpdatedPath := filepath.Join(dir, ".last_updated")
+	if store == nil {
+		return fmt.Errorf("blocklist_update: block store is unavailable")
+	}
 
 	if err := downloadNetsetFile(tempPath, fireholLevel1URL); err != nil {
 		_ = os.Remove(tempPath)
@@ -402,6 +481,18 @@ func UpdateBlocklist(store *BlockStore, projectName string) error {
 		return fmt.Errorf("blocklist_update: download failed and no previous list exists: %w", err)
 	}
 
+	store.mu.RLock()
+	trusted := append([]netip.Prefix(nil), store.trusted...)
+	store.mu.RUnlock()
+	validationStore := &BlockStore{trusted: trusted}
+	if err := validationStore.LoadDownloadedNetset(tempPath); err != nil {
+		_ = os.Remove(tempPath)
+		if _, statErr := os.Stat(finalPath); statErr == nil {
+			log.Printf("blocklist_update: downloaded list was invalid, keeping last-known list: %v", err)
+			return store.LoadDownloadedNetset(finalPath)
+		}
+		return err
+	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("blocklist_update: failed to install downloaded netset: %w", err)
@@ -409,6 +500,9 @@ func UpdateBlocklist(store *BlockStore, projectName string) error {
 
 	if err := store.LoadDownloadedNetset(finalPath); err != nil {
 		return fmt.Errorf("blocklist_update: failed to load downloaded netset: %w", err)
+	}
+	if err := os.WriteFile(lastUpdatedPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0600); err != nil {
+		return fmt.Errorf("blocklist_update: failed to record successful update: %w", err)
 	}
 
 	log.Println("blocklist_update: FireHOL level1 netset updated successfully")
@@ -450,11 +544,11 @@ func AllowlistMiddleware(allowlist *AllowlistLookup) func(http.Handler) http.Han
 // details are logged server-side only. Follows the project's dark-default
 // theme convention using CSS custom properties, no external assets.
 const blockedPageHTML = `<!doctype html>
-<html lang="en">
+<html lang="{{LANG}}" dir="{{DIR}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Access Denied</title>
+<title>{{TITLE}}</title>
 <style>
   :root { --bg: #0f1115; --fg: #e6e6e6; --accent: #e0555f; }
   @media (prefers-color-scheme: light) {
@@ -473,8 +567,8 @@ const blockedPageHTML = `<!doctype html>
 </head>
 <body>
 <main>
-<h1>403 &mdash; Access Denied</h1>
-<p>Your request could not be completed.</p>
+<h1>{{TITLE}}</h1>
+<p>{{MESSAGE}}</p>
 </main>
 </body>
 </html>
@@ -487,9 +581,17 @@ const blockedPageHTML = `<!doctype html>
 func respondBlocked(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "text/html") {
+		lang := i18n.FromContext(r.Context())
+		title := i18n.TranslateFormattedText(lang, "errors.status_title", "code", http.StatusForbidden)
+		page := strings.NewReplacer(
+			"{{LANG}}", html.EscapeString(lang),
+			"{{DIR}}", html.EscapeString(i18n.Direction(lang)),
+			"{{TITLE}}", html.EscapeString(title),
+			"{{MESSAGE}}", html.EscapeString(i18n.TranslateText(lang, "errors.forbidden")),
+		).Replace(blockedPageHTML)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(blockedPageHTML))
+		_, _ = w.Write([]byte(page))
 		return
 	}
 
@@ -499,7 +601,7 @@ func respondBlocked(w http.ResponseWriter, r *http.Request) {
 	resp := ErrorResponse{
 		OK:      false,
 		Error:   "IP_BLOCKED",
-		Message: i18n.T(lang, "errors.forbidden"),
+		Message: i18n.TranslateText(lang, "errors.forbidden"),
 		Details: map[string]interface{}{},
 	}
 	if err := encodeJSON(w, resp); err != nil {

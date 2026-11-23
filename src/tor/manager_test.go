@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-func managerForTest(t *testing.T, projectName string, port int, enabled bool) *Manager {
+func managerForTest(t *testing.T, projectName string, port int, enabled bool) *TorManager {
 	t.Helper()
 	missingBinary := filepath.Join(t.TempDir(), "tor-not-installed")
-	m := NewManager(projectName, port, Config{Binary: missingBinary})
+	m := NewTorManager(projectName, port, TorConfig{Binary: missingBinary})
 	// Tests that exercise manager methods without launching Tor set this
 	// internal state directly; production enablement remains binary-detected.
 	m.enabled = enabled
@@ -22,10 +22,10 @@ func managerForTest(t *testing.T, projectName string, port int, enabled bool) *M
 }
 
 func TestNewManagerDisabledWhenTorBinaryMissing(t *testing.T) {
-	m := NewManager("airports-test", 8080, Config{Binary: filepath.Join(t.TempDir(), "tor-not-installed")})
+	m := NewTorManager("airports-test", 8080, TorConfig{Binary: filepath.Join(t.TempDir(), "tor-not-installed")})
 
-	if m.Enabled() {
-		t.Error("Manager.Enabled() = true, want false when no Tor binary can be found")
+	if m.IsTorEnabled() {
+		t.Error("TorManager.Enabled() = true, want false when no Tor binary can be found")
 	}
 }
 
@@ -34,16 +34,16 @@ func TestNewManagerAutoEnablesWhenTorBinaryFound(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("tor fixture"), 0o700); err != nil {
 		t.Fatalf("create Tor binary fixture: %v", err)
 	}
-	m := NewManager("airports-test", 8080, Config{Binary: binary})
-	if !m.Enabled() {
-		t.Error("Manager.Enabled() = false, want true when a configured Tor binary is found")
+	m := NewTorManager("airports-test", 8080, TorConfig{Binary: binary})
+	if !m.IsTorEnabled() {
+		t.Error("TorManager.Enabled() = false, want true when a configured Tor binary is found")
 	}
 }
 
 func TestManagerStartInertWhenDisabled(t *testing.T) {
 	m := managerForTest(t, "airports-test", 8080, false)
 
-	if err := m.Start(context.Background()); err != nil {
+	if err := m.StartTorService(context.Background()); err != nil {
 		t.Fatalf("Start() error = %v, want nil (inert no-op when disabled)", err)
 	}
 
@@ -80,7 +80,7 @@ func TestManagerHealthCheckEnabledButNotStarted(t *testing.T) {
 func TestManagerStopWithoutStartIsNoop(t *testing.T) {
 	m := managerForTest(t, "airports-test", 8080, false)
 
-	if err := m.Stop(); err != nil {
+	if err := m.StopTorService(); err != nil {
 		t.Errorf("Stop() error = %v, want nil when Tor was never started", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestManagerStopClosesBackendWithoutTorProcess(t *testing.T) {
 	}
 	m.backend = listener
 
-	if err := m.Stop(); err != nil {
+	if err := m.StopTorService(); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
 	if m.backend != nil {
@@ -121,15 +121,15 @@ func TestManagerStartWithRealTorBinary(t *testing.T) {
 		t.Skip("tor binary not installed, skipping real process start/stop test")
 	}
 
-	m := NewManager("airports-test", 18080, Config{BootstrapTimeout: 60})
+	m := NewTorManager("airports-test", 18080, TorConfig{BootstrapTimeout: 60})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	if err := m.Start(ctx); err != nil {
+	if err := m.StartTorService(ctx); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	defer func() { _ = m.Stop() }()
+	defer func() { _ = m.StopTorService() }()
 
 	if err := m.HealthCheck(); err != nil {
 		t.Errorf("HealthCheck() error = %v, want nil once Tor has started", err)

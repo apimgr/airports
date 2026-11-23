@@ -1,10 +1,10 @@
 {{define "content"}}
 <div class="hero">
-    <h1>✈️ {{t "home.title"}}</h1>
+    <h1 class="page-title">✈️ {{t "home.title"}}</h1>
     <p class="hero-subtitle">{{t "home.subtitle"}}</p>
 
     <div class="search-hero">
-        <input type="text" id="quick-search" placeholder="{{t "home.search_placeholder"}}"
+        <input type="text" id="quick-search" aria-label="{{t "home.search_placeholder"}}" placeholder="{{t "home.search_placeholder"}}"
                data-action="quick-search">
         <button data-action="perform-search">{{t "common.search"}}</button>
     </div>

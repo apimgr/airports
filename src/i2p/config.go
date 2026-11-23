@@ -5,11 +5,10 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 )
 
-// Config controls the optional I2P eepsite.
-type Config struct {
+// I2PConfig controls the optional I2P eepsite.
+type I2PConfig struct {
 	Enabled          bool   `yaml:"enabled" json:"enabled"`
 	Binary           string `yaml:"binary" json:"binary"`
 	SAMAddress       string `yaml:"sam_address" json:"sam_address"`
@@ -19,12 +18,12 @@ type Config struct {
 	InboundQuantity  int    `yaml:"inbound_quantity" json:"inbound_quantity"`
 	OutboundQuantity int    `yaml:"outbound_quantity" json:"outbound_quantity"`
 	SignatureType    int    `yaml:"signature_type" json:"signature_type"`
-	BootstrapTimeout string `yaml:"bootstrap_timeout" json:"bootstrap_timeout"`
+	BootstrapTimeout int    `yaml:"bootstrap_timeout" json:"bootstrap_timeout"`
 }
 
-// DefaultConfig returns opt-in-off defaults for the I2P eepsite.
-func DefaultConfig() Config {
-	return Config{
+// DefaultI2PConfig returns opt-in-off defaults for the I2P eepsite.
+func DefaultI2PConfig() I2PConfig {
+	return I2PConfig{
 		Enabled:          false,
 		SAMAddress:       "127.0.0.1:7656",
 		VirtualPort:      80,
@@ -33,24 +32,24 @@ func DefaultConfig() Config {
 		InboundQuantity:  5,
 		OutboundQuantity: 5,
 		SignatureType:    7,
-		BootstrapTimeout: "5m",
+		BootstrapTimeout: 300,
 	}
 }
 
 // WithDefaults fills omitted fields without enabling I2P.
-func (c Config) WithDefaults() Config {
-	d := DefaultConfig()
+func (c I2PConfig) WithDefaults() I2PConfig {
+	d := DefaultI2PConfig()
 	if c.SAMAddress == "" {
 		c.SAMAddress = d.SAMAddress
 	}
-	if strings.TrimSpace(c.BootstrapTimeout) == "" {
+	if c.BootstrapTimeout == 0 {
 		c.BootstrapTimeout = d.BootstrapTimeout
 	}
 	return c
 }
 
 // Validate checks the documented I2P tunnel ranges and timeout.
-func (c Config) Validate() error {
+func (c I2PConfig) ValidateI2PConfig() error {
 	c = c.WithDefaults()
 	if c.VirtualPort < 1 || c.VirtualPort > 65535 {
 		return fmt.Errorf("server.i2p.virtual_port must be between 1 and 65535")
@@ -64,9 +63,8 @@ func (c Config) Validate() error {
 	if c.SignatureType < 0 || c.SignatureType > 255 {
 		return fmt.Errorf("server.i2p.signature_type must be between 0 and 255")
 	}
-	duration, err := time.ParseDuration(c.BootstrapTimeout)
-	if err != nil || duration < 30*time.Second || duration > 10*time.Minute {
-		return fmt.Errorf("server.i2p.bootstrap_timeout must be between 30s and 10m")
+	if c.BootstrapTimeout < 30 || c.BootstrapTimeout > 600 {
+		return fmt.Errorf("server.i2p.bootstrap_timeout must be between 30 and 600 seconds")
 	}
 	if c.SAMAddress != "" {
 		host, port, err := net.SplitHostPort(c.SAMAddress)

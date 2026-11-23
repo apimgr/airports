@@ -25,7 +25,7 @@ func runMaintenanceMode(configDir, requestedMode string) error {
 		configDir = firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load server configuration: %w", err)
 	}
@@ -63,15 +63,15 @@ func runMaintenanceMode(configDir, requestedMode string) error {
 	return nil
 }
 
-func persistConfiguredServerMode(configPath string, cfg *config.Config, appMode mode.AppMode) error {
+func persistConfiguredServerMode(configPath string, cfg *config.ApplicationConfig, appMode mode.AppMode) error {
 	if cfg == nil {
 		return fmt.Errorf("server configuration is nil")
 	}
 	cfg.Server.Mode = appMode.String()
-	return config.Save(configPath, cfg)
+	return config.SaveApplicationConfig(configPath, cfg)
 }
 
-func isConfiguredServiceUser(cfg *config.Config, username string) bool {
+func isConfiguredServiceUser(cfg *config.ApplicationConfig, username string) bool {
 	if cfg == nil || strings.TrimSpace(username) == "" {
 		return false
 	}
@@ -94,7 +94,7 @@ func sameOperatingSystemUser(expected, actual string) bool {
 	return expected == actual
 }
 
-func authorizeMaintenanceModeChange(cfg *config.Config, runningAsRoot bool, username, providedToken string) error {
+func authorizeMaintenanceModeChange(cfg *config.ApplicationConfig, runningAsRoot bool, username, providedToken string) error {
 	if runningAsRoot {
 		return nil
 	}

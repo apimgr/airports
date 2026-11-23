@@ -8,14 +8,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/apimgr/airports/src/logging"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -254,6 +257,16 @@ func (s *Server) handleCLIBinaryDownload(w http.ResponseWriter, r *http.Request)
 	}
 	if _, err := io.Copy(w, io.LimitReader(response.Body, cliBinaryMaxSize+1)); err != nil {
 		return
+	}
+	s.writeCLIAudit("cli.update_started", "os_arch="+strconv.Quote(platform)+" version="+strconv.Quote(catalog.version)+" client_ip="+strconv.Quote(realIP(r)))
+}
+
+func (s *Server) writeCLIAudit(event, fields string) {
+	if s == nil || s.auditLogger == nil {
+		return
+	}
+	if err := s.auditLogger.WriteAudit(logging.AuditCategoryServer, "event="+event+" "+fields); err != nil {
+		log.Printf("Warning: could not write CLI audit event %s: %v", event, err)
 	}
 }
 

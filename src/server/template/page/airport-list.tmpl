@@ -1,0 +1,29 @@
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">{{t "airport_list.title"}}</h1>
+    <p>{{t "airport_list.description"}}</p>
+</div>
+
+<p class="results-info">{{tf "airport_list.showing" "count" (len .Airports) "total" .Total}}</p>
+{{if .Airports}}
+<div class="results-grid">
+    {{range .Airports}}
+    <article class="airport-card">
+        <div class="airport-header">
+            <h2><a href="{{$.BaseURL}}/airports/{{.ICAO}}">{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</a></h2>
+            <span class="country-badge">{{.Country}}</span>
+        </div>
+        <p class="airport-name">{{.Name}}</p>
+        <p class="airport-location">{{.City}}{{if .State}}, {{.State}}{{end}}</p>
+    </article>
+    {{end}}
+</div>
+<nav class="pagination" aria-label="{{t "airport_list.title"}}">
+    {{if .HasPrevious}}<a class="btn btn-secondary" href="{{.BaseURL}}/airports?page={{.PreviousPage}}">{{t "airport_list.previous"}}</a>{{end}}
+    <span>{{tf "airport_list.page" "page" .Page "pages" .Pages}}</span>
+    {{if .HasNext}}<a class="btn btn-secondary" href="{{.BaseURL}}/airports?page={{.NextPage}}">{{t "airport_list.next"}}</a>{{end}}
+</nav>
+{{else}}
+<div class="empty-state"><p>{{t "airport_list.empty"}}</p></div>
+{{end}}
+{{end}}

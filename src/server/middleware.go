@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/apimgr/airports/src/common/i18n"
@@ -15,6 +17,7 @@ func (s *Server) registerMiddleware(r chi.Router) {
 	// Request paths are normalized before request IDs and traversal checks.
 	r.Use(URLNormalizeMiddleware)
 	r.Use(RequestIDMiddleware)
+	r.Use(PathSecurityMiddleware)
 	r.Use(gzipCompressionMiddleware(func() config.CompressionConfig {
 		s.configMu.RLock()
 		defer s.configMu.RUnlock()
@@ -22,12 +25,13 @@ func (s *Server) registerMiddleware(r chi.Router) {
 		settings.Types = append([]string(nil), settings.Types...)
 		return settings
 	}))
-	r.Use(PathSecurityMiddleware)
+	r.Use(s.seoNoIndexMiddleware)
+	r.Use(redactSecurityReportTokenMiddleware)
 	r.Use(requestBodyLimitMiddleware(s.config.Server.Limits.MaxBodyBytes()))
 	r.Use(s.debugMiddleware)
 	// Resolve trusted proxy entries dynamically so DNS-backed entries refresh
 	// every five minutes and config reloads take effect immediately.
-	s.proxyCIDRs = newTrustedProxyCIDRCache(func() *config.Config {
+	s.proxyCIDRs = newTrustedProxyCIDRCache(func() *config.ApplicationConfig {
 		s.configMu.RLock()
 		defer s.configMu.RUnlock()
 		return s.config
@@ -69,6 +73,9 @@ func (s *Server) registerMiddleware(r chi.Router) {
 	r.Use(func(next http.Handler) http.Handler {
 		return i18n.LanguageMiddlewareWithPreferenceGate(next, CanSetPreferenceCookie)
 	})
+	// The response-writer wrapper defers owner-cookie validation until after
+	// rate limiting has decided whether the request may proceed.
+	r.Use(s.ownerTokenCookieLifecycle)
 	// Maintenance mode rejects writes before IP/rate-limit middleware so every
 	// mutation receives the canonical maintenance response.
 	r.Use(s.maintenanceWriteGate)
@@ -81,9 +88,10 @@ func (s *Server) registerMiddleware(r chi.Router) {
 	r.Use(AllowlistMiddleware(s.allowlist))
 	r.Use(BlocklistMiddleware(s.blockStore))
 
-	// Per-IP rate limiting per AI.md PART 13.
-	r.Use(s.rateLimiter.Middleware)
-
+	// Per-IP anonymous and per-token authenticated rate limiting per AI.md PART 12.
+	r.Use(func(next http.Handler) http.Handler {
+		return s.rateLimiter.MiddlewareWithIdentity(next, s.rateLimitBearerIdentity)
+	})
 	// Country allow/deny-list enforcement per AI.md PART 19 "GeoIP" — a
 	// risk signal only, fails open on missing data/lookup errors, and never
 	// runs ahead of allowlist/blocklist/rate-limit.
@@ -116,7 +124,48 @@ func (s *Server) registerMiddleware(r chi.Router) {
 	// after i18n.LanguageMiddleware (translated failure message) and before
 	// any route handler.
 	r.Use(s.csrfMiddleware)
-	r.Use(middleware.Logger)
+	r.Use(s.accessLogger)
+}
+
+func (s *Server) seoNoIndexMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.configMu.RLock()
+		noIndex := s.config != nil && s.config.Server.SEO.NoIndex
+		s.configMu.RUnlock()
+		if noIndex {
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type securityReportTokenContextKey struct{}
+
+func securityStatusToken(r *http.Request) string {
+	token, _ := r.Context().Value(securityReportTokenContextKey{}).(string)
+	return token
+}
+
+func redactSecurityReportTokenMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/server/security/report/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		query := r.URL.Query()
+		token := query.Get("token")
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		query.Del("token")
+		requestURL := *r.URL
+		requestURL.RawQuery = query.Encode()
+		ctx := context.WithValue(r.Context(), securityReportTokenContextKey{}, token)
+		request := r.WithContext(ctx)
+		request.URL = &requestURL
+		next.ServeHTTP(w, request)
+	})
 }
 
 func requestBodyLimitMiddleware(maxBytes int64) func(http.Handler) http.Handler {

@@ -93,7 +93,7 @@ func TestShellQuote(t *testing.T) {
 	}{
 		{"simple", "'simple'"},
 		{"has space", "'has space'"},
-		{"it's got a quote", `'it'\''s got a quote'`},
+		{"it's got a quote", `'it'"'"'s got a quote'`},
 	}
 	for _, tt := range tests {
 		if got := shellQuote(tt.in); got != tt.want {

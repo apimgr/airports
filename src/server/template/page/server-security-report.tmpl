@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="container container-sm">
+    <header class="page-header">
+        <h1 class="page-title">{{t "security.status_title"}}</h1>
+        <p class="page-lead">{{t "security.status_lead"}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="security-status">
+        <h2 id="security-status">{{t "security.status_heading"}}</h2>
+        <p>{{t "security.status_label"}}: <span class="badge" role="status">{{.Status}}</span></p>
+        <p>{{t "security.received_label"}}: <time>{{.CreatedAt}}</time></p>
+        {{if .ResearcherComment}}<p><strong>{{t "security.status_comment_label"}}:</strong> {{.ResearcherComment}}</p>{{end}}
+        {{if .DisclosureDate}}<p><strong>{{t "security.disclosure_date_label"}}:</strong> <time>{{.DisclosureDate}}</time></p>{{end}}
+        <p>{{t "security.status_private"}}</p>
+    </section>
+</div>
+{{end}}

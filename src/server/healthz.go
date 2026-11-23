@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	cachepkg "github.com/apimgr/airports/src/cache"
 	commonhttp "github.com/apimgr/airports/src/common/httputil"
 	"github.com/apimgr/airports/src/common/i18n"
+	dbpkg "github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/i2p"
 	"github.com/apimgr/airports/src/scheduler"
 	"github.com/apimgr/airports/src/tor"
@@ -26,6 +26,15 @@ import (
 // cache) so a single stalled dependency can never hang the healthz
 // response itself.
 const healthCheckTimeout = 2 * time.Second
+
+var (
+	databaseHealthProbeSlot  = make(chan struct{}, 1)
+	cacheHealthProbeSlot     = make(chan struct{}, 1)
+	diskHealthProbeSlot      = make(chan struct{}, 1)
+	schedulerHealthProbeSlot = make(chan struct{}, 1)
+	torHealthProbeSlot       = make(chan struct{}, 1)
+	i2pHealthProbeSlot       = make(chan struct{}, 1)
+)
 
 // healthCacheProbeKey is the cache key used to round-trip a throwaway
 // value through the configured cache backend as a liveness probe. It is
@@ -251,6 +260,7 @@ type I2PInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
 	Status   string `json:"status"`
+	State    string `json:"state"`
 	Hostname string `json:"hostname"`
 	Provider string `json:"provider"`
 }
@@ -259,12 +269,13 @@ type I2PInfo struct {
 // connection strings, paths, or any other implementation detail
 // (AI.md PART 13 "Security: Public Info Only").
 type ChecksInfo struct {
-	Database  string `json:"database"`
-	Cache     string `json:"cache"`
-	Disk      string `json:"disk"`
-	Scheduler string `json:"scheduler"`
-	Tor       string `json:"tor,omitempty"`
-	I2P       string `json:"i2p,omitempty"`
+	Database  string               `json:"database"`
+	Cache     string               `json:"cache"`
+	Disk      string               `json:"disk"`
+	Scheduler string               `json:"scheduler"`
+	Tor       string               `json:"tor,omitempty"`
+	I2P       string               `json:"i2p,omitempty"`
+	Datasets  []DatasetHealthCheck `json:"-"`
 }
 
 // StatsInfo carries public-safe aggregate counters only.
@@ -303,7 +314,7 @@ func formatUptime(d time.Duration) string {
 // no connection string, host, or path ever leaves this function. A nil
 // db (healthz built without a database dependency, e.g. in tests) is
 // reported as "error" since the component is not actually reachable.
-func checkDatabase(db *sql.DB) string {
+func checkDatabase(db dbpkg.Handle) string {
 	if db == nil {
 		return "error"
 	}
@@ -390,35 +401,61 @@ func checkScheduler(sched *scheduler.Scheduler) (status string) {
 // relies on ChecksInfo.Tor's `omitempty` tag to drop the field entirely
 // in that case, matching AI.md PART 13's example where checks.tor is
 // only present "(if enabled)".
-func checkTor(mgr *tor.Manager) string {
-	if mgr == nil || !mgr.Enabled() {
+func checkTor(mgr *tor.TorManager) string {
+	if mgr == nil || !mgr.IsTorEnabled() {
 		return ""
 	}
-	if err := mgr.HealthCheck(); err != nil {
-		return "error"
+	if err := mgr.HealthCheck(); errors.Is(err, tor.ErrNotRunning) {
+		return "ok"
+	} else if err != nil {
+		return "degraded"
 	}
 	return "ok"
 }
 
-func checkI2P(mgr *i2p.Manager) string {
-	if mgr == nil || !mgr.Enabled() {
+func checkI2P(mgr *i2p.I2PManager) string {
+	if mgr == nil {
 		return ""
 	}
-	if !mgr.Running() {
-		return "error"
-	}
-	return "ok"
+	return checkI2PStatus(mgr.GetI2PStatus())
 }
 
-func i2pFeatureInfo(mgr *i2p.Manager) I2PInfo {
-	if mgr == nil || !mgr.Enabled() {
-		return I2PInfo{Status: "disabled", Provider: "none"}
+func checkI2PStatus(state string) string {
+	switch state {
+	case "disabled", "no_provider":
+		return ""
+	case "error":
+		return "degraded"
+	default:
+		return "ok"
 	}
-	info := I2PInfo{Enabled: true, Running: mgr.Running(), Hostname: mgr.EepsiteAddress(), Provider: string(mgr.Provider())}
-	if info.Running {
+}
+
+func i2pFeatureInfo(mgr *i2p.I2PManager) I2PInfo {
+	if mgr == nil {
+		return mapI2PFeatureInfo("disabled", false, false, "", i2p.I2PProviderNone)
+	}
+	return mapI2PFeatureInfo(mgr.GetI2PStatus(), mgr.IsI2PEnabled(), mgr.IsI2PRunning(), mgr.EepsiteAddress(), mgr.GetI2PProvider())
+}
+
+func mapI2PFeatureInfo(state string, enabled, running bool, hostname string, provider i2p.I2PProvider) I2PInfo {
+	info := I2PInfo{State: state, Provider: string(provider)}
+	if state == "disabled" || state == "no_provider" {
+		info.Status, info.Provider = "disabled", "none"
+		return info
+	}
+	info.Enabled = enabled
+	info.Running = running
+	info.Hostname = hostname
+	switch state {
+	case "running":
 		info.Status = "healthy"
-	} else {
-		info.Status = "error"
+	case "starting", "building":
+		info.Status = "starting"
+	case "error":
+		info.Status = "unavailable"
+	default:
+		info.Status = "unavailable"
 	}
 	return info
 }
@@ -426,38 +463,128 @@ func i2pFeatureInfo(mgr *i2p.Manager) I2PInfo {
 // torFeatureInfo builds the features.tor object. Per AI.md PART 13, this
 // object is always present (unlike checks.tor) — Enabled/Running reflect
 // actual state even when Tor is fully disabled.
-func torFeatureInfo(mgr *tor.Manager) TorInfo {
-	if mgr == nil || !mgr.Enabled() {
+func torFeatureInfo(mgr *tor.TorManager, check string) TorInfo {
+	if mgr == nil || !mgr.IsTorEnabled() {
 		return TorInfo{Status: "disabled"}
 	}
 
-	info := TorInfo{
-		Enabled:  true,
-		Hostname: mgr.OnionAddress(),
-	}
-	info.Running = info.Hostname != ""
-
-	switch err := mgr.HealthCheck(); {
-	case err == nil:
-		info.Status = "healthy"
-	case errors.Is(err, tor.ErrNotRunning):
-		info.Status = "starting"
+	info := TorInfo{Enabled: true}
+	switch check {
+	case "degraded":
+		info.Status = "unavailable"
+	case "ok":
+		info.Hostname = mgr.OnionAddress()
+		if info.Hostname == "" {
+			info.Status = "starting"
+		} else {
+			info.Status = "healthy"
+			info.Running = true
+		}
 	default:
-		info.Status = "error:" + err.Error()
+		info.Status = "starting"
 	}
 	return info
 }
 
+type healthProbe struct {
+	name     string
+	fallback string
+	slot     chan struct{}
+	check    func() string
+}
+
+type healthProbeResult struct {
+	name   string
+	status string
+}
+
+func collectHealthProbes(probes []healthProbe, timeout time.Duration) map[string]string {
+	results := make(chan healthProbeResult, len(probes))
+	for _, probe := range probes {
+		probe := probe
+		select {
+		case probe.slot <- struct{}{}:
+			go func() {
+				status := probe.fallback
+				defer func() {
+					if recover() != nil {
+						status = probe.fallback
+					}
+					<-probe.slot
+					results <- healthProbeResult{name: probe.name, status: status}
+				}()
+				status = probe.check()
+			}()
+		default:
+			results <- healthProbeResult{name: probe.name, status: probe.fallback}
+		}
+	}
+
+	statuses := make(map[string]string, len(probes))
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for remaining := len(probes); remaining > 0; remaining-- {
+		select {
+		case result := <-results:
+			statuses[result.name] = result.status
+		case <-timer.C:
+			for _, probe := range probes {
+				if _, ok := statuses[probe.name]; !ok {
+					statuses[probe.name] = probe.fallback
+				}
+			}
+			return statuses
+		}
+	}
+	return statuses
+}
+
+func collectServerHealthChecks(s *Server) ChecksInfo {
+	probes := []healthProbe{
+		{name: "database", fallback: "error", slot: databaseHealthProbeSlot, check: func() string { return checkDatabase(s.db) }},
+		{name: "cache", fallback: "error", slot: cacheHealthProbeSlot, check: func() string { return s.checkCache() }},
+		{name: "disk", fallback: "error", slot: diskHealthProbeSlot, check: func() string { return checkDisk(s.dataDir) }},
+		{name: "scheduler", fallback: "error", slot: schedulerHealthProbeSlot, check: func() string { return checkScheduler(s.scheduler) }},
+		{name: "tor", fallback: "degraded", slot: torHealthProbeSlot, check: func() string { return checkTor(s.tor) }},
+		{name: "i2p", fallback: "degraded", slot: i2pHealthProbeSlot, check: func() string { return checkI2P(s.i2p) }},
+	}
+	statuses := collectHealthProbes(probes, healthCheckTimeout)
+	checks := ChecksInfo{
+		Database:  statuses["database"],
+		Cache:     statuses["cache"],
+		Disk:      statuses["disk"],
+		Scheduler: statuses["scheduler"],
+		Tor:       statuses["tor"],
+		I2P:       statuses["i2p"],
+		Datasets:  currentDatasetHealthChecks(),
+	}
+	if s.tor == nil || !s.tor.IsTorEnabled() {
+		checks.Tor = ""
+	}
+	if s.i2p == nil || s.i2p.GetI2PStatus() == "disabled" || s.i2p.GetI2PStatus() == "no_provider" {
+		checks.I2P = ""
+	}
+	return checks
+}
+
 // overallStatus derives the top-level "status" field from the component
-// checks: any hard failure among database/cache/scheduler makes the
-// whole server "unhealthy"; a disk or (enabled) Tor failure alone is
-// treated as "degraded" since the server keeps serving requests either
-// way; otherwise "healthy".
+// checks: database and disk errors are critical; non-critical component,
+// overlay, and dataset failures degrade status unless a dataset is marked
+// critical.
 func overallStatus(checks ChecksInfo) string {
-	if checks.Database == "error" || checks.Cache == "error" || checks.Scheduler == "error" {
+	if checks.Database == "error" || checks.Disk == "error" {
 		return "unhealthy"
 	}
-	if checks.Disk == "error" || checks.Tor == "error" || checks.I2P == "error" {
+	degraded := checks.Cache != "ok" || checks.Scheduler != "ok" || checks.Tor == "error" || checks.Tor == "degraded" || checks.I2P == "error" || checks.I2P == "degraded"
+	for _, check := range checks.Datasets {
+		if check.Status == "error" && check.Critical {
+			return "unhealthy"
+		}
+		if check.Status != "ok" {
+			degraded = true
+		}
+	}
+	if degraded {
 		return "degraded"
 	}
 	return "healthy"
@@ -471,6 +598,8 @@ func statusWithRuntimeState(checks ChecksInfo, state HealthRuntimeState) string 
 		return "maintenance"
 	case overallStatus(checks) == "unhealthy":
 		return "unhealthy"
+	case overallStatus(checks) == "degraded":
+		return "degraded"
 	case state.PendingRestart:
 		return "restart_required"
 	default:
@@ -494,14 +623,7 @@ func buildHealthResponse(s *Server) HealthResponse {
 	branding := s.config.Server.Branding
 	runtimeState := currentHealthRuntimeState()
 
-	checks := ChecksInfo{
-		Database:  checkDatabase(s.db),
-		Cache:     s.checkCache(),
-		Disk:      checkDisk(s.dataDir),
-		Scheduler: checkScheduler(s.scheduler),
-		Tor:       checkTor(s.tor),
-		I2P:       checkI2P(s.i2p),
-	}
+	checks := collectServerHealthChecks(s)
 
 	var uptime string
 	if s.startTime.IsZero() {
@@ -537,7 +659,7 @@ func buildHealthResponse(s *Server) HealthResponse {
 		Timestamp:   time.Now().UTC(),
 		Maintenance: runtimeState.Maintenance,
 		Features: FeaturesInfo{
-			Tor:   torFeatureInfo(s.tor),
+			Tor:   torFeatureInfo(s.tor, checks.Tor),
 			I2P:   i2pFeatureInfo(s.i2p),
 			GeoIP: s.config.Server.GeoIP.Enabled,
 		},
@@ -605,16 +727,21 @@ func healthResponseText(resp HealthResponse) string {
 	b.WriteString("\n")
 
 	b.WriteString("# 5. Features - NON-NEGOTIABLE only (show actual status)\n")
-	fmt.Fprintf(&b, "features.tor.enabled: %t\n", resp.Features.Tor.Enabled)
-	fmt.Fprintf(&b, "features.tor.running: %t\n", resp.Features.Tor.Running)
-	fmt.Fprintf(&b, "features.tor.status: %s\n", resp.Features.Tor.Status)
-	fmt.Fprintf(&b, "features.tor.hostname: %s\n", resp.Features.Tor.Hostname)
-	fmt.Fprintf(&b, "features.i2p.enabled: %t\n", resp.Features.I2P.Enabled)
-	fmt.Fprintf(&b, "features.i2p.running: %t\n", resp.Features.I2P.Running)
-	fmt.Fprintf(&b, "features.i2p.status: %s\n", resp.Features.I2P.Status)
-	fmt.Fprintf(&b, "features.i2p.hostname: %s\n", resp.Features.I2P.Hostname)
-	fmt.Fprintf(&b, "features.i2p.provider: %s\n", resp.Features.I2P.Provider)
-	fmt.Fprintf(&b, "features.geoip: %t\n", resp.Features.GeoIP)
+	fmt.Fprintf(&b, "features.tor: %s", resp.Features.Tor.Status)
+	if resp.Features.Tor.Hostname != "" {
+		fmt.Fprintf(&b, " %s", resp.Features.Tor.Hostname)
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "features.i2p: %s", resp.Features.I2P.Status)
+	if resp.Features.I2P.Hostname != "" {
+		fmt.Fprintf(&b, " %s", resp.Features.I2P.Hostname)
+	}
+	fmt.Fprintf(&b, " provider=%s state=%s\n", resp.Features.I2P.Provider, resp.Features.I2P.State)
+	if resp.Features.GeoIP {
+		b.WriteString("features.geoip: enabled\n")
+	} else {
+		b.WriteString("features.geoip: disabled\n")
+	}
 	b.WriteString("# 6. Checks\n")
 	fmt.Fprintf(&b, "checks.database: %s\n", resp.Checks.Database)
 	fmt.Fprintf(&b, "checks.cache: %s\n", resp.Checks.Cache)
@@ -625,6 +752,9 @@ func healthResponseText(resp HealthResponse) string {
 	}
 	if resp.Checks.I2P != "" {
 		fmt.Fprintf(&b, "checks.i2p: %s\n", resp.Checks.I2P)
+	}
+	for _, check := range resp.Checks.Datasets {
+		fmt.Fprintf(&b, "checks.%s: %s\n", check.Key, check.Status)
 	}
 	b.WriteString("\n")
 
@@ -668,7 +798,7 @@ func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(statusCode)
 		lang := i18n.FromContext(r.Context())
 		s.renderTemplate(w, r, "server_healthz", map[string]interface{}{
-			"Title":    fmt.Sprintf("%s - %s", resp.Project.Name, i18n.T(lang, "health.title")),
+			"Title":    fmt.Sprintf("%s - %s", resp.Project.Name, i18n.TranslateText(lang, "health.title")),
 			"Health":   resp,
 			"Requests": formatWithCommas(resp.Stats.RequestsTotal),
 			"Req24h":   formatWithCommas(resp.Stats.Requests24h),

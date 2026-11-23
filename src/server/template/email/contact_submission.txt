@@ -1,7 +1,6 @@
-Subject: Contact form: {contact_subject}
+Subject: [{app_name} contact] {contact_subject}
 ---
 Name: {sender_name}
-Email: {sender_email}
 Subject: {contact_subject}
 
 {contact_message}

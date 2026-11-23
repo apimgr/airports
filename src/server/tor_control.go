@@ -37,7 +37,7 @@ func torLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// torControlError maps a Manager error to the canonical JSON error envelope,
+// torControlError maps a TorManager error to the canonical JSON error envelope,
 // per AI.md PART 14. tor.ErrNotEnabled always maps to 409 CONFLICT (the
 // operation is well-formed but Tor is not currently configured to allow
 // it); anything else is a 500 SERVER_ERROR with the detail logged, never
@@ -54,10 +54,10 @@ func (s *Server) torControlError(w http.ResponseWriter, r *http.Request, err err
 // backing the `{project_name} tor status` CLI subcommand.
 func (s *Server) handleTorStatus(w http.ResponseWriter, r *http.Request) {
 	if s.tor == nil {
-		s.respondItem(w, http.StatusOK, tor.Status{})
+		s.respondItem(w, http.StatusOK, tor.TorRuntimeStatus{})
 		return
 	}
-	s.respondItem(w, http.StatusOK, s.tor.Status())
+	s.respondItem(w, http.StatusOK, s.tor.GetTorRuntimeStatus())
 }
 
 // handleTorValidate serves POST /server/tor/validate — INTERNAL,
@@ -67,7 +67,7 @@ func (s *Server) handleTorValidate(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, r, http.StatusConflict, "CONFLICT", "errors.tor_not_enabled")
 		return
 	}
-	if err := s.tor.Validate(); err != nil {
+	if err := s.tor.ValidateTorService(); err != nil {
 		s.torControlError(w, r, err)
 		return
 	}
@@ -83,11 +83,11 @@ func (s *Server) handleTorRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	if err := s.tor.Restart(ctx); err != nil {
+	if err := s.tor.RestartTorService(ctx); err != nil {
 		s.torControlError(w, r, err)
 		return
 	}
-	s.respondItem(w, http.StatusOK, s.tor.Status())
+	s.respondItem(w, http.StatusOK, s.tor.GetTorRuntimeStatus())
 }
 
 // handleTorRegenerate serves POST /server/tor/regenerate — INTERNAL,
@@ -103,7 +103,7 @@ func (s *Server) handleTorRegenerate(w http.ResponseWriter, r *http.Request) {
 		s.torControlError(w, r, err)
 		return
 	}
-	s.respondItem(w, http.StatusOK, s.tor.Status())
+	s.respondItem(w, http.StatusOK, s.tor.GetTorRuntimeStatus())
 }
 
 // handleTorVanityStart serves POST /server/tor/vanity/start — INTERNAL,
@@ -152,7 +152,7 @@ func (s *Server) handleTorVanityApply(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, r, http.StatusConflict, "CONFLICT", "errors.tor_no_vanity_result")
 		return
 	}
-	s.respondItem(w, http.StatusOK, s.tor.Status())
+	s.respondItem(w, http.StatusOK, s.tor.GetTorRuntimeStatus())
 }
 
 // handleTorImportKeys serves POST /server/tor/import-keys — INTERNAL,
@@ -183,5 +183,5 @@ func (s *Server) handleTorImportKeys(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, r, http.StatusBadRequest, "BAD_REQUEST", "errors.validation_failed")
 		return
 	}
-	s.respondItem(w, http.StatusOK, s.tor.Status())
+	s.respondItem(w, http.StatusOK, s.tor.GetTorRuntimeStatus())
 }

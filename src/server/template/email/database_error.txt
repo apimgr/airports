@@ -1,0 +1,14 @@
+Subject: Database Connection Problem - {app_name}
+---
+DATABASE CONNECTION PROBLEM
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+The database connection has been unavailable since {since}.
+
+Error: {error}
+
+--
+{app_name}
+{app_url}

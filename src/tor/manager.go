@@ -18,20 +18,20 @@ import (
 	"github.com/pires/go-proxyproto"
 )
 
-// Manager owns the full lifecycle of this server's dedicated Tor process
+// TorManager owns the full lifecycle of this server's dedicated Tor process
 // and hidden service, per AI.md PART 31. It is always safe to construct
-// and call Start/Stop/HealthCheck on a Manager when Tor is not installed —
+// and call Start/Stop/HealthCheck on a TorManager when Tor is not installed —
 // every method is inert in that case.
-type Manager struct {
+type TorManager struct {
 	mu sync.Mutex
 	// starting lets health endpoints report Tor as starting without waiting
 	// for the bootstrap operation, which holds mu while it waits on the network.
 	starting atomic.Bool
 
 	projectName string
-	cfg         Config
+	cfg         TorConfig
 	serverPort  int
-	dirs        Dirs
+	dirs        TorDirs
 
 	enabled bool
 
@@ -47,13 +47,13 @@ type Manager struct {
 	vanity *vanityJob
 }
 
-// NewManager builds a Manager for projectName. The hidden service is forwarded
+// NewManager builds a TorManager for projectName. The hidden service is forwarded
 // to a dedicated PROXY-protocol listener allocated during Start. cfg is
 // validated/defaulted internally; construction never starts any process or
 // touches the filesystem.
-func NewManager(projectName string, serverPort int, cfg Config) *Manager {
+func NewTorManager(projectName string, serverPort int, cfg TorConfig) *TorManager {
 	cfg = applyDefaults(cfg)
-	return &Manager{
+	return &TorManager{
 		projectName: projectName,
 		cfg:         cfg,
 		serverPort:  serverPort,
@@ -62,9 +62,9 @@ func NewManager(projectName string, serverPort int, cfg Config) *Manager {
 	}
 }
 
-// Enabled reports whether a Tor binary was found when this Manager was
+// Enabled reports whether a Tor binary was found when this TorManager was
 // constructed.
-func (m *Manager) Enabled() bool {
+func (m *TorManager) IsTorEnabled() bool {
 	if m.starting.Load() {
 		return true
 	}
@@ -82,7 +82,7 @@ func (m *Manager) Enabled() bool {
 // v3 hidden service. If Tor is not enabled, Start logs an INFO line and
 // returns nil — this is never a startup failure per PART 31 "Tor is
 // OPTIONAL. Missing Tor is NOT an error."
-func (m *Manager) Start(ctx context.Context) (retErr error) {
+func (m *TorManager) StartTorService(ctx context.Context) (retErr error) {
 	m.starting.Store(true)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -148,7 +148,10 @@ func (m *Manager) Start(ctx context.Context) (retErr error) {
 	}
 
 	log.Println("Starting Tor hidden service...")
-	t, err := tor.Start(ctx, startConf)
+	// bine ties the child process lifetime to the context passed to Start.
+	// The caller's context is only the bounded startup/bootstrap budget, so
+	// detach the process from its cancellation and stop it explicitly in Close.
+	t, err := tor.Start(context.WithoutCancel(ctx), startConf)
 	if err != nil {
 		return fmt.Errorf("tor: start dedicated process: %w", err)
 	}
@@ -203,7 +206,7 @@ func (m *Manager) Start(ctx context.Context) (retErr error) {
 
 // Stop gracefully terminates the dedicated Tor process if one is running.
 // It is always safe to call, including when Tor was never started.
-func (m *Manager) Stop() error {
+func (m *TorManager) StopTorService() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -229,7 +232,7 @@ func (m *Manager) Stop() error {
 // hidden service. It requires PROXY protocol on every accepted connection.
 // The caller serves the application handler on this listener and closes it
 // during process shutdown.
-func (m *Manager) BackendListener() net.Listener {
+func (m *TorManager) BackendListener() net.Listener {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.backend
@@ -281,7 +284,7 @@ func readOnionHostname(siteDir string) (string, error) {
 // scheduler must treat this as "skipped", not a failure), ErrNotRunning
 // when Tor is enabled but Start has not succeeded yet, or the underlying
 // control-connection error if the running process stopped responding.
-func (m *Manager) HealthCheck() error {
+func (m *TorManager) HealthCheck() error {
 	if m.starting.Load() {
 		return ErrNotRunning
 	}
@@ -306,7 +309,7 @@ func (m *Manager) HealthCheck() error {
 // CircuitEstablished reports whether Tor currently reports an established
 // circuit through its control connection. It returns false when disabled,
 // stopped, or when the control query fails.
-func (m *Manager) CircuitEstablished() bool {
+func (m *TorManager) CircuitEstablished() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.enabled || m.t == nil {
@@ -326,7 +329,7 @@ func (m *Manager) CircuitEstablished() bool {
 
 // OnionAddress returns the current full .onion address, or "" if Tor is
 // disabled or not currently running.
-func (m *Manager) OnionAddress() string {
+func (m *TorManager) OnionAddress() string {
 	if m.starting.Load() {
 		return ""
 	}
@@ -345,7 +348,7 @@ func (m *Manager) OnionAddress() string {
 // is true and an outbound Tor dialer is available, requests are routed
 // through the dedicated Tor process's SOCKS proxy; otherwise a normal
 // direct-connection client is returned.
-func (m *Manager) GetHTTPClient(useTor bool) *http.Client {
+func (m *TorManager) GetHTTPClient(useTor bool) *http.Client {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

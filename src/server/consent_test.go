@@ -27,7 +27,7 @@ func TestHandleServerConsentChoices(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.DefaultConfig()
+			cfg := config.DefaultApplicationConfig()
 			s := &Server{config: cfg}
 			r := httptest.NewRequest(http.MethodPost, "/server/consent", strings.NewReader(tt.form.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -59,7 +59,7 @@ func TestHandleServerConsentChoices(t *testing.T) {
 }
 
 func TestHandleServerConsentAcceptHonorsDisabledCategories(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Privacy.Cookies.Preferences.Enabled = false
 	cfg.Server.Privacy.Cookies.Analytics.Enabled = false
 	s := &Server{config: cfg}
@@ -99,7 +99,7 @@ func TestConsentMiddlewareGatesPreferencesAndAnalytics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.DefaultConfig()
+			cfg := config.DefaultApplicationConfig()
 			cfg.Server.Privacy.Cookies.Preferences.Enabled = tt.preferencesEnabled
 			cfg.Server.Privacy.Cookies.Analytics.Enabled = tt.analyticsEnabled
 			cfg.Server.Privacy.Consent.DefaultEnabled = false
@@ -118,7 +118,7 @@ func TestConsentMiddlewareGatesPreferencesAndAnalytics(t *testing.T) {
 				gotPreferences = CanSetPreferenceCookie(request)
 				gotAnalytics = canLoadAnalytics(request, cfg)
 			})
-			consentMiddlewareWithConfig(next, func() *config.Config { return cfg }).ServeHTTP(httptest.NewRecorder(), r)
+			consentMiddlewareWithConfig(next, func() *config.ApplicationConfig { return cfg }).ServeHTTP(httptest.NewRecorder(), r)
 
 			if gotPreferences != tt.wantPreferences {
 				t.Errorf("CanSetPreferenceCookie() = %t, want %t", gotPreferences, tt.wantPreferences)
@@ -130,8 +130,64 @@ func TestConsentMiddlewareGatesPreferencesAndAnalytics(t *testing.T) {
 	}
 }
 
+func TestHandleServerConsentWithdrawalClearsCategoryCookies(t *testing.T) {
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.Privacy.Cookies.Preferences.Enabled = true
+	cfg.Server.Privacy.Cookies.Analytics.Enabled = true
+	s := &Server{config: cfg}
+	r := httptest.NewRequest(http.MethodPost, "/server/consent", strings.NewReader("choice=decline"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.QueryEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
+	r.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
+	r.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
+	r.AddCookie(&http.Cookie{Name: "airports_pref_map", Value: "satellite"})
+	r.AddCookie(&http.Cookie{Name: "airports_owner_token_XXXXXX", Value: "credential"})
+	w := httptest.NewRecorder()
+
+	s.handleServerConsent(w, r)
+
+	if got := w.Header().Get("Clear-Site-Data"); got != `"cache", "storage"` {
+		t.Fatalf("Clear-Site-Data = %q, want cache and storage only", got)
+	}
+	for _, name := range []string{"theme", "lang", "airports_pref_map"} {
+		cookie := findCookie(t, w.Result().Cookies(), name)
+		if cookie.MaxAge != -1 {
+			t.Errorf("%s MaxAge = %d, want expired cookie", name, cookie.MaxAge)
+		}
+	}
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "airports_owner_token_XXXXXX" {
+			t.Fatal("consent withdrawal cleared the owner credential cookie")
+		}
+	}
+}
+
+func TestHandleServerCCPAOptOutWithdrawsNonessentialConsent(t *testing.T) {
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.Privacy.Cookies.Preferences.Enabled = true
+	cfg.Server.Privacy.Cookies.Analytics.Enabled = true
+	s := &Server{config: cfg}
+	r := httptest.NewRequest(http.MethodPost, "/server/ccpa", strings.NewReader("choice=opt-out"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.QueryEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
+	r.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
+	w := httptest.NewRecorder()
+
+	s.handleServerCCPA(w, r)
+
+	if got := w.Header().Get("Clear-Site-Data"); got != `"cache", "storage"` {
+		t.Fatalf("Clear-Site-Data = %q, want cache and storage only", got)
+	}
+	if cookie := findCookie(t, w.Result().Cookies(), ccpaOptOutCookieName); cookie.Value != "true" {
+		t.Fatalf("CCPA opt-out cookie = %+v", cookie)
+	}
+	if cookie := findCookie(t, w.Result().Cookies(), consentCookieName); cookie.Value == "" {
+		t.Fatal("CCPA opt-out did not preserve the consent choice")
+	}
+}
+
 func TestCanLoadAnalyticsSuppressesTorTracking(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Privacy.Consent.DefaultEnabled = false
 	cfg.Server.Tracking.Type = "simple"
 	cfg.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"
@@ -157,7 +213,7 @@ func TestCanLoadAnalyticsSuppressesTorTracking(t *testing.T) {
 }
 
 func TestInvalidConsentCookieFallsBackToConfiguredDefaults(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.AddCookie(&http.Cookie{Name: consentCookieName, Value: "%ZZ"})
 

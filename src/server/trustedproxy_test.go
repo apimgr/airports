@@ -11,8 +11,8 @@ import (
 )
 
 func TestIsTrustedProxyRequestUsesRouterCIDRs(t *testing.T) {
-	srv := &Server{config: &config.Config{}}
-	srv.proxyCIDRs = newTrustedProxyCIDRCache(func() *config.Config { return srv.config })
+	srv := &Server{config: &config.ApplicationConfig{}}
+	srv.proxyCIDRs = newTrustedProxyCIDRCache(func() *config.ApplicationConfig { return srv.config })
 	tests := []struct {
 		name       string
 		remoteAddr string
@@ -65,7 +65,7 @@ func TestTrustedClientIPFromHeadersPrecedence(t *testing.T) {
 }
 
 func TestResolveTrustedProxyCIDRsIncludesListenAddressSubnet(t *testing.T) {
-	cidrs := resolveTrustedProxyCIDRs(&config.Config{Server: config.ServerConfig{Address: "192.168.44.17"}})
+	cidrs := resolveTrustedProxyCIDRs(&config.ApplicationConfig{Server: config.ServerConfig{Address: "192.168.44.17"}})
 	for _, cidr := range cidrs {
 		if cidr == "192.168.44.0/24" {
 			return
@@ -75,9 +75,9 @@ func TestResolveTrustedProxyCIDRsIncludesListenAddressSubnet(t *testing.T) {
 }
 
 func TestTrustedProxyDNSIsCachedThenRefreshed(t *testing.T) {
-	cfg := &config.Config{Server: config.ServerConfig{TrustedProxies: config.TrustedProxiesConfig{Additional: []string{"proxy.example"}}}}
+	cfg := &config.ApplicationConfig{Server: config.ServerConfig{TrustedProxies: config.TrustedProxiesConfig{Additional: []string{"proxy.example"}}}}
 	lookups := 0
-	source := newTrustedProxyCIDRCache(func() *config.Config { return cfg })
+	source := newTrustedProxyCIDRCache(func() *config.ApplicationConfig { return cfg })
 	source.lookup = func(string) ([]string, error) {
 		lookups++
 		if lookups == 1 {
@@ -111,9 +111,9 @@ func TestTrustedProxyDNSIsCachedThenRefreshed(t *testing.T) {
 }
 
 func TestBothProxyMiddlewarePathsUseRefreshedDNS(t *testing.T) {
-	cfg := &config.Config{Server: config.ServerConfig{TrustedProxies: config.TrustedProxiesConfig{Additional: []string{"proxy.example"}}}}
+	cfg := &config.ApplicationConfig{Server: config.ServerConfig{TrustedProxies: config.TrustedProxiesConfig{Additional: []string{"proxy.example"}}}}
 	lookups := 0
-	source := newTrustedProxyCIDRCache(func() *config.Config { return cfg })
+	source := newTrustedProxyCIDRCache(func() *config.ApplicationConfig { return cfg })
 	source.lookup = func(string) ([]string, error) {
 		lookups++
 		if lookups == 1 {

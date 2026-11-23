@@ -21,8 +21,8 @@ func GetCacheHeaders() CacheHeaders {
 	}
 }
 
-// getLogLevel returns the required baseline log level for the current mode.
-func getLogLevel() string {
+// GetLogLevel returns the required baseline log level for the current mode.
+func GetLogLevel() string {
 	if IsAppModeDev() || GetAppMode() == Debug {
 		return "debug"
 	}

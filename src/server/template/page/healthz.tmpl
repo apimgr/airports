@@ -1,120 +1,117 @@
 {{define "content"}}
 {{$h := .Health}}
-<section class="page-section health-header">
-    <h1>{{t "health.title"}}</h1>
-    <p class="tagline">{{$h.Project.Tagline}}</p>
-</section>
+<div class="container container-lg">
+    <header class="page-header">
+        <h1 class="page-title">{{t "health.title"}}</h1>
+        <p class="page-lead">{{$h.Project.Tagline}}</p>
+    </header>
 
-<section class="page-section">
-    <div class="status-banner status-{{if eq $h.Status "healthy"}}ok{{else if or (eq $h.Status "degraded") (eq $h.Status "restart_required")}}warning{{else}}error{{end}}">
-        <strong>
-            {{if eq $h.Status "healthy"}}{{t "health.all_operational"}}
-            {{else if eq $h.Status "degraded"}}{{t "health.degraded"}}
-            {{else if eq $h.Status "restart_required"}}Restart required
-            {{else if eq $h.Status "maintenance"}}Maintenance in progress
-            {{else if eq $h.Status "shutting_down"}}Shutting down
-            {{else}}{{t "health.unhealthy"}}{{end}}
-        </strong>
-        <span class="badge badge-{{$h.Mode}}">{{$h.Mode}}</span>
-        {{if $h.PendingRestart}}
-        <p>Restart required for: {{range $index, $reason := $h.RestartReason}}{{if $index}}, {{end}}{{$reason}}{{end}}</p>
-        {{end}}
-    </div>
-</section>
-
-{{if $h.Maintenance}}
-<section class="page-section section-card">
-    <h2>Maintenance details</h2>
-    <dl class="info-list">
-        <dt>Reason</dt><dd>{{$h.Maintenance.Reason}}</dd>
-        <dt>Message</dt><dd>{{$h.Maintenance.Message}}</dd>
-        <dt>Since</dt><dd>{{$h.Maintenance.Since}}</dd>
-        <dt>Self-healing</dt><dd>{{if $h.Maintenance.SelfHealing.Enabled}}Enabled{{else}}Disabled{{end}}</dd>
-        <dt>Attempts</dt><dd>{{$h.Maintenance.SelfHealing.Attempts}}</dd>
-        {{if $h.Maintenance.SelfHealing.LastAttempt}}
-        <dt>Last attempt</dt><dd>{{$h.Maintenance.SelfHealing.LastAttempt}}</dd>
-        {{end}}
-        {{if $h.Maintenance.SelfHealing.NextAttempt}}
-        <dt>Next attempt</dt><dd>{{$h.Maintenance.SelfHealing.NextAttempt}}</dd>
-        {{end}}
-    </dl>
-</section>
-{{end}}
-
-<section class="page-section section-card">
-    <h2>{{t "health.version"}}</h2>
-    <dl class="info-list">
-        <dt>{{t "health.version"}}</dt><dd>{{$h.Version}}</dd>
-        <dt>{{t "health.go_version"}}</dt><dd>{{$h.GoVersion}}</dd>
-        <dt>{{t "health.build"}}</dt><dd class="code-block">{{$h.Build.Commit}} &middot; {{$h.Build.Date}}</dd>
-        <dt>{{t "health.uptime"}}</dt><dd>{{$h.Uptime}}</dd>
-        <dt>{{t "health.mode"}}</dt><dd>{{$h.Mode}}</dd>
-        <dt>{{t "health.status"}}</dt><dd>{{$h.Status}}</dd>
-    </dl>
-</section>
-
-<section class="page-section section-card">
-    <h2>{{t "health.features"}}</h2>
-    <ul class="feature-list">
-        <li class="{{if $h.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">
-            {{t "health.geoip"}}: {{if $h.Features.GeoIP}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
-        </li>
-        <li class="{{if $h.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
-            {{t "health.tor"}}: {{if $h.Features.Tor.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
-            {{if $h.Features.Tor.Enabled}}
-            <span class="badge">{{$h.Features.Tor.Status}}</span>
-            {{if $h.Features.Tor.Hostname}}
-            <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-text="{{t "common.copied"}}">{{$h.Features.Tor.Hostname}}</button>
+    <section class="section-card" aria-labelledby="health-status-heading">
+        <h2 id="health-status-heading">{{t "health.status"}}</h2>
+        <div class="status-banner status-{{if eq $h.Status "healthy"}}ok{{else if or (eq $h.Status "degraded") (eq $h.Status "restart_required")}}warning{{else}}error{{end}}">
+            <strong>
+                {{if eq $h.Status "healthy"}}{{t "health.all_operational"}}
+                {{else if eq $h.Status "degraded"}}{{t "health.degraded"}}
+                {{else if eq $h.Status "restart_required"}}{{t "health.restart_required"}}
+                {{else if eq $h.Status "maintenance"}}{{t "health.maintenance"}}
+                {{else if eq $h.Status "shutting_down"}}{{t "health.shutting_down"}}
+                {{else}}{{t "health.unhealthy"}}{{end}}
+            </strong>
+            <span class="badge badge-{{$h.Mode}}">{{$h.Mode}}</span>
+            {{if $h.PendingRestart}}
+            <p>{{t "health.restart_reasons"}}: {{range $index, $reason := $h.RestartReason}}{{if $index}}, {{end}}{{$reason}}{{end}}</p>
             {{end}}
+        </div>
+        {{if $h.Maintenance}}
+        <h3>{{t "health.maintenance_details"}}</h3>
+        <dl class="info-list">
+            <dt>{{t "health.reason"}}</dt><dd>{{$h.Maintenance.Reason}}</dd>
+            <dt>{{t "health.message"}}</dt><dd>{{$h.Maintenance.Message}}</dd>
+            <dt>{{t "health.since"}}</dt><dd>{{$h.Maintenance.Since}}</dd>
+            <dt>{{t "health.self_healing"}}</dt><dd>{{if $h.Maintenance.SelfHealing.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}</dd>
+            <dt>{{t "health.attempts"}}</dt><dd>{{$h.Maintenance.SelfHealing.Attempts}}</dd>
+            {{if $h.Maintenance.SelfHealing.LastAttempt}}
+            <dt>{{t "health.last_attempt"}}</dt><dd>{{$h.Maintenance.SelfHealing.LastAttempt}}</dd>
             {{end}}
-        </li>
-    </ul>
-</section>
+            {{if $h.Maintenance.SelfHealing.NextAttempt}}
+            <dt>{{t "health.next_attempt"}}</dt><dd>{{$h.Maintenance.SelfHealing.NextAttempt}}</dd>
+            {{end}}
+        </dl>
+        {{end}}
+    </section>
 
-<section class="page-section section-card">
-    <h2>{{t "health.component_status"}}</h2>
-    <div class="table-wrapper">
-        <table class="data-table">
-            <thead>
-                <tr><th>{{t "health.component_status"}}</th><th>{{t "health.status"}}</th></tr>
-            </thead>
-            <tbody>
-                <tr><td>{{t "health.database"}}</td><td><span class="status-{{if eq $h.Checks.Database "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Database}}</span></td></tr>
-                <tr><td>{{t "health.cache"}}</td><td><span class="status-{{if eq $h.Checks.Cache "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Cache}}</span></td></tr>
-                <tr><td>{{t "health.disk"}}</td><td><span class="status-{{if eq $h.Checks.Disk "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Disk}}</span></td></tr>
-                <tr><td>{{t "health.scheduler"}}</td><td><span class="status-{{if eq $h.Checks.Scheduler "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Scheduler}}</span></td></tr>
-                {{if $h.Checks.Tor}}
-                <tr><td>{{t "health.tor"}}</td><td><span class="status-{{if eq $h.Checks.Tor "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Tor}}</span></td></tr>
+    <section class="section-card" aria-labelledby="health-version-heading">
+        <h2 id="health-version-heading">{{t "health.version"}}</h2>
+        <dl class="info-list">
+            <dt>{{t "health.version"}}</dt><dd>{{$h.Version}}</dd>
+            <dt>{{t "health.go_version"}}</dt><dd>{{$h.GoVersion}}</dd>
+            <dt>{{t "health.build"}}</dt><dd class="code-block">{{$h.Build.Commit}} · {{$h.Build.Date}}</dd>
+            <dt>{{t "health.uptime"}}</dt><dd>{{$h.Uptime}}</dd>
+            <dt>{{t "health.mode"}}</dt><dd>{{$h.Mode}}</dd>
+            <dt>{{t "health.status"}}</dt><dd>{{$h.Status}}</dd>
+        </dl>
+    </section>
+
+    <section class="section-card" aria-labelledby="health-features-heading">
+        <h2 id="health-features-heading">{{t "health.features"}}</h2>
+        <ul class="feature-list">
+            <li class="{{if $h.Features.GeoIP}}feature-enabled{{else}}feature-disabled{{end}}">
+                {{t "health.geoip"}}: {{if $h.Features.GeoIP}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
+            </li>
+            <li class="{{if $h.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
+                {{t "health.tor"}}: {{if $h.Features.Tor.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
+                {{if $h.Features.Tor.Enabled}}
+                <span class="badge">{{$h.Features.Tor.Status}}</span>
+                {{if $h.Features.Tor.Hostname}}
+                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{tf "health.copy_onion_address" "address" $h.Features.Tor.Hostname}}">{{t "common.copy"}}</button>
                 {{end}}
-            </tbody>
-        </table>
-    </div>
-</section>
+                {{end}}
+            </li>
+            <li class="{{if $h.Features.I2P.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
+                I2P: {{if $h.Features.I2P.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
+                {{if $h.Features.I2P.Enabled}}
+                <span class="badge">{{$h.Features.I2P.Status}}</span>
+                {{if $h.Features.I2P.Hostname}}
+                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.I2P.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+                {{end}}
+                {{end}}
+            </li>
+        </ul>
+    </section>
 
-<section class="page-section section-card">
-    <h2>{{t "health.server_statistics"}}</h2>
-    <div class="health-stats-grid">
-        <div class="stat-card">
-            <div class="stat-number">{{.Requests}}</div>
-            <div class="stat-label">{{t "health.total_requests"}}</div>
+    <section class="section-card" aria-labelledby="health-components-heading">
+        <h2 id="health-components-heading">{{t "health.component_status"}}</h2>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "health.component_status"}}</caption>
+                <thead><tr><th scope="col">{{t "health.component"}}</th><th scope="col">{{t "health.status"}}</th></tr></thead>
+                <tbody>
+                    <tr><td>{{t "health.database"}}</td><td><span class="status-{{if eq $h.Checks.Database "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Database}}</span></td></tr>
+                    <tr><td>{{t "health.cache"}}</td><td><span class="status-{{if eq $h.Checks.Cache "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Cache}}</span></td></tr>
+                    <tr><td>{{t "health.disk"}}</td><td><span class="status-{{if eq $h.Checks.Disk "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Disk}}</span></td></tr>
+                    <tr><td>{{t "health.scheduler"}}</td><td><span class="status-{{if eq $h.Checks.Scheduler "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Scheduler}}</span></td></tr>
+                    {{if $h.Checks.Tor}}<tr><td>{{t "health.tor"}}</td><td><span class="status-{{if eq $h.Checks.Tor "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Tor}}</span></td></tr>{{end}}
+                    {{if $h.Checks.I2P}}<tr><td>I2P</td><td><span class="status-{{if eq $h.Checks.I2P "ok"}}ok{{else if eq $h.Checks.I2P "degraded"}}warning{{else}}error{{end}}">{{$h.Checks.I2P}}</span></td></tr>{{end}}
+                    {{range $h.Checks.Datasets}}<tr><td>{{healthCheckLabel .Key}}</td><td><span class="status-{{if eq .Status "ok"}}ok{{else if eq .Status "degraded"}}warning{{else}}error{{end}}">{{.Status}}</span></td></tr>{{end}}
+                </tbody>
+            </table>
         </div>
-        <div class="stat-card">
-            <div class="stat-number">{{.Req24h}}</div>
-            <div class="stat-label">{{t "health.requests_24h"}}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">{{$h.Stats.ActiveConns}}</div>
-            <div class="stat-label">{{t "health.active_connections"}}</div>
-        </div>
-    </div>
-</section>
+    </section>
 
-<footer class="page-section health-footer">
-    <p>{{t "health.last_checked"}}: {{$h.Timestamp}}</p>
-    <p class="muted auto-refresh">{{t "health.auto_refresh"}}</p>
-    <p class="muted">
-        <a href="{{.APIBase}}/server/healthz">JSON</a> &middot;
-        <a href="{{.BaseURL}}/server/healthz" rel="alternate" type="text/plain">text</a>
-    </p>
-</footer>
+    <section class="section-card" aria-labelledby="health-statistics-heading">
+        <h2 id="health-statistics-heading">{{t "health.server_statistics"}}</h2>
+        <dl class="health-stats-grid">
+            <div class="stat-card"><dt class="stat-label">{{t "health.total_requests"}}</dt><dd class="stat-number">{{.Requests}}</dd></div>
+            <div class="stat-card"><dt class="stat-label">{{t "health.requests_24h"}}</dt><dd class="stat-number">{{.Req24h}}</dd></div>
+            <div class="stat-card"><dt class="stat-label">{{t "health.active_connections"}}</dt><dd class="stat-number">{{$h.Stats.ActiveConns}}</dd></div>
+        </dl>
+    </section>
+
+    <section class="section-card" aria-labelledby="health-checked-heading">
+        <h2 id="health-checked-heading">{{t "health.last_checked"}}</h2>
+        <p><time>{{$h.Timestamp}}</time></p>
+        <p>{{t "health.auto_refresh"}}</p>
+        <p><a href="{{.APIBase}}/server/healthz">{{t "health.json"}}</a> · <a href="{{.BaseURL}}/server/healthz" rel="alternate" type="text/plain">{{t "health.text"}}</a></p>
+    </section>
+</div>
 {{end}}

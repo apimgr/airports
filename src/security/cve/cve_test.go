@@ -12,14 +12,14 @@ import (
 	"time"
 )
 
-// newTestService builds a Service rooted at a temp dir with sleep/now
+// newTestService builds a CVEService rooted at a temp dir with sleep/now
 // stubbed so tests run instantly and deterministically.
-func newTestService(t *testing.T, baseURL string) *Service {
+func newTestService(t *testing.T, baseURL string) *CVEService {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := NewService(dir, "")
+	s, err := NewCVEService(dir, "")
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewCVEService: %v", err)
 	}
 	s.apiBaseURL = baseURL
 	s.sleep = func(time.Duration) {}
@@ -55,11 +55,11 @@ func sampleCVE(id, lastModified string) json.RawMessage {
 	return raw
 }
 
-func TestNewServiceCreatesDir(t *testing.T) {
+func TestNewCVEServiceCreatesDir(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewService(dir, "key123")
+	s, err := NewCVEService(dir, "key123")
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewCVEService: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cve")); err != nil {
 		t.Fatalf("expected cve dir to be created: %v", err)
@@ -69,16 +69,16 @@ func TestNewServiceCreatesDir(t *testing.T) {
 	}
 }
 
-func TestNewServiceRequiresDir(t *testing.T) {
-	if _, err := NewService("", ""); err == nil {
+func TestNewCVEServiceRequiresDir(t *testing.T) {
+	if _, err := NewCVEService("", ""); err == nil {
 		t.Fatal("expected error for empty security dir")
 	}
 }
 
 func TestRequestDelayWithoutKey(t *testing.T) {
-	s, err := NewService(t.TempDir(), "")
+	s, err := NewCVEService(t.TempDir(), "")
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewCVEService: %v", err)
 	}
 	if s.requestDelay() != noKeyRequestDelay {
 		t.Errorf("expected noKeyRequestDelay, got %v", s.requestDelay())
@@ -164,7 +164,7 @@ func TestUpdateFirstRunSinglePage(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	if err := s.Update(); err != nil {
+	if err := s.UpdateCVEFeed(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if atomic.LoadInt32(&requests) != 1 {
@@ -230,7 +230,7 @@ func TestUpdatePagination(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	if err := s.Update(); err != nil {
+	if err := s.UpdateCVEFeed(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -275,7 +275,7 @@ func TestUpdateUpsertsIntoExistingIndex(t *testing.T) {
 		t.Fatalf("saveWatermark: %v", err)
 	}
 
-	if err := s.Update(); err != nil {
+	if err := s.UpdateCVEFeed(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -315,7 +315,7 @@ func TestUpdateRetriesOnRateLimitThenSucceeds(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	if err := s.Update(); err != nil {
+	if err := s.UpdateCVEFeed(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if atomic.LoadInt32(&attempts) != 3 {
@@ -341,7 +341,7 @@ func TestUpdateGivesUpAfterMaxRetries(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	err := s.Update()
+	err := s.UpdateCVEFeed()
 	if err == nil {
 		t.Fatal("expected error after exhausting retries")
 	}
@@ -360,7 +360,7 @@ func TestUpdateNonRetryableFailsImmediately(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	err := s.Update()
+	err := s.UpdateCVEFeed()
 	if err == nil {
 		t.Fatal("expected error for non-retryable failure")
 	}
@@ -377,7 +377,7 @@ func TestUpdateMalformedJSONResponse(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	if err := s.Update(); err == nil {
+	if err := s.UpdateCVEFeed(); err == nil {
 		t.Fatal("expected error for malformed JSON response")
 	}
 }
@@ -399,7 +399,7 @@ func TestUpdateSkipsMalformedRecordButKeepsOthers(t *testing.T) {
 	defer server.Close()
 
 	s := newTestService(t, server.URL)
-	if err := s.Update(); err != nil {
+	if err := s.UpdateCVEFeed(); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 

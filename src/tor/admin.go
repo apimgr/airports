@@ -26,10 +26,10 @@ import (
 // encoding), 1-16 characters, per AI.md PART 31 CLI control channel.
 var vanityPrefixPattern = regexp.MustCompile(`^[a-z2-7]{1,16}$`)
 
-// Status is a point-in-time snapshot of Tor's current state, backing the
+// TorRuntimeStatus is a point-in-time snapshot of Tor's current state, backing the
 // CLI-to-server internal control channel's `GET /server/tor/status`
 // endpoint per AI.md PART 31.
-type Status struct {
+type TorRuntimeStatus struct {
 	Enabled      bool   `json:"enabled"`
 	Running      bool   `json:"running"`
 	OnionAddress string `json:"onion_address,omitempty"`
@@ -37,13 +37,13 @@ type Status struct {
 	ServerPort   int    `json:"server_port,omitempty"`
 }
 
-// Status returns a snapshot of Tor's current state for the CLI
+// GetTorRuntimeStatus returns a snapshot of Tor's current state for the CLI
 // `tor status` subcommand.
-func (m *Manager) Status() Status {
+func (m *TorManager) GetTorRuntimeStatus() TorRuntimeStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	st := Status{
+	st := TorRuntimeStatus{
 		Enabled:     m.enabled,
 		Running:     m.t != nil,
 		VirtualPort: m.cfg.VirtualPort,
@@ -58,7 +58,7 @@ func (m *Manager) Status() Status {
 // Validate confirms the persisted onion key (if any) parses correctly and,
 // when Tor is running, that the control connection still responds. It
 // never mutates state.
-func (m *Manager) Validate() error {
+func (m *TorManager) ValidateTorService() error {
 	m.mu.Lock()
 	enabled := m.enabled
 	running := m.t != nil
@@ -83,11 +83,11 @@ func (m *Manager) Validate() error {
 
 // Restart stops the dedicated Tor process (if running) and starts it again,
 // reusing the same persisted onion key so the .onion address stays stable.
-func (m *Manager) Restart(ctx context.Context) error {
-	if err := m.Stop(); err != nil {
+func (m *TorManager) RestartTorService(ctx context.Context) error {
+	if err := m.StopTorService(); err != nil {
 		return fmt.Errorf("tor: restart: stop: %w", err)
 	}
-	if err := m.Start(ctx); err != nil {
+	if err := m.StartTorService(ctx); err != nil {
 		return fmt.Errorf("tor: restart: start: %w", err)
 	}
 	return nil
@@ -96,7 +96,7 @@ func (m *Manager) Restart(ctx context.Context) error {
 // Regenerate discards the current persisted onion key and starts a brand
 // new v3 identity (a new .onion address), restarting the hidden service so
 // the new key takes effect immediately.
-func (m *Manager) Regenerate(ctx context.Context) error {
+func (m *TorManager) Regenerate(ctx context.Context) error {
 	m.mu.Lock()
 	if !m.enabled {
 		m.mu.Unlock()
@@ -106,19 +106,19 @@ func (m *Manager) Regenerate(ctx context.Context) error {
 	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
 	if running {
-		if err := m.Stop(); err != nil {
+		if err := m.StopTorService(); err != nil {
 			return fmt.Errorf("tor: regenerate: stop: %w", err)
 		}
 	}
 	if err := os.RemoveAll(siteDir); err != nil {
 		return fmt.Errorf("tor: regenerate: remove old key: %w", err)
 	}
-	return m.Start(ctx)
+	return m.StartTorService(ctx)
 }
 
 // vanityJob tracks an in-progress or completed vanity onion-address search
 // started via StartVanitySearch. All fields are guarded by the owning
-// Manager's mu.
+// TorManager's mu.
 type vanityJob struct {
 	prefix    string
 	running   bool
@@ -146,7 +146,7 @@ type VanityResult struct {
 // new one cancels any prior in-progress search. Candidates are generated
 // entirely locally (no Tor control-port round-trip per attempt) using the
 // same ed25519 keypair and service-ID derivation Tor itself uses.
-func (m *Manager) StartVanitySearch(prefix string) error {
+func (m *TorManager) StartVanitySearch(prefix string) error {
 	if !vanityPrefixPattern.MatchString(prefix) {
 		return fmt.Errorf("tor: vanity prefix must be 1-16 lowercase base32 characters (a-z, 2-7)")
 	}
@@ -171,7 +171,7 @@ func (m *Manager) StartVanitySearch(prefix string) error {
 // runVanitySearch drives the worker pool for job until a match is found or
 // ctx is canceled (superseded by a newer search). Exactly one winning
 // candidate is recorded on job.
-func (m *Manager) runVanitySearch(ctx context.Context, job *vanityJob) {
+func (m *TorManager) runVanitySearch(ctx context.Context, job *vanityJob) {
 	var found int32
 	var wg sync.WaitGroup
 
@@ -229,7 +229,7 @@ func (m *Manager) runVanitySearch(ctx context.Context, job *vanityJob) {
 // VanityStatus reports the state of the most recently started vanity
 // search, if any. The bool return is false if no search has ever been
 // started.
-func (m *Manager) VanityStatus() (VanityResult, bool) {
+func (m *TorManager) VanityStatus() (VanityResult, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -252,7 +252,7 @@ func (m *Manager) VanityStatus() (VanityResult, bool) {
 // vanity search as the server's persisted onion identity and restarts the
 // hidden service so the new vanity .onion address takes effect. Returns an
 // error if no completed vanity search result is available to apply.
-func (m *Manager) ApplyVanity(ctx context.Context) error {
+func (m *TorManager) ApplyVanity(ctx context.Context) error {
 	m.mu.Lock()
 	if !m.enabled {
 		m.mu.Unlock()
@@ -267,7 +267,7 @@ func (m *Manager) ApplyVanity(ctx context.Context) error {
 	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
 	if running {
-		if err := m.Stop(); err != nil {
+		if err := m.StopTorService(); err != nil {
 			return fmt.Errorf("tor: apply vanity: stop: %w", err)
 		}
 	}
@@ -290,7 +290,7 @@ func (m *Manager) ApplyVanity(ctx context.Context) error {
 	m.vanity = nil
 	m.mu.Unlock()
 
-	return m.Start(ctx)
+	return m.StartTorService(ctx)
 }
 
 // parseImportedKey accepts the legacy project control-key string or Tor's
@@ -315,7 +315,7 @@ func parseImportedKey(data []byte) (control.Key, error) {
 // file) as the server's onion identity, replacing whatever is currently
 // persisted, and restarts the hidden service so the imported .onion address
 // takes effect.
-func (m *Manager) ImportKeys(ctx context.Context, data []byte) error {
+func (m *TorManager) ImportKeys(ctx context.Context, data []byte) error {
 	m.mu.Lock()
 	if !m.enabled {
 		m.mu.Unlock()
@@ -325,7 +325,7 @@ func (m *Manager) ImportKeys(ctx context.Context, data []byte) error {
 	siteDir := m.dirs.SiteDir
 	m.mu.Unlock()
 	if running {
-		if err := m.Stop(); err != nil {
+		if err := m.StopTorService(); err != nil {
 			return fmt.Errorf("tor: import keys: stop: %w", err)
 		}
 	}
@@ -343,5 +343,5 @@ func (m *Manager) ImportKeys(ctx context.Context, data []byte) error {
 		return fmt.Errorf("tor: import keys: save key: %w", err)
 	}
 
-	return m.Start(ctx)
+	return m.StartTorService(ctx)
 }

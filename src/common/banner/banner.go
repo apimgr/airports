@@ -140,7 +140,7 @@ func printMicro(w io.Writer, cfg BannerConfig, useIcons bool) {
 }
 
 func printMode(w io.Writer, cfg BannerConfig, icons bool, lang string) {
-	label := i18n.T(lang, "cli.running_in_mode_label")
+	label := i18n.TranslateText(lang, "cli.running_in_mode_label")
 	if label == "" || label == "cli.running_in_mode_label" {
 		label = "Running in mode"
 	}

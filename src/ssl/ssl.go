@@ -16,8 +16,8 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// Config holds SSL/TLS configuration
-type Config struct {
+// SSLManagerConfig holds SSL/TLS configuration
+type SSLManagerConfig struct {
 	Enabled     bool
 	CertPath    string
 	LetsEncrypt LetsEncryptConfig
@@ -38,9 +38,9 @@ type LetsEncryptConfig struct {
 	DNSCredentials map[string]string
 }
 
-// Manager handles SSL/TLS certificates
-type Manager struct {
-	config       Config
+// SSLManager handles SSL/TLS certificates
+type SSLManager struct {
+	config       SSLManagerConfig
 	certManager  *autocert.Manager
 	dns01Cert    *tls.Certificate
 	dns01Domains []string
@@ -55,14 +55,14 @@ type Manager struct {
 }
 
 // NewManager creates a new SSL manager
-func NewManager(cfg Config) *Manager {
-	return &Manager{
+func NewSSLManager(cfg SSLManagerConfig) *SSLManager {
+	return &SSLManager{
 		config: cfg,
 	}
 }
 
 // GetTLSConfig returns TLS configuration for the server
-func (m *Manager) GetTLSConfig(domains []string) (*tls.Config, error) {
+func (m *SSLManager) GetTLSConfig(domains []string) (*tls.Config, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -116,7 +116,7 @@ func (m *Manager) GetTLSConfig(domains []string) (*tls.Config, error) {
 // from the CA). DNS-01 has no port requirement and supports wildcard certs,
 // so it is obtained directly via lego (see dns01.go) using the configured
 // DNSProvider/DNSCredentials, per AI.md PART 15 "Supported Challenge Types".
-func (m *Manager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, error) {
+func (m *SSLManager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, error) {
 	for _, domain := range domains {
 		if !urlvars.IsValidSSLHost(domain) {
 			return nil, fmt.Errorf("let's Encrypt requires a publicly valid hostname; refusing certificate request for %q", domain)
@@ -148,8 +148,8 @@ func (m *Manager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, error)
 // getDNS01TLSConfig obtains (or reuses a cached) certificate via the DNS-01
 // challenge and returns a static tls.Config serving it. Unlike autocert,
 // lego has no long-running GetCertificate hook, so the certificate is cached
-// on the Manager and refreshed by RenewIfNeeded.
-func (m *Manager) getDNS01TLSConfig(domains []string) (*tls.Config, error) {
+// on the SSLManager and refreshed by RenewIfNeeded.
+func (m *SSLManager) getDNS01TLSConfig(domains []string) (*tls.Config, error) {
 	cert, err := m.obtainDNS01Certificate(domains)
 	if err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func (m *Manager) getDNS01TLSConfig(domains []string) (*tls.Config, error) {
 // future restarts as an app-managed, auto-renewing Let's Encrypt cert per
 // AI.md PART 15 "Certificate Directory Structure"), and caches the parsed
 // certificate plus its expiry for RenewIfNeeded.
-func (m *Manager) obtainDNS01Certificate(domains []string) (*tls.Certificate, error) {
+func (m *SSLManager) obtainDNS01Certificate(domains []string) (*tls.Certificate, error) {
 	le := m.config.LetsEncrypt
 	provider, err := BuildDNSProvider(le.DNSProvider, le.DNSCredentials)
 	if err != nil {
@@ -214,11 +214,11 @@ func (m *Manager) obtainDNS01Certificate(domains []string) (*tls.Certificate, er
 // to app-managed autocert certificates — certs found under
 // /etc/letsencrypt/live/** (certbot-managed) or manually placed certs are
 // never touched here, per PART 22 "never auto-renew certs found under
-// /etc/letsencrypt/live/**". autocert.Manager.GetCertificate internally
+// /etc/letsencrypt/live/**". autocert.SSLManager.GetCertificate internally
 // checks expiry and fetches a fresh certificate when one is needed, so
 // calling it here for each domain is sufficient to drive renewal without
 // waiting for the next incoming TLS handshake.
-func (m *Manager) RenewIfNeeded(domains []string) (bool, error) {
+func (m *SSLManager) RenewIfNeeded(domains []string) (bool, error) {
 	m.mu.RLock()
 	certManager := m.certManager
 	dns01Active := m.config.LetsEncrypt.Challenge == "dns-01" && m.dns01Cert != nil
@@ -279,10 +279,10 @@ func (m *Manager) RenewIfNeeded(domains []string) (bool, error) {
 // autocert-backed http-01/tls-alpn-01), for use by the ssl_expiring /
 // ssl_renewed / ssl_renewal_failed notification events (PART 17). Returns
 // an error if no managed certificate is currently known for domain — this
-// only covers certificates this Manager issues/renews, never certbot-managed
+// only covers certificates this SSLManager issues/renews, never certbot-managed
 // or manually placed certs (PART 22 "never auto-renew certs found under
 // /etc/letsencrypt/live/**").
-func (m *Manager) CertificateExpiry(domain string) (time.Time, error) {
+func (m *SSLManager) CertificateExpiry(domain string) (time.Time, error) {
 	m.mu.RLock()
 	dns01Active := m.config.LetsEncrypt.Challenge == "dns-01" && m.dns01Cert != nil
 	dns01Expiry := m.dns01Expiry
@@ -315,7 +315,7 @@ func (m *Manager) CertificateExpiry(domain string) (time.Time, error) {
 }
 
 // GetHTTPHandler returns HTTP handler for ACME challenges
-func (m *Manager) GetHTTPHandler(fallback http.Handler) http.Handler {
+func (m *SSLManager) GetHTTPHandler(fallback http.Handler) http.Handler {
 	if m.certManager != nil {
 		return m.certManager.HTTPHandler(fallback)
 	}
@@ -325,7 +325,7 @@ func (m *Manager) GetHTTPHandler(fallback http.Handler) http.Handler {
 // findExistingCerts looks for system (certbot-managed) certificates under
 // /etc/letsencrypt/live, per AI.md PART 15 "Certificate Lookup Order"
 // priorities 1-2. These are used but never renewed by this app.
-func (m *Manager) findExistingCerts(domains []string) (certPath, keyPath string) {
+func (m *SSLManager) findExistingCerts(domains []string) (certPath, keyPath string) {
 	// Priority 1: /etc/letsencrypt/live/domain/ - literal "domain" directory,
 	// a common shared certbot setup covering multiple/all vhosts.
 	if cert, key, ok := certbotCert("domain"); ok {
@@ -359,7 +359,7 @@ func certbotCert(dirName string) (certPath, keyPath string, ok bool) {
 //
 //	{config_dir}/ssl/letsencrypt/{fqdn}/{fullchain.pem,privkey.pem}  (priority 3, app-managed, auto-renews)
 //	{config_dir}/ssl/local/{fqdn}/{cert.pem,key.pem}                 (priority 4, self-signed/user-provided, no auto-renew)
-func (m *Manager) findManualCerts(domains []string) (certPath, keyPath string) {
+func (m *SSLManager) findManualCerts(domains []string) (certPath, keyPath string) {
 	if m.config.CertPath == "" {
 		return "", ""
 	}

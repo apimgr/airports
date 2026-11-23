@@ -18,6 +18,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// Database is the SQL surface required by scheduler persistence.
+type Database interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 // TaskState is a scheduled task's persisted status, matching the
 // server.db "Scheduler State (Persistent)" column table in AI.md PART 18.
 type TaskState struct {
@@ -66,7 +73,7 @@ const maxRetries = 3
 
 // Scheduler is the always-running, database-backed task scheduler.
 type Scheduler struct {
-	db           *sql.DB
+	db           Database
 	location     *time.Location
 	tickInterval time.Duration
 	started      bool
@@ -76,6 +83,8 @@ type Scheduler struct {
 
 	catchUpWindow time.Duration
 	metrics       *PrometheusMetrics
+	logger        func(level, format string, args ...any)
+	loggerMu      sync.RWMutex
 
 	tasksMu sync.RWMutex
 	tasks   map[string]*task
@@ -93,14 +102,14 @@ type Scheduler struct {
 // how far in the past a missed next_run may be and still be caught up on
 // startup (AI.md PART 18 default: 1h). Schedules evaluate in time.Local;
 // use NewWithLocation to honor an explicit server.scheduler.timezone.
-func New(db *sql.DB, catchUpWindow time.Duration) *Scheduler {
-	return NewWithLocation(db, catchUpWindow, time.Local)
+func NewScheduler(db Database, catchUpWindow time.Duration) *Scheduler {
+	return NewSchedulerWithLocation(db, catchUpWindow, time.Local)
 }
 
 // NewWithLocation is New but evaluates cron schedules in loc (AI.md PART 18
 // "timezone" config field) instead of time.Local. A nil loc falls back to
 // time.Local.
-func NewWithLocation(db *sql.DB, catchUpWindow time.Duration, loc *time.Location) *Scheduler {
+func NewSchedulerWithLocation(db Database, catchUpWindow time.Duration, loc *time.Location) *Scheduler {
 	if catchUpWindow <= 0 {
 		catchUpWindow = time.Hour
 	}
@@ -113,8 +122,36 @@ func NewWithLocation(db *sql.DB, catchUpWindow time.Duration, loc *time.Location
 		tickInterval:  100 * time.Millisecond,
 		catchUpWindow: catchUpWindow,
 		metrics:       NewPrometheusMetrics(),
+		logger:        func(_ string, format string, args ...any) { log.Printf(format, args...) },
 		tasks:         make(map[string]*task),
 	}
+}
+
+// SetLogger installs the scheduler activity sink. The application configures
+// this to write task events to log files without forwarding them to console.
+func (s *Scheduler) SetLogger(logger func(level, format string, args ...any)) {
+	if logger == nil {
+		logger = func(_ string, format string, args ...any) { log.Printf(format, args...) }
+	}
+	s.loggerMu.Lock()
+	s.logger = logger
+	s.loggerMu.Unlock()
+}
+
+func (s *Scheduler) logf(level, format string, args ...any) {
+	s.loggerMu.RLock()
+	logger := s.logger
+	s.loggerMu.RUnlock()
+	if logger != nil {
+		logger(level, format, args...)
+	}
+}
+
+// RegisteredTaskIDs returns task IDs in registration order.
+func (s *Scheduler) RegisteredTaskIDs() []string {
+	s.tasksMu.RLock()
+	defer s.tasksMu.RUnlock()
+	return append([]string(nil), s.order...)
 }
 
 // RegisterTask registers a named, persisted task. schedule is a five-field
@@ -154,16 +191,16 @@ func (s *Scheduler) RegisterTask(id, name, schedule string, enabledDefault, retr
 
 	if enabled {
 		if err := s.arm(t); err != nil {
-			log.Printf("scheduler: invalid schedule for %q (%q): %v — task skipped", id, schedule, err)
+			s.logf("WARN", "scheduler: invalid schedule for %q (%q): %v — task skipped", id, schedule, err)
 			if s.db != nil {
 				if _, persistErr := setEnabled(s.db, id, false); persistErr != nil {
-					log.Printf("scheduler: failed to disable invalid task %q: %v", id, persistErr)
+					s.logf("ERROR", "scheduler: failed to disable invalid task %q: %v", id, persistErr)
 				}
 			}
 			return nil
 		}
 	}
-	log.Printf("scheduler: registered %q (schedule: %s, enabled: %v)", id, schedule, enabled)
+	s.logf("DEBUG", "scheduler: registered %q (schedule: %s, enabled: %v)", id, schedule, enabled)
 	return nil
 }
 
@@ -196,7 +233,7 @@ func (s *Scheduler) disarm(t *task) {
 // execute runs a task's handler, persists the result, records history, and
 // schedules a retry on failure per AI.md PART 18 "Retry Policy".
 func (s *Scheduler) execute(t *task) {
-	log.Printf("scheduler: running %q", t.id)
+	s.logf("DEBUG", "scheduler: running %q", t.id)
 	start := time.Now()
 	s.metrics.recordTaskStart(t.name)
 	err := runTaskSafely(t.handler)
@@ -208,15 +245,15 @@ func (s *Scheduler) execute(t *task) {
 	if err != nil {
 		status = "failed"
 		errMsg = err.Error()
-		log.Printf("scheduler: task %q failed: %v", t.id, err)
+		s.logf("WARN", "scheduler: task %q failed: %v", t.id, err)
 	} else {
-		log.Printf("scheduler: task %q done (%s)", t.id, duration.Round(time.Millisecond))
+		s.logf("DEBUG", "scheduler: task %q done (%s)", t.id, duration.Round(time.Millisecond))
 	}
 
 	next := s.nextRun(t)
 	if s.db != nil {
 		if dbErr := recordRun(s.db, t.id, status, errMsg, start, next, duration.Milliseconds()); dbErr != nil {
-			log.Printf("scheduler: failed to persist run for %q: %v", t.id, dbErr)
+			s.logf("ERROR", "scheduler: failed to persist run for %q: %v", t.id, dbErr)
 		}
 	}
 
@@ -235,7 +272,7 @@ func (s *Scheduler) execute(t *task) {
 			for i := 1; i < t.retryAttempts; i++ {
 				delay *= 2
 			}
-			log.Printf("scheduler: scheduling retry %d/%d for %q in %s", t.retryAttempts, maxRetries, t.id, delay)
+			s.logf("WARN", "scheduler: scheduling retry %d/%d for %q in %s", t.retryAttempts, maxRetries, t.id, delay)
 			s.retryWG.Add(1)
 			t.retryPending = true
 			t.retryTimer = time.AfterFunc(delay, func() {
@@ -259,7 +296,7 @@ func (s *Scheduler) execute(t *task) {
 				t.mu.Unlock()
 			})
 		} else {
-			log.Printf("scheduler: task %q exhausted %d retries", t.id, maxRetries)
+			s.logf("ERROR", "scheduler: task %q exhausted %d retries", t.id, maxRetries)
 			t.retryAttempts = 0
 		}
 	} else if err == nil {
@@ -316,11 +353,11 @@ func (s *Scheduler) NextRun(id string) time.Time {
 	return s.nextRun(t)
 }
 
-// Start begins the scheduler: it first runs any tasks whose persisted
+// StartScheduler begins the scheduler: it first runs any tasks whose persisted
 // next_run fell within catchUpWindow of now (AI.md PART 18 "Startup
 // Behavior"), in ascending order of their original scheduled time, then
 // starts the live ticker loop.
-func (s *Scheduler) Start() {
+func (s *Scheduler) StartScheduler() {
 	s.tasksMu.Lock()
 	if s.started || s.stopped {
 		s.tasksMu.Unlock()
@@ -339,7 +376,7 @@ func (s *Scheduler) Start() {
 			t := s.tasks[id]
 			if next := s.nextRun(t); !next.IsZero() {
 				if err := updateNextRun(s.db, id, next); err != nil {
-					log.Printf("scheduler: failed to persist next_run for %q: %v", id, err)
+					s.logf("ERROR", "scheduler: failed to persist next_run for %q: %v", id, err)
 				}
 			}
 		}
@@ -395,7 +432,7 @@ func (s *Scheduler) runDue(now time.Time) {
 	for _, item := range due {
 		if s.db != nil && !item.next.IsZero() {
 			if err := updateNextRun(s.db, item.task.id, item.next); err != nil {
-				log.Printf("scheduler: failed to persist next_run for %q: %v", item.task.id, err)
+				s.logf("ERROR", "scheduler: failed to persist next_run for %q: %v", item.task.id, err)
 			}
 		}
 		go func(t *task) {
@@ -416,7 +453,7 @@ func (s *Scheduler) catchUp() {
 	}
 	states, err := listTaskStates(s.db)
 	if err != nil {
-		log.Printf("scheduler: catch-up: failed to load state: %v", err)
+		s.logf("ERROR", "scheduler: catch-up: failed to load state: %v", err)
 		return
 	}
 
@@ -469,7 +506,7 @@ func (s *Scheduler) catchUp() {
 		if stopping {
 			continue
 		}
-		log.Printf("scheduler: catching up missed task %q (was due %s)", m.t.id, m.due.Format(time.RFC3339))
+		s.logf("INFO", "scheduler: catching up missed task %q (was due %s)", m.t.id, m.due.Format(time.RFC3339))
 		func() {
 			defer s.runWG.Done()
 			s.execute(m.t)
@@ -511,8 +548,8 @@ func (s *Scheduler) List() []TaskState {
 	return out
 }
 
-// Get returns a single task's current persisted state.
-func (s *Scheduler) Get(id string) (TaskState, bool) {
+// GetScheduledTaskState returns a single task's current persisted state.
+func (s *Scheduler) GetScheduledTaskState(id string) (TaskState, bool) {
 	s.tasksMu.RLock()
 	_, ok := s.tasks[id]
 	s.tasksMu.RUnlock()
@@ -604,11 +641,11 @@ func (s *Scheduler) History(id string, limit int) ([]HistoryEntry, error) {
 	return listHistory(s.db, id, limit)
 }
 
-// Stop gracefully halts the scheduler, waiting up to 30 seconds for any
+// StopScheduler gracefully halts the scheduler, waiting up to 30 seconds for any
 // in-progress job to complete before returning, per AI.md PART 18
 // "Shutdown Behavior". Pending and interrupted retries are persisted as
 // immediately due so the next process start catches them up.
-func (s *Scheduler) Stop() {
+func (s *Scheduler) StopScheduler() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s.tasksMu.Lock()
@@ -625,7 +662,7 @@ func (s *Scheduler) Stop() {
 		select {
 		case <-done:
 		case <-ctx.Done():
-			log.Printf("scheduler: shutdown timed out waiting for scheduler loop")
+			s.logf("WARN", "scheduler: shutdown timed out waiting for scheduler loop")
 		}
 	}
 	runDone := make(chan struct{})
@@ -635,7 +672,7 @@ func (s *Scheduler) Stop() {
 	case <-runDone:
 		runsFinished = true
 	case <-ctx.Done():
-		log.Printf("scheduler: shutdown timed out waiting for running tasks")
+		s.logf("WARN", "scheduler: shutdown timed out waiting for running tasks")
 	}
 
 	interrupted := make([]*task, 0)
@@ -666,7 +703,7 @@ func (s *Scheduler) Stop() {
 	if s.db != nil {
 		for _, t := range interrupted {
 			if err := updateNextRun(s.db, t.id, now); err != nil {
-				log.Printf("scheduler: failed to persist interrupted task %q: %v", t.id, err)
+				s.logf("ERROR", "scheduler: failed to persist interrupted task %q: %v", t.id, err)
 			}
 		}
 	}
@@ -679,6 +716,6 @@ func (s *Scheduler) Stop() {
 	select {
 	case <-waitDone:
 	case <-ctx.Done():
-		log.Printf("scheduler: shutdown timed out waiting for in-flight retries")
+		s.logf("WARN", "scheduler: shutdown timed out waiting for in-flight retries")
 	}
 }

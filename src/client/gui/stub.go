@@ -8,11 +8,12 @@ import (
 	"net/url"
 )
 
-// Config supplies the client operations so the GUI stays independent of the
+// NativeGUIConfig supplies the client operations so the GUI stays independent of the
 // command package and can be embedded by other clients.
-type Config struct {
+type NativeGUIConfig struct {
 	ServerURL string
 	Token     string
+	Language  string
 	OnConnect func(context.Context, string, string) (string, error)
 	OnRequest func(context.Context, string, string, string, string, url.Values, string) (string, error)
 	Save      func(string, string) error
@@ -22,6 +23,6 @@ type Config struct {
 func IsGUIAvailable() bool { return false }
 
 // LaunchGUI reports that native GUI support is unavailable in this build.
-func LaunchGUI(Config) error {
+func LaunchGUI(NativeGUIConfig) error {
 	return errors.New("native GUI is unavailable; build with -tags gui on Linux, macOS, or Windows")
 }

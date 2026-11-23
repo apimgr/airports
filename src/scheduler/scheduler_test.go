@@ -95,12 +95,12 @@ func TestTaskScheduleNext(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	s := New(nil, 0)
+	s := NewScheduler(nil, 0)
 	if s == nil {
-		t.Fatal("New() returned nil")
+		t.Fatal("NewScheduler() returned nil")
 	}
 	if s.tickInterval <= 0 {
-		t.Fatal("New() returned a Scheduler with an invalid ticker interval")
+		t.Fatal("NewScheduler() returned a Scheduler with an invalid ticker interval")
 	}
 	if s.catchUpWindow != time.Hour {
 		t.Errorf("catchUpWindow default = %s, want 1h", s.catchUpWindow)
@@ -109,12 +109,12 @@ func TestNew(t *testing.T) {
 
 func TestNewWithLocation(t *testing.T) {
 	t.Run("nil location falls back to time.Local", func(t *testing.T) {
-		s := NewWithLocation(nil, 0, nil)
+		s := NewSchedulerWithLocation(nil, 0, nil)
 		if s == nil {
-			t.Fatal("NewWithLocation() returned nil")
+			t.Fatal("NewSchedulerWithLocation() returned nil")
 		}
 		if s.location != time.Local {
-			t.Fatal("NewWithLocation() did not default to time.Local")
+			t.Fatal("NewSchedulerWithLocation() did not default to time.Local")
 		}
 	})
 
@@ -124,12 +124,12 @@ func TestNewWithLocation(t *testing.T) {
 			t.Skipf("America/New_York tzdata unavailable: %v", err)
 		}
 		db := testDB(t)
-		s := NewWithLocation(db, time.Hour, loc)
+		s := NewSchedulerWithLocation(db, time.Hour, loc)
 		if err := s.RegisterTask("tz-task", "TZ Task", "0 0 * * *", true, false, 0, func() error { return nil }); err != nil {
 			t.Fatalf("RegisterTask: %v", err)
 		}
-		s.Start()
-		defer s.Stop()
+		s.StartScheduler()
+		defer s.StopScheduler()
 		if next := s.NextRun("tz-task"); next.IsZero() {
 			t.Error("NextRun is zero, want a computed next-run time")
 		} else if next.Location().String() != "America/New_York" {
@@ -142,7 +142,7 @@ func TestRegisterTask_ValidScheduleRuns(t *testing.T) {
 	buf := captureLog(t)
 	db := testDB(t)
 
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	var mu sync.Mutex
 	ran := false
 	done := make(chan struct{})
@@ -160,8 +160,8 @@ func TestRegisterTask_ValidScheduleRuns(t *testing.T) {
 		t.Fatalf("RegisterTask: %v", err)
 	}
 
-	s.Start()
-	defer s.Stop()
+	s.StartScheduler()
+	defer s.StopScheduler()
 
 	select {
 	case <-done:
@@ -184,7 +184,7 @@ func TestRegisterTask_ValidScheduleRuns(t *testing.T) {
 
 	// Give the async DB write time to land.
 	time.Sleep(50 * time.Millisecond)
-	st, ok := s.Get("every-tick")
+	st, ok := s.GetScheduledTaskState("every-tick")
 	if !ok {
 		t.Fatal("Get: task not found after run")
 	}
@@ -200,7 +200,7 @@ func TestRegisterTask_HandlerErrorIsLoggedNotFatal(t *testing.T) {
 	buf := captureLog(t)
 	db := testDB(t)
 
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	done := make(chan struct{})
 	var once sync.Once
 
@@ -212,8 +212,8 @@ func TestRegisterTask_HandlerErrorIsLoggedNotFatal(t *testing.T) {
 		t.Fatalf("RegisterTask: %v", err)
 	}
 
-	s.Start()
-	defer s.Stop()
+	s.StartScheduler()
+	defer s.StopScheduler()
 
 	select {
 	case <-done:
@@ -227,7 +227,7 @@ func TestRegisterTask_HandlerErrorIsLoggedNotFatal(t *testing.T) {
 		t.Errorf("expected failure log line, got: %s", buf.String())
 	}
 
-	st, ok := s.Get("failing-task")
+	st, ok := s.GetScheduledTaskState("failing-task")
 	if !ok {
 		t.Fatal("Get: task not found after run")
 	}
@@ -241,7 +241,7 @@ func TestRegisterTask_HandlerErrorIsLoggedNotFatal(t *testing.T) {
 
 func TestTaskPanicIsRecordedAsFailure(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	if err := s.RegisterTask("panic-task", "Panic Task", "0 0 1 1 *", false, false, 0, func() error {
 		panic("boom")
 	}); err != nil {
@@ -250,7 +250,7 @@ func TestTaskPanicIsRecordedAsFailure(t *testing.T) {
 	if err := s.RunNow("panic-task"); err != nil {
 		t.Fatalf("RunNow: %v", err)
 	}
-	state, ok := s.Get("panic-task")
+	state, ok := s.GetScheduledTaskState("panic-task")
 	if !ok {
 		t.Fatal("Get: task not found")
 	}
@@ -263,7 +263,7 @@ func TestRegisterTask_InvalidScheduleIsSkippedNotFatal(t *testing.T) {
 	buf := captureLog(t)
 	db := testDB(t)
 
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	invoked := false
 
 	err := s.RegisterTask("bad-schedule", "Bad Schedule", "not-a-valid-cron-expression", true, false, 0, func() error {
@@ -274,9 +274,9 @@ func TestRegisterTask_InvalidScheduleIsSkippedNotFatal(t *testing.T) {
 		t.Fatalf("RegisterTask: %v", err)
 	}
 
-	s.Start()
+	s.StartScheduler()
 	time.Sleep(100 * time.Millisecond)
-	s.Stop()
+	s.StopScheduler()
 
 	if invoked {
 		t.Error("handler for an invalid schedule was invoked, want never invoked")
@@ -291,7 +291,7 @@ func TestRegisterTask_InvalidScheduleIsSkippedNotFatal(t *testing.T) {
 
 func TestRegisterTask_DisabledDefaultDoesNotArm(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	invoked := false
 
 	if err := s.RegisterTask("off-by-default", "Off", "@every 20ms", false, false, 0, func() error {
@@ -301,15 +301,15 @@ func TestRegisterTask_DisabledDefaultDoesNotArm(t *testing.T) {
 		t.Fatalf("RegisterTask: %v", err)
 	}
 
-	s.Start()
+	s.StartScheduler()
 	time.Sleep(100 * time.Millisecond)
-	s.Stop()
+	s.StopScheduler()
 
 	if invoked {
 		t.Error("disabled-by-default task ran, want never invoked")
 	}
 
-	st, ok := s.Get("off-by-default")
+	st, ok := s.GetScheduledTaskState("off-by-default")
 	if !ok {
 		t.Fatal("Get: task not found")
 	}
@@ -321,7 +321,7 @@ func TestRegisterTask_DisabledDefaultDoesNotArm(t *testing.T) {
 func TestEnableDisable_PersistAcrossInstances(t *testing.T) {
 	db := testDB(t)
 
-	s1 := New(db, time.Hour)
+	s1 := NewScheduler(db, time.Hour)
 	if err := s1.RegisterTask("toggle", "Toggle", "@every 1h", true, false, 0, func() error { return nil }); err != nil {
 		t.Fatalf("RegisterTask: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestEnableDisable_PersistAcrossInstances(t *testing.T) {
 
 	// A fresh Scheduler instance sharing the same db must see the disabled
 	// state and not arm the cron entry.
-	s2 := New(db, time.Hour)
+	s2 := NewScheduler(db, time.Hour)
 	invoked := false
 	if err := s2.RegisterTask("toggle", "Toggle", "@every 20ms", true, false, 0, func() error {
 		invoked = true
@@ -339,9 +339,9 @@ func TestEnableDisable_PersistAcrossInstances(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RegisterTask: %v", err)
 	}
-	s2.Start()
+	s2.StartScheduler()
 	time.Sleep(100 * time.Millisecond)
-	s2.Stop()
+	s2.StopScheduler()
 
 	if invoked {
 		t.Error("task persisted as disabled still ran")
@@ -350,7 +350,7 @@ func TestEnableDisable_PersistAcrossInstances(t *testing.T) {
 	if err := s2.Enable("toggle"); err != nil {
 		t.Fatalf("Enable: %v", err)
 	}
-	st, ok := s2.Get("toggle")
+	st, ok := s2.GetScheduledTaskState("toggle")
 	if !ok {
 		t.Fatal("Get: task not found")
 	}
@@ -361,7 +361,7 @@ func TestEnableDisable_PersistAcrossInstances(t *testing.T) {
 
 func TestRunNow_UnknownTask(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	if err := s.RunNow("does-not-exist"); err == nil {
 		t.Error("RunNow on unknown task: want error, got nil")
 	}
@@ -369,7 +369,7 @@ func TestRunNow_UnknownTask(t *testing.T) {
 
 func TestRunNow_ExecutesImmediately(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	ran := make(chan struct{})
 	if err := s.RegisterTask("manual", "Manual", "0 0 1 1 *", false, false, 0, func() error {
 		close(ran)
@@ -401,7 +401,7 @@ func TestCatchUp_RunsOverdueTaskWithinWindow(t *testing.T) {
 		t.Fatalf("updateNextRun: %v", err)
 	}
 
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	ran := make(chan struct{})
 	if err := s.RegisterTask("overdue", "Overdue", "@every 1h", true, false, 0, func() error {
 		close(ran)
@@ -429,7 +429,7 @@ func TestCatchUp_SkipsTaskOutsideWindow(t *testing.T) {
 		t.Fatalf("updateNextRun: %v", err)
 	}
 
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	invoked := false
 	if err := s.RegisterTask("stale", "Stale", "@every 1h", true, false, 0, func() error {
 		invoked = true
@@ -448,7 +448,7 @@ func TestCatchUp_SkipsTaskOutsideWindow(t *testing.T) {
 
 func TestHistory_RecordsAndCaps(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 
 	calls := 0
 	done := make(chan struct{}, 5)
@@ -482,7 +482,7 @@ func TestHistory_RecordsAndCaps(t *testing.T) {
 
 func TestList_ReturnsRegistrationOrder(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 
 	ids := []string{"a-task", "b-task", "c-task"}
 	for _, id := range ids {
@@ -503,19 +503,19 @@ func TestList_ReturnsRegistrationOrder(t *testing.T) {
 }
 
 func TestStartStop_NoTasksRegistered(t *testing.T) {
-	s := New(nil, time.Hour)
+	s := NewScheduler(nil, time.Hour)
 	// Start/Stop with zero tasks must not block or panic.
-	s.Start()
-	s.Stop()
+	s.StartScheduler()
+	s.StopScheduler()
 }
 
 func TestStop_WithoutStart(t *testing.T) {
-	s := New(nil, time.Hour)
+	s := NewScheduler(nil, time.Hour)
 	// Stopping a scheduler that was never started must return promptly,
 	// not hang forever.
 	done := make(chan struct{})
 	go func() {
-		s.Stop()
+		s.StopScheduler()
 		close(done)
 	}()
 
@@ -528,7 +528,7 @@ func TestStop_WithoutStart(t *testing.T) {
 
 func TestStop_WaitsForInProgressJob(t *testing.T) {
 	db := testDB(t)
-	s := New(db, time.Hour)
+	s := NewScheduler(db, time.Hour)
 	jobStarted := make(chan struct{})
 	jobMayFinish := make(chan struct{})
 	jobFinished := make(chan struct{})
@@ -545,7 +545,7 @@ func TestStop_WaitsForInProgressJob(t *testing.T) {
 		t.Fatalf("RegisterTask: %v", err)
 	}
 
-	s.Start()
+	s.StartScheduler()
 
 	select {
 	case <-jobStarted:
@@ -555,7 +555,7 @@ func TestStop_WaitsForInProgressJob(t *testing.T) {
 
 	stopped := make(chan struct{})
 	go func() {
-		s.Stop()
+		s.StopScheduler()
 		close(stopped)
 	}()
 

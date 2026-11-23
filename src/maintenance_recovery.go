@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -21,20 +20,20 @@ import (
 const recoveryProbeTimeout = 5 * time.Second
 
 type maintenanceRecovery struct {
-	db         *sql.DB
+	db         dbmetrics.Handle
 	dataDir    string
 	configDir  string
 	logsDir    string
 	backupDir  string
-	logManager *logging.Manager
+	logManager *logging.LogManager
 	manual     bool
 	mu         sync.RWMutex
-	cfg        *config.Config
+	cfg        *config.ApplicationConfig
 	cancel     context.CancelFunc
 	done       chan struct{}
 }
 
-func startMaintenanceRecovery(cfg *config.Config, dbHandle *sql.DB, dataDir, configDir, logsDir, backupDir string, logManager *logging.Manager, manual bool) *maintenanceRecovery {
+func startMaintenanceRecovery(cfg *config.ApplicationConfig, dbHandle dbmetrics.Handle, dataDir, configDir, logsDir, backupDir string, logManager *logging.LogManager, manual bool) *maintenanceRecovery {
 	ctx, cancel := context.WithCancel(context.Background())
 	recovery := &maintenanceRecovery{
 		db:         dbHandle,
@@ -60,7 +59,7 @@ func (r *maintenanceRecovery) stop() {
 	<-r.done
 }
 
-func (r *maintenanceRecovery) updateConfig(cfg *config.Config) {
+func (r *maintenanceRecovery) updateConfig(cfg *config.ApplicationConfig) {
 	if cfg == nil {
 		return
 	}
@@ -69,7 +68,7 @@ func (r *maintenanceRecovery) updateConfig(cfg *config.Config) {
 	r.mu.Unlock()
 }
 
-func (r *maintenanceRecovery) currentConfig() *config.Config {
+func (r *maintenanceRecovery) currentConfig() *config.ApplicationConfig {
 	if r == nil {
 		return nil
 	}
@@ -104,7 +103,7 @@ func (r *maintenanceRecovery) run(ctx context.Context) {
 					Reason: reason,
 					Since:  entered,
 					SelfHealing: server.SelfHealingHealthStatus{
-						Enabled: cfg.Server.Maintenance.SelfHealing.Enabled,
+						Enabled: true,
 					},
 				}
 				server.SetHealthMaintenance(active)
@@ -114,7 +113,7 @@ func (r *maintenanceRecovery) run(ctx context.Context) {
 			}
 		}
 
-		if active != nil && cfg.Server.Maintenance.SelfHealing.Enabled {
+		if active != nil {
 			maxAttempts := cfg.Server.Maintenance.SelfHealing.MaxAttempts
 			if maxAttempts == 0 || attempts < maxAttempts {
 				now := time.Now().UTC()
@@ -191,7 +190,7 @@ func waitForRecoveryTick(ctx context.Context, interval time.Duration) bool {
 	}
 }
 
-func (r *maintenanceRecovery) detectCriticalFailure(cfg *config.Config) (string, error) {
+func (r *maintenanceRecovery) detectCriticalFailure(cfg *config.ApplicationConfig) (string, error) {
 	if err := probeDatabaseConnection(r.db); err != nil {
 		return "database_connection", err
 	}
@@ -221,37 +220,28 @@ func (r *maintenanceRecovery) detectCriticalFailure(cfg *config.Config) (string,
 	return "", nil
 }
 
-func probeDatabaseReadWrite(db *sql.DB) error {
+func probeDatabaseReadWrite(db dbmetrics.Handle) error {
 	if db == nil {
 		return errors.New("database handle is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), recoveryProbeTimeout)
 	defer cancel()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	query := `UPDATE scheduler_tasks SET enabled = enabled WHERE task_id = (SELECT task_id FROM scheduler_tasks LIMIT 1)`
-	started := time.Now()
-	result, err := tx.ExecContext(ctx, query)
-	rows := int64(0)
-	if result != nil {
-		if affected, resultErr := result.RowsAffected(); resultErr == nil {
-			rows = affected
+	query := `UPDATE scheduler_tasks SET enabled = enabled WHERE id = (SELECT id FROM scheduler_tasks LIMIT 1)`
+	return dbmetrics.Transaction(ctx, db, func(tx *dbmetrics.TransactionHandle) error {
+		started := time.Now()
+		result, err := tx.ExecContext(ctx, query)
+		rows := int64(0)
+		if result != nil {
+			if affected, resultErr := result.RowsAffected(); resultErr == nil {
+				rows = affected
+			}
 		}
-	}
-	dbmetrics.LogQuery(query, 0, started, rows, err)
-	rollbackErr := tx.Rollback()
-	if err != nil {
+		dbmetrics.LogQuery(query, 0, started, rows, err)
 		return err
-	}
-	if rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-		return rollbackErr
-	}
-	return nil
+	})
 }
 
-func probeDatabaseConnection(db *sql.DB) error {
+func probeDatabaseConnection(db dbmetrics.Handle) error {
 	if db == nil {
 		return errors.New("database handle is unavailable")
 	}
@@ -284,7 +274,7 @@ func probeWritableDirectory(dir string) error {
 	return nil
 }
 
-func (r *maintenanceRecovery) recoverOnce(ctx context.Context, cfg *config.Config) error {
+func (r *maintenanceRecovery) recoverOnce(ctx context.Context, cfg *config.ApplicationConfig) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -333,7 +323,7 @@ func (r *maintenanceRecovery) recoverDatabase(ctx context.Context) error {
 	return lastErr
 }
 
-func (r *maintenanceRecovery) sendNotification(cfg *config.Config, name string, enabled bool, reason string, duration time.Duration) {
+func (r *maintenanceRecovery) sendNotification(cfg *config.ApplicationConfig, name string, enabled bool, reason string, duration time.Duration) {
 	if !enabled || !notify.CanSend(cfg) {
 		return
 	}

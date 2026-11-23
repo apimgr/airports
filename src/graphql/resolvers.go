@@ -101,7 +101,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, response{
-			Errors: []errorMessage{{Message: i18n.Tf(lang, "graphql.err_invalid_body", "error", err.Error())}},
+			Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_invalid_body", "error", err.Error())}},
 		})
 		return
 	}
@@ -109,7 +109,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 	q := strings.TrimSpace(req.Query)
 	if q == "" {
 		writeJSON(w, http.StatusBadRequest, response{
-			Errors: []errorMessage{{Message: i18n.T(lang, "graphql.err_query_required")}},
+			Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_query_required")}},
 		})
 		return
 	}
@@ -119,7 +119,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 		apt, err := src.GetByCode(code)
 		if err != nil {
 			writeJSON(w, http.StatusOK, response{
-				Errors: []errorMessage{{Message: i18n.Tf(lang, "graphql.err_airport_not_found", "code", code)}},
+				Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_airport_not_found", "code", code)}},
 			})
 			return
 		}
@@ -134,7 +134,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 		lon, lonOK := extractFloatArg(q, "nearby", "lon")
 		if !lonOK {
 			writeJSON(w, http.StatusBadRequest, response{
-				Errors: []errorMessage{{Message: i18n.T(lang, "graphql.err_nearby_requires_lon")}},
+				Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_nearby_requires_lon")}},
 			})
 			return
 		}
@@ -217,7 +217,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 		lonMax, lonMaxOK := extractFloatArg(q, "within", "lonMax")
 		if !latMaxOK || !lonMinOK || !lonMaxOK {
 			writeJSON(w, http.StatusBadRequest, response{
-				Errors: []errorMessage{{Message: i18n.T(lang, "graphql.err_within_requires_bounds")}},
+				Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_within_requires_bounds")}},
 			})
 			return
 		}
@@ -233,7 +233,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 	if term := extractStringArg(q, "autocomplete", "q"); term != "" {
 		if len(term) < 2 {
 			writeJSON(w, http.StatusBadRequest, response{
-				Errors: []errorMessage{{Message: i18n.T(lang, "graphql.err_query_too_short")}},
+				Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_query_too_short")}},
 			})
 			return
 		}
@@ -295,14 +295,14 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 		}
 		if geo == nil {
 			writeJSON(w, http.StatusOK, response{
-				Errors: []errorMessage{{Message: i18n.Tf(lang, "graphql.err_geoip_lookup_failed", "ip", ipArg)}},
+				Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_geoip_lookup_failed", "ip", ipArg)}},
 			})
 			return
 		}
 		location, err := geo.LookupString(ipArg)
 		if err != nil {
 			writeJSON(w, http.StatusOK, response{
-				Errors: []errorMessage{{Message: i18n.Tf(lang, "graphql.err_geoip_lookup_failed", "ip", ipArg)}},
+				Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_geoip_lookup_failed", "ip", ipArg)}},
 			})
 			return
 		}
@@ -313,7 +313,7 @@ func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo G
 	}
 
 	writeJSON(w, http.StatusOK, response{
-		Errors: []errorMessage{{Message: i18n.T(lang, "graphql.err_unsupported_query")}},
+		Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_unsupported_query")}},
 	})
 }
 

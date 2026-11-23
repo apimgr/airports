@@ -16,7 +16,7 @@ type LayoutConfig struct {
 	TileLayout     bool
 }
 
-func GetLayoutConfig(mode terminal.SizeMode) LayoutConfig {
+func GetTerminalLayoutConfig(mode terminal.SizeMode) LayoutConfig {
 	switch mode {
 	case terminal.SizeModeMicro:
 		return LayoutConfig{MaxColumns: 2, TruncateAt: 30, UseAbbrev: true, VerticalScroll: true}

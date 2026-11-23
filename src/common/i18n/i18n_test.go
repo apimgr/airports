@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"sort"
 	"testing"
 )
@@ -19,14 +20,41 @@ func allKeys(l *locale) map[string]bool {
 }
 
 func TestLoad(t *testing.T) {
-	if err := Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
+	if err := LoadEmbeddedLocales(); err != nil {
+		t.Fatalf("LoadEmbeddedLocales() error = %v", err)
 	}
 }
 
+func TestLanguageRegistryMinimumAndNormalization(t *testing.T) {
+	wantRequired := []string{"en", "es", "fr", "ar", "de", "it"}
+	if got := RequiredLanguageCodes(); !equalStrings(got, wantRequired) {
+		t.Fatalf("RequiredLanguageCodes() = %v, want %v", got, wantRequired)
+	}
+	got := NormalizeAvailableLanguages([]string{"ja", "en", "xx", "ja"})
+	want := []string{"ja", "en", "es", "fr", "ar", "de", "it"}
+	if !equalStrings(got, want) {
+		t.Errorf("NormalizeAvailableLanguages() = %v, want %v", got, want)
+	}
+	if got := NormalizeAvailableLanguages(nil); !equalStrings(got, RegisteredLanguageCodes()) {
+		t.Errorf("empty available-language config = %v, want all registered languages", got)
+	}
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestKeyParity(t *testing.T) {
-	if err := Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
+	if err := LoadEmbeddedLocales(); err != nil {
+		t.Fatalf("LoadEmbeddedLocales() error = %v", err)
 	}
 
 	mu.RLock()
@@ -38,7 +66,7 @@ func TestKeyParity(t *testing.T) {
 	}
 	enKeys := allKeys(enLocale)
 
-	for _, code := range SupportedLanguages {
+	for _, code := range RegisteredLanguageCodes() {
 		l, ok := locales[code]
 		if !ok {
 			t.Errorf("missing locale file for %q", code)
@@ -69,15 +97,50 @@ func TestKeyParity(t *testing.T) {
 	}
 }
 
-func TestMetaComplete(t *testing.T) {
-	if err := Load(); err != nil {
-		t.Fatalf("Load() error = %v", err)
+func TestPlaceholderParity(t *testing.T) {
+	if err := LoadEmbeddedLocales(); err != nil {
+		t.Fatalf("LoadEmbeddedLocales() error = %v", err)
 	}
 
 	mu.RLock()
 	defer mu.RUnlock()
 
-	for _, code := range SupportedLanguages {
+	base := locales[DefaultLanguage]
+	for _, code := range RegisteredLanguageCodes() {
+		localized := locales[code]
+		for namespace, messages := range base.Data {
+			for key, source := range messages {
+				localizedValue, exists := localized.Data[namespace][key]
+				if !exists {
+					continue
+				}
+				if !equalStrings(messagePlaceholders(localizedValue), messagePlaceholders(source)) {
+					t.Errorf("locale %q key %s.%s has placeholders %v, want %v", code, namespace, key, messagePlaceholders(localizedValue), messagePlaceholders(source))
+				}
+			}
+		}
+	}
+}
+
+var messagePlaceholderPattern = regexp.MustCompile(`\{[A-Za-z0-9_]+\}`)
+var messageFormatVerbPattern = regexp.MustCompile(`%[a-zA-Z]`)
+
+func messagePlaceholders(value string) []string {
+	placeholders := messagePlaceholderPattern.FindAllString(value, -1)
+	placeholders = append(placeholders, messageFormatVerbPattern.FindAllString(value, -1)...)
+	sort.Strings(placeholders)
+	return placeholders
+}
+
+func TestMetaComplete(t *testing.T) {
+	if err := LoadEmbeddedLocales(); err != nil {
+		t.Fatalf("LoadEmbeddedLocales() error = %v", err)
+	}
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	for _, code := range RegisteredLanguageCodes() {
 		l, ok := locales[code]
 		if !ok {
 			t.Errorf("missing locale file for %q", code)
@@ -120,32 +183,32 @@ func TestIsSupported(t *testing.T) {
 }
 
 func TestT(t *testing.T) {
-	if got := T("es", "common.save"); got != "Guardar" {
-		t.Errorf("T(es, common.save) = %q, want Guardar", got)
+	if got := TranslateText("es", "common.save"); got != "Guardar" {
+		t.Errorf("TranslateText(es, common.save) = %q, want Guardar", got)
 	}
-	if got := T("xx", "common.save"); got != "Save" {
-		t.Errorf("T(xx, common.save) = %q, want fallback to English %q", got, "Save")
+	if got := TranslateText("xx", "common.save"); got != "Save" {
+		t.Errorf("TranslateText(xx, common.save) = %q, want fallback to English %q", got, "Save")
 	}
-	if got := T("en", "common.does_not_exist"); got != "common.does_not_exist" {
+	if got := TranslateText("en", "common.does_not_exist"); got != "common.does_not_exist" {
 		t.Errorf("T with missing key = %q, want key echoed back", got)
 	}
 }
 
 func TestTf(t *testing.T) {
-	got := Tf("en", "common.page_x_of_y", "current", 2, "total", 5)
+	got := TranslateFormattedText("en", "common.page_x_of_y", "current", 2, "total", 5)
 	want := "Page 2 of 5"
 	if got != want {
-		t.Errorf("Tf() = %q, want %q", got, want)
+		t.Errorf("TranslateFormattedText() = %q, want %q", got, want)
 	}
 }
 
 func TestTp(t *testing.T) {
-	if got := Tp("ar", "common.save", 0); got == "" {
-		t.Error("Tp() returned empty string")
+	if got := TranslatePluralText("ar", "common.save", 0); got == "" {
+		t.Error("TranslatePluralText() returned empty string")
 	}
-	got := Tp("en", "common.showing_x_of_y", 3, "total", 10)
+	got := TranslatePluralText("en", "common.showing_x_of_y", 3, "total", 10)
 	if got == "" {
-		t.Error("Tp() returned empty string")
+		t.Error("TranslatePluralText() returned empty string")
 	}
 }
 
@@ -161,6 +224,11 @@ func TestPluralCategory(t *testing.T) {
 		{"fr", 0, "one"},
 		{"fr", 1, "one"},
 		{"fr", 2, "other"},
+		{"it", 1, "one"},
+		{"it", 2, "other"},
+		{"it", 1_000_000, "many"},
+		{"it", 2_000_000, "many"},
+		{"it", 1_000_001, "other"},
 		{"zh", 5, "other"},
 		{"ja", 5, "other"},
 		{"ar", 0, "zero"},
@@ -214,8 +282,8 @@ func TestResolveLanguage(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/", nil)
-	if got := ResolveLanguage(req); got != DefaultLanguage {
-		t.Errorf("ResolveLanguage(none) = %q, want %q", got, DefaultLanguage)
+	if got := ResolveLanguage(req); got != "en" {
+		t.Errorf("ResolveLanguage(none) = %q, want en", got)
 	}
 }
 
@@ -251,33 +319,34 @@ func TestLanguageMiddleware(t *testing.T) {
 }
 
 func TestConfigureAppliesLanguageSettings(t *testing.T) {
-	Configure(Config{
-		Enabled: true, DefaultLanguage: "fr", AvailableLanguages: []string{"en", "fr"},
-		FallbackLanguage: "en", CookieName: "site-language", CookieMaxAge: "10d",
+	ConfigureLanguageSupport(LanguageConfig{
+		DefaultLanguage: "fr", AvailableLanguages: []string{"en", "fr"},
 	})
 	t.Cleanup(func() {
-		Configure(Config{
-			Enabled: true, DefaultLanguage: "en", AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
-			FallbackLanguage: "en", CookieName: "lang", CookieMaxAge: "365d",
+		ConfigureLanguageSupport(LanguageConfig{
+			DefaultLanguage: "en", AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
 		})
 	})
 
-	if got := ResolveLanguage(httptest.NewRequest(http.MethodGet, "/", nil)); got != "fr" {
-		t.Fatalf("ResolveLanguage(default) = %q, want fr", got)
+	if got := ResolveLanguage(httptest.NewRequest(http.MethodGet, "/", nil)); got != "en" {
+		t.Fatalf("ResolveLanguage(no preference) = %q, want fixed English fallback", got)
+	}
+	if got := NotificationLanguage(); got != "fr" {
+		t.Fatalf("NotificationLanguage() = %q, want configured fr", got)
 	}
 	if got := ResolveLanguage(httptest.NewRequest(http.MethodGet, "/?lang=FR", nil)); got != "fr" {
 		t.Fatalf("ResolveLanguage(query) = %q, want normalized fr", got)
 	}
-	if IsSupported("es") || !IsSupported("fr") {
-		t.Fatal("configured available languages were not applied")
+	if !IsSupported("es") || !IsSupported("fr") {
+		t.Fatal("required and configured languages were not applied")
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/?lang=en", nil)
 	response := httptest.NewRecorder()
 	LanguageMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
 	cookie := response.Result().Cookies()
-	if len(cookie) != 1 || cookie[0].Name != "site-language" || cookie[0].MaxAge != 10*24*60*60 {
-		t.Fatalf("language cookie = %#v, want configured name and 10-day age", cookie)
+	if len(cookie) != 1 || cookie[0].Name != LanguageCookieName || cookie[0].MaxAge != LanguageCookieMaxAge {
+		t.Fatalf("language cookie = %#v, want fixed lang name and one-year age", cookie)
 	}
 }
 
@@ -310,8 +379,8 @@ func TestResolveOutputLanguage(t *testing.T) {
 }
 
 func TestFromContextDefault(t *testing.T) {
-	if got := FromContext(context.Background()); got != DefaultLanguage {
-		t.Errorf("FromContext(empty) = %q, want %q", got, DefaultLanguage)
+	if got := FromContext(context.Background()); got != "en" {
+		t.Errorf("FromContext(empty) = %q, want en", got)
 	}
 }
 

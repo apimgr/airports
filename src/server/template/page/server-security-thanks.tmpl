@@ -1,8 +1,33 @@
 {{define "content"}}
-<section class="page-section">
-    <h1>Security Researcher Acknowledgments</h1>
-    <p>Researchers who have helped improve Airports security will be acknowledged here when a disclosure is completed and they have chosen to receive credit.</p>
-    <p>No acknowledgments have been published yet.</p>
-    <p><a href="{{.BaseURL}}/server/security">Security overview</a></p>
-</section>
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "security.thanks_title"}}</h1>
+        <p class="page-lead">{{t "security.thanks_lead"}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="security-researchers">
+        <h2 id="security-researchers">{{t "security.researchers_heading"}}</h2>
+        {{if .Entries}}
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "security.researchers_heading"}}</caption>
+                <thead><tr><th scope="col">{{t "security.credit_label"}}</th><th scope="col">{{t "security.disclosed_label"}}</th><th scope="col">{{t "security.severity_label"}}</th></tr></thead>
+                <tbody>
+                    {{range .Entries}}
+                    <tr><td>{{.Credit}}</td><td>{{.Date}}</td><td><span class="badge">{{.Severity}}</span></td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <p>{{t "security.no_acknowledgments"}}</p>
+            <a href="{{.BaseURL}}/server/security/policy">{{t "security.read_policy"}}</a>
+        </div>
+        {{end}}
+    </section>
+    <section class="section-card" aria-labelledby="security-thanks-overview">
+        <h2 id="security-thanks-overview">{{t "security.overview_heading"}}</h2>
+        <p><a href="{{.BaseURL}}/server/security">{{t "security.back_to_overview"}}</a></p>
+    </section>
+</div>
 {{end}}

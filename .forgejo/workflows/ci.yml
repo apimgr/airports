@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    if: forgejo.event_name != 'schedule'
+    runs-on: docker
+    container:
+      image: casjaysdev/go:latest
+      options: "--user 0:0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: go vet ./...
+      - run: staticcheck ./...
+
+  test:
+    if: forgejo.event_name != 'schedule'
+    runs-on: docker
+    container:
+      image: casjaysdev/go:latest
+      options: "--user 0:0"
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: go test ./...
+
+  build:
+    if: forgejo.event_name != 'schedule'
+    needs: [lint, test]
+    runs-on: docker
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, ext: "" }
+          - { goos: linux, goarch: arm64, ext: "" }
+          - { goos: darwin, goarch: amd64, ext: "" }
+          - { goos: darwin, goarch: arm64, ext: "" }
+          - { goos: windows, goarch: amd64, ext: .exe }
+          - { goos: windows, goarch: arm64, ext: .exe }
+          - { goos: freebsd, goarch: amd64, ext: "" }
+          - { goos: freebsd, goarch: arm64, ext: "" }
+    container:
+      image: casjaysdev/go:latest
+      options: "--user 0:0"
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set build info
+        run: |
+          echo "VERSION=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+          echo "COMMIT_ID=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+          BUILD_EPOCH=$(date -u +%s)
+          echo "BUILD_EPOCH=$BUILD_EPOCH" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u -d "@$BUILD_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_ENV"
+          if [ -f site.txt ]; then echo "OFFICIAL_SITE=$(cat site.txt)" >> "$GITHUB_ENV"; else echo "OFFICIAL_SITE=" >> "$GITHUB_ENV"; fi
+      - name: Build server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/tmp/airports-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src
+          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/tmp/airports-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src/client
+
+  secret-scan:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Determine scan range
+        id: scope
+        run: |
+          if [ "${{ forgejo.event_name }}" = "pull_request" ]; then
+            echo "base=${{ forgejo.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ forgejo.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+            echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+          elif [ "${{ forgejo.event_name }}" = "push" ] && [ "${{ forgejo.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            echo "base=${{ forgejo.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ forgejo.event.after }}" >> "$GITHUB_OUTPUT"
+            echo "results=verified,unknown" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=" >> "$GITHUB_OUTPUT"
+            echo "head=" >> "$GITHUB_OUTPUT"
+            echo "results=verified" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: trufflesecurity/trufflehog@b2b0a92070f206ab7b5a1105d82a7f2f48d92341 # v3.99.0
+        with:
+          base: ${{ steps.scope.outputs.base }}
+          head: ${{ steps.scope.outputs.head }}
+          extra_args: --results=${{ steps.scope.outputs.results }} --exclude-paths=.github/trufflehog-exclude.txt
+
+  workflow-policy:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Enforce SHA-pinned third-party actions
+        run: |
+          bad=$(grep -RnE '^[[:space:]]*uses:' .github/ .gitea/ .forgejo/ 2>/dev/null | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
+          if [ -n "$bad" ]; then echo "$bad"; exit 1; fi
+
+  vuln-scan:
+    runs-on: docker
+    container:
+      image: casjaysdev/go:latest
+      options: "--user 0:0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: govulncheck ./...
+
+  image-scan:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build image for scanning
+        run: docker build -t airports:scan -f docker/Dockerfile .
+      - name: Verify runtime image and Tor health
+        run: DOCKER_TEST_IMAGE=airports:scan bash tests/docker.sh
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: airports:scan
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH

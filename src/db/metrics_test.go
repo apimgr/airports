@@ -13,6 +13,8 @@ func TestObserveQueryUsesBoundedLabels(t *testing.T) {
 	collector.queries.WithLabelValues("select", "scheduler_tasks").Inc()
 	collector.duration.WithLabelValues("select", "scheduler_tasks").Observe(0.002)
 	collector.errors.WithLabelValues("select", "timeout").Inc()
+	collector.busy.Inc()
+	collector.writeWait.Observe(0.1)
 
 	registry := prometheus.NewRegistry()
 	if err := registry.Register(collector); err != nil {
@@ -22,8 +24,8 @@ func TestObserveQueryUsesBoundedLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gather metrics: %v", err)
 	}
-	if len(families) != 3 {
-		t.Fatalf("got %d metric families, want 3", len(families))
+	if len(families) != 5 {
+		t.Fatalf("got %d metric families, want 5", len(families))
 	}
 }
 

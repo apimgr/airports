@@ -1,0 +1,8 @@
+Subject: Security report status updated
+---
+The status of your security report has changed.
+
+Tracking ID: {tracking_id}
+Status: {status}
+
+This message contains no vulnerability details.

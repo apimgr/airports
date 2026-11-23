@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: go vet ./...
-      - run: GOTOOLCHAIN=go1.26.4 staticcheck ./...
+      - run: staticcheck ./...
 
   test:
     if: github.event_name != 'schedule'
@@ -125,6 +125,9 @@ jobs:
         # Only when the project ships a Docker image
         if: hashFiles('docker/Dockerfile') != ''
         run: docker build -t airports:scan -f docker/Dockerfile .
+      - name: Verify runtime image and Tor health
+        if: hashFiles('docker/Dockerfile') != ''
+        run: DOCKER_TEST_IMAGE=airports:scan bash tests/docker.sh
       - name: Trivy vulnerability scan
         if: hashFiles('docker/Dockerfile') != ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0

@@ -1,0 +1,14 @@
+Subject: Update Failed - {app_name}
+---
+UPDATE FAILED
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+The update to version {new_version} could not be installed. The previous version is still running.
+
+Reason: {error}
+
+--
+{app_name}
+{app_url}

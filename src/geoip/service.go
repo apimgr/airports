@@ -1,6 +1,8 @@
 package geoip
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,24 +11,23 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
 )
 
-// sapics/ip-location-db databases (AI.md PART 19). ASN and Country are small
-// enough to serve from the jsdelivr npm CDN (AI.md "Database Sources" table).
-// The City (DB-IP) files are 60-70MB — over jsdelivr's per-file size cap for
-// npm-hosted packages, which returns 403 for both dbip-city-ipv4.mmdb and
-// dbip-city-ipv6.mmdb — so City uses the GitHub Releases URL from AI.md
-// PART 19's structured `security.geoip.databases` config instead, which has
-// no such size limit. Declared as vars (not consts) so tests can point them
-// at an unreachable URL to exercise the fail-open download-failure path.
+// All GeoIP databases are downloaded from the canonical ip-location-db
+// GitHub Release assets and verified against the matching published checksum.
 var (
-	cityIPv4URL = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb"
-	cityIPv6URL = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv6.mmdb"
-	countryURL  = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
-	asnURL      = "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb"
+	cityIPv4URL    = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb"
+	cityIPv6URL    = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv6.mmdb"
+	countryURL     = "https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-country.mmdb"
+	asnURL         = "https://github.com/sapics/ip-location-db/releases/download/latest/iptoasn-asn.mmdb"
+	cityIPv4SumURL = "https://github.com/sapics/ip-location-db/releases/download/checksum/dbip-city-ipv4.mmdb.sha256"
+	cityIPv6SumURL = "https://github.com/sapics/ip-location-db/releases/download/checksum/dbip-city-ipv6.mmdb.sha256"
+	countrySumURL  = "https://github.com/sapics/ip-location-db/releases/download/checksum/iptoasn-country.mmdb.sha256"
+	asnSumURL      = "https://github.com/sapics/ip-location-db/releases/download/checksum/iptoasn-asn.mmdb.sha256"
 )
 
 // mmdb record structs for ip-location-db format (GeoLite2-compatible fields,
@@ -34,32 +35,18 @@ var (
 // we use maxminddb directly to bypass that type check).
 
 type mmdbCity struct {
-	City struct {
-		Names map[string]string `maxminddb:"names"`
-	} `maxminddb:"city"`
-	Country struct {
-		IsoCode string            `maxminddb:"iso_code"`
-		Names   map[string]string `maxminddb:"names"`
-	} `maxminddb:"country"`
-	Location struct {
-		Latitude  float64 `maxminddb:"latitude"`
-		Longitude float64 `maxminddb:"longitude"`
-		TimeZone  string  `maxminddb:"time_zone"`
-	} `maxminddb:"location"`
-	Postal struct {
-		Code string `maxminddb:"code"`
-	} `maxminddb:"postal"`
-	Subdivisions []struct {
-		IsoCode string            `maxminddb:"iso_code"`
-		Names   map[string]string `maxminddb:"names"`
-	} `maxminddb:"subdivisions"`
+	City        string  `maxminddb:"city"`
+	CountryCode string  `maxminddb:"country_code"`
+	State1      string  `maxminddb:"state1"`
+	State2      string  `maxminddb:"state2"`
+	Postcode    string  `maxminddb:"postcode"`
+	Latitude    float64 `maxminddb:"latitude"`
+	Longitude   float64 `maxminddb:"longitude"`
+	TimeZone    string  `maxminddb:"timezone"`
 }
 
 type mmdbCountry struct {
-	Country struct {
-		IsoCode string            `maxminddb:"iso_code"`
-		Names   map[string]string `maxminddb:"names"`
-	} `maxminddb:"country"`
+	CountryCode string `maxminddb:"country_code"`
 }
 
 type mmdbASN struct {
@@ -67,8 +54,8 @@ type mmdbASN struct {
 	Org    string `maxminddb:"autonomous_system_organization"`
 }
 
-// Service manages GeoIP lookups
-type Service struct {
+// GeoIPService manages GeoIP lookups
+type GeoIPService struct {
 	cityIPv4DB *maxminddb.Reader // City database for IPv4 addresses
 	cityIPv6DB *maxminddb.Reader // City database for IPv6 addresses
 	countryDB  *maxminddb.Reader // Country database (combined IPv4/IPv6)
@@ -80,8 +67,24 @@ type Service struct {
 // IsGeoIPAvailable reports whether GeoIP databases are loaded and lookups can
 // succeed. GeoIP is a risk signal only (AI.md PART 19) — callers must
 // never treat an unavailable service as a reason to block a request.
-func (s *Service) IsGeoIPAvailable() bool {
+func (s *GeoIPService) IsGeoIPAvailable() bool {
 	return s != nil && s.available
+}
+
+// DatabaseHealthStatus reports a public-safe freshness state for one loaded
+// database without returning its path or any parser error.
+func (s *GeoIPService) DatabaseHealthStatus(filename string, maxAge time.Duration, now time.Time) string {
+	if s == nil || !s.available || filepath.Base(filename) != filename || maxAge <= 0 {
+		return "error"
+	}
+	info, err := os.Stat(filepath.Join(s.dataDir, filename))
+	if err != nil || !info.Mode().IsRegular() {
+		return "error"
+	}
+	if now.Sub(info.ModTime()) > maxAge {
+		return "degraded"
+	}
+	return "ok"
 }
 
 // GeoLocation contains geolocation information for an IP
@@ -100,20 +103,20 @@ type GeoLocation struct {
 	ASNOrg      string  `json:"asn_org,omitempty"`
 }
 
-// NewService creates a new GeoIP service, downloading databases if needed.
+// NewGeoIPService creates a new GeoIP service, downloading databases if needed.
 //
 // Per AI.md PART 19, GeoIP is a risk signal only — it must NEVER block
 // startup or requests solely because a database download/load failed or
 // the database is missing/stale. Any failure here is logged as a warning
-// and NewService still returns a valid, non-nil *Service with lookups
+// and NewGeoIPService still returns a valid, non-nil *GeoIPService with lookups
 // disabled (Available() == false) rather than a fatal error.
-func NewService(baseDir string) (*Service, error) {
+func NewGeoIPService(baseDir string) (*GeoIPService, error) {
 	if baseDir == "" {
 		return nil, fmt.Errorf("base directory is required")
 	}
 
 	geoipDir := filepath.Join(baseDir, "geoip")
-	s := &Service{dataDir: geoipDir}
+	s := &GeoIPService{dataDir: geoipDir}
 
 	if err := os.MkdirAll(geoipDir, 0700); err != nil {
 		log.Printf("Warning: failed to create GeoIP directory %s: %v", geoipDir, err)
@@ -123,8 +126,8 @@ func NewService(baseDir string) (*Service, error) {
 
 	cityIPv4Path := filepath.Join(geoipDir, "dbip-city-ipv4.mmdb")
 	cityIPv6Path := filepath.Join(geoipDir, "dbip-city-ipv6.mmdb")
-	countryPath := filepath.Join(geoipDir, "geo-whois-asn-country.mmdb")
-	asnPath := filepath.Join(geoipDir, "asn.mmdb")
+	countryPath := filepath.Join(geoipDir, "iptoasn-country.mmdb")
+	asnPath := filepath.Join(geoipDir, "iptoasn-asn.mmdb")
 
 	if !fileExists(cityIPv4Path) || !fileExists(cityIPv6Path) || !fileExists(countryPath) || !fileExists(asnPath) {
 		log.Println("GeoIP databases not found, downloading...")
@@ -145,11 +148,11 @@ func NewService(baseDir string) (*Service, error) {
 }
 
 // LoadDatabases loads GeoIP databases from disk
-func (s *Service) LoadDatabases() error {
+func (s *GeoIPService) LoadDatabases() error {
 	cityIPv4Path := filepath.Join(s.dataDir, "dbip-city-ipv4.mmdb")
 	cityIPv6Path := filepath.Join(s.dataDir, "dbip-city-ipv6.mmdb")
-	countryPath := filepath.Join(s.dataDir, "geo-whois-asn-country.mmdb")
-	asnPath := filepath.Join(s.dataDir, "asn.mmdb")
+	countryPath := filepath.Join(s.dataDir, "iptoasn-country.mmdb")
+	asnPath := filepath.Join(s.dataDir, "iptoasn-asn.mmdb")
 
 	if err := s.Close(); err != nil {
 		return fmt.Errorf("failed to close existing GeoIP databases: %w", err)
@@ -189,22 +192,21 @@ func (s *Service) LoadDatabases() error {
 	return nil
 }
 
-// DownloadDatabases downloads all GeoIP databases from sapics/ip-location-db via jsdelivr CDN
-func (s *Service) DownloadDatabases() error {
+// DownloadDatabases downloads and verifies each GeoIP database before installing it.
+func (s *GeoIPService) DownloadDatabases() error {
 	databases := []struct {
-		filename string
-		url      string
+		filename, url, checksumURL string
 	}{
-		{"dbip-city-ipv4.mmdb", cityIPv4URL},
-		{"dbip-city-ipv6.mmdb", cityIPv6URL},
-		{"geo-whois-asn-country.mmdb", countryURL},
-		{"asn.mmdb", asnURL},
+		{"dbip-city-ipv4.mmdb", cityIPv4URL, cityIPv4SumURL},
+		{"dbip-city-ipv6.mmdb", cityIPv6URL, cityIPv6SumURL},
+		{"iptoasn-country.mmdb", countryURL, countrySumURL},
+		{"iptoasn-asn.mmdb", asnURL, asnSumURL},
 	}
 
 	for _, db := range databases {
 		path := filepath.Join(s.dataDir, db.filename)
 		log.Printf("  Downloading %s...", db.filename)
-		if err := downloadFile(path, db.url); err != nil {
+		if err := downloadVerifiedFile(path, db.url, db.checksumURL); err != nil {
 			return fmt.Errorf("failed to download %s: %w", db.filename, err)
 		}
 	}
@@ -216,7 +218,7 @@ func (s *Service) DownloadDatabases() error {
 // UpdateDatabases downloads fresh copies of all databases. Per AI.md PART 19,
 // a failed refresh must never disable an already-working GeoIP service — on
 // error, the previously loaded databases (if any) are left untouched.
-func (s *Service) UpdateDatabases() error {
+func (s *GeoIPService) UpdateDatabases() error {
 	log.Println("Updating GeoIP databases...")
 
 	tempDir := filepath.Join(s.dataDir, ".tmp")
@@ -230,19 +232,18 @@ func (s *Service) UpdateDatabases() error {
 	}()
 
 	databases := []struct {
-		filename string
-		url      string
+		filename, url, checksumURL string
 	}{
-		{"dbip-city-ipv4.mmdb", cityIPv4URL},
-		{"dbip-city-ipv6.mmdb", cityIPv6URL},
-		{"geo-whois-asn-country.mmdb", countryURL},
-		{"asn.mmdb", asnURL},
+		{"dbip-city-ipv4.mmdb", cityIPv4URL, cityIPv4SumURL},
+		{"dbip-city-ipv6.mmdb", cityIPv6URL, cityIPv6SumURL},
+		{"iptoasn-country.mmdb", countryURL, countrySumURL},
+		{"iptoasn-asn.mmdb", asnURL, asnSumURL},
 	}
 
 	for _, db := range databases {
 		tempPath := filepath.Join(tempDir, db.filename)
 		log.Printf("  Downloading %s...", db.filename)
-		if err := downloadFile(tempPath, db.url); err != nil {
+		if err := downloadVerifiedFile(tempPath, db.url, db.checksumURL); err != nil {
 			return fmt.Errorf("failed to download %s: %w", db.filename, err)
 		}
 	}
@@ -268,7 +269,7 @@ func (s *Service) UpdateDatabases() error {
 }
 
 // Lookup performs a GeoIP lookup for the given IP address
-func (s *Service) Lookup(ip net.IP) (*GeoLocation, error) {
+func (s *GeoIPService) Lookup(ip net.IP) (*GeoLocation, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("invalid IP address")
 	}
@@ -288,22 +289,17 @@ func (s *Service) Lookup(ip net.IP) (*GeoLocation, error) {
 	// Try city lookup first
 	if cityDB != nil {
 		var record mmdbCity
-		if err := cityDB.Lookup(ip, &record); err == nil && record.Country.IsoCode != "" {
+		if err := cityDB.Lookup(ip, &record); err == nil && record.CountryCode != "" {
 			location := &GeoLocation{
-				IP:          ip.String(),
-				Country:     record.Country.IsoCode,
-				CountryName: record.Country.Names["en"],
-				Latitude:    record.Location.Latitude,
-				Longitude:   record.Location.Longitude,
-				TimeZone:    record.Location.TimeZone,
-				PostalCode:  record.Postal.Code,
-			}
-			if record.City.Names != nil {
-				location.City = record.City.Names["en"]
-			}
-			if len(record.Subdivisions) > 0 {
-				location.Region = record.Subdivisions[0].IsoCode
-				location.RegionName = record.Subdivisions[0].Names["en"]
+				IP:         ip.String(),
+				Country:    record.CountryCode,
+				Region:     record.State1,
+				RegionName: record.State2,
+				City:       record.City,
+				Latitude:   record.Latitude,
+				Longitude:  record.Longitude,
+				TimeZone:   record.TimeZone,
+				PostalCode: record.Postcode,
 			}
 			s.addASNInfo(ip, location)
 			return location, nil
@@ -317,16 +313,15 @@ func (s *Service) Lookup(ip net.IP) (*GeoLocation, error) {
 	}
 
 	location := &GeoLocation{
-		IP:          ip.String(),
-		Country:     countryRecord.Country.IsoCode,
-		CountryName: countryRecord.Country.Names["en"],
+		IP:      ip.String(),
+		Country: countryRecord.CountryCode,
 	}
 	s.addASNInfo(ip, location)
 	return location, nil
 }
 
 // addASNInfo adds ASN information to the location
-func (s *Service) addASNInfo(ip net.IP, location *GeoLocation) {
+func (s *GeoIPService) addASNInfo(ip net.IP, location *GeoLocation) {
 	if s.asnDB == nil {
 		return
 	}
@@ -338,7 +333,7 @@ func (s *Service) addASNInfo(ip net.IP, location *GeoLocation) {
 }
 
 // LookupString performs lookup for string IP address
-func (s *Service) LookupString(ipStr string) (*GeoLocation, error) {
+func (s *GeoIPService) LookupString(ipStr string) (*GeoLocation, error) {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return nil, fmt.Errorf("invalid IP address: %s", ipStr)
@@ -347,7 +342,7 @@ func (s *Service) LookupString(ipStr string) (*GeoLocation, error) {
 }
 
 // Close closes all GeoIP databases
-func (s *Service) Close() error {
+func (s *GeoIPService) Close() error {
 	s.available = false
 	var closeErrors []error
 	if s.cityIPv4DB != nil {
@@ -374,19 +369,18 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func downloadFile(dest string, url string) (err error) {
-	out, err := os.Create(dest)
+func downloadVerifiedFile(dest, url, checksumURL string) (err error) {
+	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".geoip-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
-
-	// Remove a partial/empty file if the download fails at any point so a
-	// truncated database is never left on disk (a corrupt file that still
-	// exists would block re-download on the next startup and fail to load).
+	tmpPath := tmp.Name()
 	defer func() {
-		if err != nil {
-			_ = os.Remove(dest)
+		if cleanupErr := os.Remove(tmpPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("remove temporary GeoIP file: %w", cleanupErr))
 		}
 	}()
 
@@ -395,12 +389,64 @@ func downloadFile(dest string, url string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close GeoIP download response: %w", closeErr))
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	hasher := sha256.New()
+	if _, err = io.Copy(io.MultiWriter(tmp, hasher), resp.Body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	checksum, err := fetchChecksum(client, checksumURL)
+	if err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != checksum {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", checksum, actual)
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return fmt.Errorf("install verified GeoIP database: %w", err)
+	}
+	return nil
+}
+
+func fetchChecksum(client *http.Client, url string) (string, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("close GeoIP checksum response: %v", err)
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum download returned %s", resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 4096 {
+		return "", fmt.Errorf("checksum response exceeds size limit")
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 || len(fields[0]) != sha256.Size*2 {
+		return "", fmt.Errorf("checksum response is malformed")
+	}
+	if _, err := hex.DecodeString(fields[0]); err != nil {
+		return "", fmt.Errorf("checksum response is malformed: %w", err)
+	}
+	return strings.ToLower(fields[0]), nil
 }

@@ -11,77 +11,130 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 //go:embed locales/*.json
 var localeFS embed.FS
 
-// DefaultLanguage is the fallback language used when a requested language
-// or key is unavailable.
-var DefaultLanguage = "en"
-
-// SupportedLanguages lists every language code shipped with the binary,
-// per PART 30's required language set.
-var SupportedLanguages = []string{"en", "es", "zh", "fr", "ar", "de", "ja"}
-
-// Config controls runtime language availability and preference persistence.
-type Config struct {
-	Enabled            bool
-	DefaultLanguage    string
-	AvailableLanguages []string
-	FallbackLanguage   string
-	CookieName         string
-	CookieMaxAge       string
+// LanguageDefinition is the central registry entry for an embedded locale.
+type LanguageDefinition struct {
+	Code             string
+	Name             string
+	NativeName       string
+	Direction        string
+	PluralCategories []string
+	Required         bool
 }
 
-var settingsMu sync.RWMutex
-var languageConfig = Config{
-	Enabled: true, DefaultLanguage: "en", AvailableLanguages: []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
-	FallbackLanguage: "en", CookieName: "lang", CookieMaxAge: "365d",
+// languageRegistry is the single source for supported locale metadata and
+// plural rules. Load checks it against the embedded locale files.
+var languageRegistry = []LanguageDefinition{
+	{Code: "en", Name: "English", NativeName: "English", Direction: "ltr", PluralCategories: []string{"one", "other"}, Required: true},
+	{Code: "es", Name: "Spanish", NativeName: "Español", Direction: "ltr", PluralCategories: []string{"one", "other"}, Required: true},
+	{Code: "fr", Name: "French", NativeName: "Français", Direction: "ltr", PluralCategories: []string{"one", "other"}, Required: true},
+	{Code: "ar", Name: "Arabic", NativeName: "العربية", Direction: "rtl", PluralCategories: []string{"zero", "one", "two", "few", "many", "other"}, Required: true},
+	{Code: "de", Name: "German", NativeName: "Deutsch", Direction: "ltr", PluralCategories: []string{"one", "other"}, Required: true},
+	{Code: "it", Name: "Italian", NativeName: "Italiano", Direction: "ltr", PluralCategories: []string{"one", "many", "other"}, Required: true},
+	{Code: "ja", Name: "Japanese", NativeName: "日本語", Direction: "ltr", PluralCategories: []string{"other"}},
+	{Code: "zh", Name: "Chinese", NativeName: "中文", Direction: "ltr", PluralCategories: []string{"other"}},
 }
 
-// Configure applies server language settings before requests are served.
-func Configure(cfg Config) {
-	_ = Load()
-	mu.RLock()
-	available := make([]string, 0, len(cfg.AvailableLanguages))
-	seen := make(map[string]bool, len(cfg.AvailableLanguages))
-	for _, code := range cfg.AvailableLanguages {
-		code = strings.ToLower(strings.TrimSpace(code))
-		if _, exists := locales[code]; exists && !seen[code] {
+// RegisteredLanguageCodes returns the supported locale codes in registry order.
+func RegisteredLanguageCodes() []string {
+	codes := make([]string, 0, len(languageRegistry))
+	for _, language := range languageRegistry {
+		codes = append(codes, language.Code)
+	}
+	return codes
+}
+
+// RequiredLanguageCodes returns the minimum language set that config may not disable.
+func RequiredLanguageCodes() []string {
+	codes := make([]string, 0, len(languageRegistry))
+	for _, language := range languageRegistry {
+		if language.Required {
+			codes = append(codes, language.Code)
+		}
+	}
+	return codes
+}
+
+// NormalizeAvailableLanguages keeps registered requested languages and adds
+// every required language from the central registry.
+func NormalizeAvailableLanguages(codes []string) []string {
+	if len(codes) == 0 {
+		return RegisteredLanguageCodes()
+	}
+	available := make([]string, 0, len(codes)+len(languageRegistry))
+	seen := make(map[string]bool, len(codes)+len(languageRegistry))
+	for _, code := range codes {
+		code = normalizeLanguage(code)
+		if isRegisteredLanguage(code) && !seen[code] {
 			available = append(available, code)
 			seen[code] = true
 		}
 	}
-	mu.RUnlock()
-	if len(available) == 0 {
-		available = []string{"en"}
+	for _, code := range RequiredLanguageCodes() {
+		if !seen[code] {
+			available = append(available, code)
+			seen[code] = true
+		}
 	}
-	fallback := strings.ToLower(strings.TrimSpace(cfg.FallbackLanguage))
-	if !contains(available, fallback) {
-		fallback = "en"
+	return available
+}
+
+func isRegisteredLanguage(code string) bool {
+	for _, language := range languageRegistry {
+		if language.Code == code {
+			return true
+		}
 	}
+	return false
+}
+
+// DefaultLanguage is the fixed English fallback used when a requested
+// language or translation key is unavailable.
+var DefaultLanguage = "en"
+
+// SupportedLanguages lists every registered language code shipped with the binary.
+var SupportedLanguages = RegisteredLanguageCodes()
+
+const LanguageCookieName = "lang"
+const LanguageCookieMaxAge = 365 * 24 * 60 * 60
+
+// LanguageConfig controls runtime language availability and preference persistence.
+type LanguageConfig struct {
+	DefaultLanguage    string
+	AvailableLanguages []string
+}
+
+var settingsMu sync.RWMutex
+var languageConfig = LanguageConfig{
+	DefaultLanguage: "en", AvailableLanguages: RegisteredLanguageCodes(),
+}
+
+// Configure applies server language settings before requests are served.
+func ConfigureLanguageSupport(cfg LanguageConfig) {
+	_ = LoadEmbeddedLocales()
+	available := NormalizeAvailableLanguages(cfg.AvailableLanguages)
 	defaultLanguage := strings.ToLower(strings.TrimSpace(cfg.DefaultLanguage))
 	if !contains(available, defaultLanguage) {
-		defaultLanguage = fallback
-	}
-	cookieName := strings.TrimSpace(cfg.CookieName)
-	if cookieName == "" {
-		cookieName = "lang"
+		defaultLanguage = "en"
 	}
 	cfg.AvailableLanguages = available
 	cfg.DefaultLanguage = defaultLanguage
-	cfg.FallbackLanguage = fallback
-	cfg.CookieName = cookieName
 	settingsMu.Lock()
 	languageConfig = cfg
-	DefaultLanguage = defaultLanguage
 	SupportedLanguages = append([]string(nil), available...)
 	settingsMu.Unlock()
 }
 
-func currentConfig() Config {
+// NotificationLanguage returns the configured language for operator email.
+func NotificationLanguage() string {
+	return currentConfig().DefaultLanguage
+}
+
+func currentConfig() LanguageConfig {
 	settingsMu.RLock()
 	defer settingsMu.RUnlock()
 	cfg := languageConfig
@@ -96,21 +149,6 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
-}
-
-func cookieAge(value string) int {
-	value = strings.TrimSpace(value)
-	if strings.HasSuffix(value, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
-		if err == nil && days > 0 {
-			return days * 24 * 60 * 60
-		}
-	}
-	duration, err := time.ParseDuration(value)
-	if err != nil || duration <= 0 {
-		return 365 * 24 * 60 * 60
-	}
-	return int(duration.Seconds())
 }
 
 // Meta holds the metadata block from a locale file.
@@ -136,7 +174,7 @@ var (
 
 // Load parses every embedded locale file into memory. It is safe to call
 // multiple times; the actual load runs only once.
-func Load() error {
+func LoadEmbeddedLocales() error {
 	loadOnce.Do(func() {
 		loadErr = loadAll()
 	})
@@ -192,6 +230,30 @@ func loadAll() error {
 		}
 		locales[lang] = l
 	}
+	if len(locales) != len(languageRegistry) {
+		return fmt.Errorf("i18n: embedded locale count %d does not match registry count %d", len(locales), len(languageRegistry))
+	}
+	for _, definition := range languageRegistry {
+		l, ok := locales[definition.Code]
+		if !ok {
+			return fmt.Errorf("i18n: registry locale %q has no embedded file", definition.Code)
+		}
+		if l.Meta.Language != definition.Code || l.Meta.Name != definition.Name || l.Meta.NativeName != definition.NativeName || l.Meta.Direction != definition.Direction {
+			return fmt.Errorf("i18n: locale metadata for %q does not match the language registry", definition.Code)
+		}
+	}
+	for code := range locales {
+		registered := false
+		for _, definition := range languageRegistry {
+			if code == definition.Code {
+				registered = true
+				break
+			}
+		}
+		if !registered {
+			return fmt.Errorf("i18n: embedded locale %q is missing from the language registry", code)
+		}
+	}
 
 	return nil
 }
@@ -208,7 +270,7 @@ func normalizeLanguage(lang string) string {
 // Direction returns "ltr" or "rtl" for the given language, defaulting to
 // "ltr" for unknown languages.
 func Direction(lang string) string {
-	_ = Load()
+	_ = LoadEmbeddedLocales()
 	mu.RLock()
 	defer mu.RUnlock()
 	if l, ok := locales[lang]; ok && l.Meta.Direction != "" {
@@ -229,16 +291,15 @@ type AvailableLanguage struct {
 // directly to WebUI JavaScript at /locales/{lang}.json (PART 30 "WebUI
 // JavaScript" row). Falls back to DefaultLanguage when lang is unsupported.
 func RawLocale(lang string) ([]byte, error) {
-	cfg := currentConfig()
 	if !IsSupported(lang) {
-		lang = cfg.FallbackLanguage
+		lang = "en"
 	}
 	return localeFS.ReadFile("locales/" + lang + ".json")
 }
 
 // AvailableLanguages returns metadata for every enabled language, in config order.
 func AvailableLanguages() []AvailableLanguage {
-	_ = Load()
+	_ = LoadEmbeddedLocales()
 	mu.RLock()
 	defer mu.RUnlock()
 
@@ -262,7 +323,7 @@ func AvailableLanguages() []AvailableLanguage {
 // lookup splits a dotted key ("namespace.key") and returns the raw string
 // for lang, falling back to DefaultLanguage, then to the key itself.
 func lookup(lang, key string) string {
-	_ = Load()
+	_ = LoadEmbeddedLocales()
 
 	ns, k, ok := strings.Cut(key, ".")
 	if !ok {
@@ -278,7 +339,7 @@ func lookup(lang, key string) string {
 		}
 	}
 
-	fallback := currentConfig().FallbackLanguage
+	fallback := "en"
 	if lang != fallback {
 		if l, ok := locales[fallback]; ok {
 			if v, ok := l.Data[ns][k]; ok {
@@ -292,13 +353,13 @@ func lookup(lang, key string) string {
 
 // T translates key ("namespace.key") into lang, falling back to English
 // and finally to the raw key when no translation exists.
-func T(lang, key string) string {
+func TranslateText(lang, key string) string {
 	return lookup(lang, key)
 }
 
 // Tf translates key and substitutes named placeholders of the form
 // "{name}" using args, an alternating sequence of name, value pairs.
-func Tf(lang, key string, args ...interface{}) string {
+func TranslateFormattedText(lang, key string, args ...interface{}) string {
 	s := lookup(lang, key)
 	for i := 0; i+1 < len(args); i += 2 {
 		name, ok := args[i].(string)
@@ -314,7 +375,7 @@ func Tf(lang, key string, args ...interface{}) string {
 // using the CLDR plural category for count in lang (e.g. "errors.item.one",
 // "errors.item.other"); if that specific key is missing it falls back to
 // the bare key.
-func Tp(lang, key string, count int, args ...interface{}) string {
+func TranslatePluralText(lang, key string, count int, args ...interface{}) string {
 	category := pluralCategory(lang, count)
 	candidate := key + "." + category
 	s := lookup(lang, candidate)
@@ -359,6 +420,14 @@ func pluralCategory(lang string, count int) string {
 			return "one"
 		}
 		return "other"
+	case "it":
+		if n == 1 {
+			return "one"
+		}
+		if n > 0 && n%1_000_000 == 0 {
+			return "many"
+		}
+		return "other"
 	case "ar":
 		switch {
 		case n == 0:
@@ -398,7 +467,7 @@ func FromContext(ctx context.Context) string {
 	if lang, ok := ctx.Value(langContextKey).(string); ok && lang != "" {
 		return lang
 	}
-	return currentConfig().DefaultLanguage
+	return "en"
 }
 
 // ParseAcceptLanguage parses an Accept-Language header and returns the
@@ -452,22 +521,18 @@ func ResolveLanguage(r *http.Request) string {
 }
 
 func resolveLanguage(r *http.Request, allowCookie bool) string {
-	cfg := currentConfig()
-	if !cfg.Enabled {
-		return cfg.DefaultLanguage
-	}
 	if q := normalizeLanguage(r.URL.Query().Get("lang")); q != "" && IsSupported(q) {
 		return q
 	}
 	if allowCookie {
-		if c, err := r.Cookie(cfg.CookieName); err == nil && IsSupported(c.Value) {
+		if c, err := r.Cookie(LanguageCookieName); err == nil && IsSupported(c.Value) {
 			return normalizeLanguage(c.Value)
 		}
 	}
 	if al := ParseAcceptLanguage(r.Header.Get("Accept-Language")); al != "" {
 		return al
 	}
-	return cfg.DefaultLanguage
+	return "en"
 }
 
 // LanguageMiddleware resolves the request language per PART 30's fallback
@@ -481,16 +546,15 @@ func LanguageMiddleware(next http.Handler) http.Handler {
 // request and optionally gates persistence of the ?lang= choice.
 func LanguageMiddlewareWithPreferenceGate(next http.Handler, canSetPreferenceCookie func(*http.Request) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg := currentConfig()
 		canPersist := canSetPreferenceCookie == nil || canSetPreferenceCookie(r)
 		lang := resolveLanguage(r, canPersist)
 		queryLanguage := normalizeLanguage(r.URL.Query().Get("lang"))
-		if cfg.Enabled && canPersist && queryLanguage != "" && IsSupported(queryLanguage) {
+		if canPersist && queryLanguage != "" && IsSupported(queryLanguage) {
 			http.SetCookie(w, &http.Cookie{
-				Name:     cfg.CookieName,
+				Name:     LanguageCookieName,
 				Value:    queryLanguage,
 				Path:     "/",
-				MaxAge:   cookieAge(cfg.CookieMaxAge),
+				MaxAge:   LanguageCookieMaxAge,
 				SameSite: http.SameSiteLaxMode,
 				Secure:   r.TLS != nil,
 				HttpOnly: true,

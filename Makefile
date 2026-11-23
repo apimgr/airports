@@ -22,9 +22,8 @@ INTERNAL_NAME   := $(PROJECT_NAME)
 endif
 CLIENT_NAME     := airports-cli
 
-# Version precedence: release.txt (wins if present) > "0.1.0" fallback
-# Command-line override still works: make build VERSION=1.2.3
-VERSION         := $(shell cat release.txt 2>/dev/null || echo "0.1.0")
+# Local version precedence: VERSION override > non-empty release.txt > short commit id.
+VERSION         ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 # Release tags use v only for semantic versions; text and timestamp tags stay plain.
 RELEASE_TAG     := $(shell tag='$(VERSION)'; if printf '%s' "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then printf '%s' "$$tag"; elif printf '%s' "$$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then printf 'v%s' "$$tag"; elif [ "$${tag#v}" != "$$tag" ]; then printf '%s' "$${tag#v}"; else printf '%s' "$$tag"; fi)
 COMMIT_ID       := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -59,7 +58,7 @@ GO_IMAGE        := casjaysdev/go:latest
 
 GO_DOCKER       := docker run --rm \
 	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-	-v $$(pwd):/workspace -w /workspace \
+	-v $(PWD):/app -w /app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
 	-e CGO_ENABLED=0 \
@@ -81,7 +80,7 @@ dev:
 	echo "Building $(PROJECT_NAME) (dev) -> $$DEV_DIR"; \
 	docker run --rm \
 		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-		-v $$(pwd):/workspace -w /workspace \
+		-v $(PWD):/app -w /app \
 		-v $$DEV_DIR:/out \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -101,7 +100,7 @@ local: clean
 	@echo "Building $(PROJECT_NAME) $(VERSION) for host ($(HOSTOS)/$(HOSTARCH))..."
 	@docker run --rm \
 		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-		-v $$(pwd):/workspace -w /workspace \
+		-v $(PWD):/app -w /app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
 		-e GOOS=$(HOSTOS) -e GOARCH=$(HOSTARCH) -e CGO_ENABLED=0 \
@@ -120,7 +119,7 @@ build: clean
 	@echo "Building $(PROJECT_NAME) $(VERSION) for all platforms..."
 	@docker run --rm \
 		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
-		-v $$(pwd):/workspace -w /workspace \
+		-v $(PWD):/app -w /app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
 		-e CGO_ENABLED=0 \
@@ -171,9 +170,13 @@ test:
 	@mkdir -p $(DEV_DIR_BASE) $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests..."
 	@$(GO_DOCKER) sh -c '\
-		mkdir -p "/tmp/$(PROJECT_ORG)" && \
-		COVDIR=$$(mktemp -d "/tmp/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX") && \
-		go test -timeout 5m -covermode=atomic -coverprofile=$$COVDIR/coverage.out ./... && \
+		temp_parent="$${TMPDIR:-/tmp}/$(PROJECT_ORG)" && \
+		mkdir -p "$$temp_parent" && \
+		COVDIR=$$(mktemp -d "$$temp_parent/$(INTERNAL_NAME)-XXXXXX") && \
+		trap "rm -rf $$COVDIR" EXIT && \
+		export TMPDIR="$$COVDIR" && \
+		go mod download && \
+		go test -p 1 -timeout 5m -covermode=atomic -coverprofile=$$COVDIR/coverage.out ./... && \
 		total=$$(go tool cover -func=$$COVDIR/coverage.out | awk "/^total:/ {gsub(/%/, \"\", \$$3); print \$$3}") && \
 		echo "Total coverage: $${total}%" && \
 		awk "BEGIN { exit !($${total} >= 60) }" || { echo "Coverage $${total}% is below the 60% floor"; exit 1; } \
@@ -204,5 +207,4 @@ docker:
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf binaries/ releases/ coverage.out
-	@find $(DEV_DIR_BASE) -maxdepth 1 -type d -name '$(INTERNAL_NAME)-*' -exec rm -rf {} + 2>/dev/null || true
 	@echo "Clean complete"

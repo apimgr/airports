@@ -494,37 +494,13 @@ func TestHandleRobotsTxt(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "User-agent:") {
 		t.Errorf("body = %q, want it to contain %q", w.Body.String(), "User-agent:")
 	}
+	if strings.Count(w.Body.String(), "User-agent:") != 1 || !strings.HasPrefix(w.Body.String(), "User-agent: *\n") {
+		t.Errorf("body = %q, want one shared User-agent policy", w.Body.String())
+	}
 	for _, path := range s.config.Web.Robots.Deny {
 		if !strings.Contains(w.Body.String(), "Disallow: "+path+"\n") {
 			t.Errorf("body = %q, want it to contain %q", w.Body.String(), "Disallow: "+path)
 		}
-	}
-}
-
-// AI.md PART 11 "AI Crawler Rules": a bot resolving to deny gets its own
-// stanza; a bot resolving to allow is covered by the wildcard block and gets
-// none.
-func TestHandleRobotsTxtAIBots(t *testing.T) {
-	s := newTestServer(t)
-	s.config.Web.Robots.AIBots.Default = "deny"
-	s.config.Web.Robots.AIBots.Bots = map[string]string{
-		"GPTBot":    "deny",
-		"CCBot":     "allow",
-		"ClaudeBot": "",
-	}
-
-	r := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
-	w := httptest.NewRecorder()
-	s.handleRobotsTxt(w, r)
-
-	body := w.Body.String()
-	for _, bot := range []string{"GPTBot", "ClaudeBot"} {
-		if !strings.Contains(body, "User-agent: "+bot+"\nDisallow: /\n") {
-			t.Errorf("body = %q, want a Disallow stanza for %q", body, bot)
-		}
-	}
-	if strings.Contains(body, "User-agent: CCBot") {
-		t.Errorf("body = %q, want no stanza for an explicitly allowed bot", body)
 	}
 }
 

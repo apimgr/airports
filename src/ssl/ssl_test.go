@@ -79,10 +79,10 @@ func writeTestCert(t *testing.T, certPath, keyPath, domain string) {
 	}
 }
 
-// Covers NewManager: returns a non-nil Manager carrying the given config.
+// Covers NewManager: returns a non-nil SSLManager carrying the given config.
 func TestNewManager(t *testing.T) {
-	cfg := Config{Enabled: true, CertPath: "/some/path"}
-	m := NewManager(cfg)
+	cfg := SSLManagerConfig{Enabled: true, CertPath: "/some/path"}
+	m := NewSSLManager(cfg)
 	if m == nil {
 		t.Fatal("NewManager returned nil")
 	}
@@ -94,7 +94,7 @@ func TestNewManager(t *testing.T) {
 // Covers GetTLSConfig's disabled short-circuit: returns nil, nil without
 // touching the filesystem.
 func TestGetTLSConfigDisabled(t *testing.T) {
-	m := NewManager(Config{Enabled: false})
+	m := NewSSLManager(SSLManagerConfig{Enabled: false})
 	cfg, err := m.GetTLSConfig([]string{"example.com"})
 	if err != nil {
 		t.Fatalf("GetTLSConfig: unexpected error: %v", err)
@@ -105,7 +105,7 @@ func TestGetTLSConfigDisabled(t *testing.T) {
 }
 
 func TestLetsEncryptRejectsNonPublicHostBeforeIssuing(t *testing.T) {
-	manager := NewManager(Config{Enabled: true, LetsEncrypt: LetsEncryptConfig{Enabled: true, Email: "ops@example.com"}})
+	manager := NewSSLManager(SSLManagerConfig{Enabled: true, LetsEncrypt: LetsEncryptConfig{Enabled: true, Email: "ops@example.com"}})
 	if _, err := manager.GetTLSConfig([]string{"app.test"}); err == nil || !strings.Contains(err.Error(), "publicly valid hostname") {
 		t.Fatalf("GetTLSConfig(app.test) error = %v, want public-host validation failure", err)
 	}
@@ -123,7 +123,7 @@ func TestGetTLSConfigManualCertsLocalForm(t *testing.T) {
 	}
 	writeTestCert(t, filepath.Join(domainDir, "cert.pem"), filepath.Join(domainDir, "key.pem"), domain)
 
-	m := NewManager(Config{Enabled: true, CertPath: dir})
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertPath: dir})
 	tlsCfg, err := m.GetTLSConfig([]string{domain})
 	if err != nil {
 		t.Fatalf("GetTLSConfig: unexpected error: %v", err)
@@ -147,7 +147,7 @@ func TestGetTLSConfigManualCertsLetsEncryptForm(t *testing.T) {
 	}
 	writeTestCert(t, filepath.Join(domainDir, "fullchain.pem"), filepath.Join(domainDir, "privkey.pem"), domain)
 
-	m := NewManager(Config{Enabled: true, CertPath: dir})
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertPath: dir})
 	tlsCfg, err := m.GetTLSConfig([]string{domain})
 	if err != nil {
 		t.Fatalf("GetTLSConfig: unexpected error: %v", err)
@@ -161,7 +161,7 @@ func TestGetTLSConfigManualCertsLetsEncryptForm(t *testing.T) {
 // and Let's Encrypt not enabled.
 func TestGetTLSConfigNoCertsAvailable(t *testing.T) {
 	dir := testTempDir(t)
-	m := NewManager(Config{Enabled: true, CertPath: dir})
+	m := NewSSLManager(SSLManagerConfig{Enabled: true, CertPath: dir})
 	_, err := m.GetTLSConfig([]string{"nocert.example.com"})
 	if err == nil {
 		t.Fatal("GetTLSConfig: expected error when no certs available and LE disabled")
@@ -173,7 +173,7 @@ func TestGetTLSConfigNoCertsAvailable(t *testing.T) {
 // only performs network I/O lazily, during actual handshakes).
 func TestGetTLSConfigLetsEncrypt(t *testing.T) {
 	dir := testTempDir(t)
-	m := NewManager(Config{
+	m := NewSSLManager(SSLManagerConfig{
 		Enabled:     true,
 		CertPath:    dir,
 		LetsEncrypt: LetsEncryptConfig{Enabled: true, Email: "ops@example.com"},
@@ -194,7 +194,7 @@ func TestGetTLSConfigLetsEncrypt(t *testing.T) {
 // Covers findExistingCerts: with no real /etc/letsencrypt/live entries for a
 // synthetic domain, it must return empty strings rather than erroring.
 func TestFindExistingCertsNotPresent(t *testing.T) {
-	m := NewManager(Config{})
+	m := NewSSLManager(SSLManagerConfig{})
 	cert, key := m.findExistingCerts([]string{"definitely-not-a-real-domain.invalid"})
 	if cert != "" || key != "" {
 		t.Errorf("findExistingCerts = (%q, %q), want empty strings", cert, key)
@@ -205,7 +205,7 @@ func TestFindExistingCertsNotPresent(t *testing.T) {
 // and a directory with no matching cert files also returns empty.
 func TestFindManualCertsMissing(t *testing.T) {
 	t.Run("empty-cert-path", func(t *testing.T) {
-		m := NewManager(Config{})
+		m := NewSSLManager(SSLManagerConfig{})
 		cert, key := m.findManualCerts([]string{"example.com"})
 		if cert != "" || key != "" {
 			t.Errorf("findManualCerts = (%q, %q), want empty strings", cert, key)
@@ -214,7 +214,7 @@ func TestFindManualCertsMissing(t *testing.T) {
 
 	t.Run("cert-path-set-no-matching-files", func(t *testing.T) {
 		dir := testTempDir(t)
-		m := NewManager(Config{CertPath: dir})
+		m := NewSSLManager(SSLManagerConfig{CertPath: dir})
 		cert, key := m.findManualCerts([]string{"nomatch.example.com"})
 		if cert != "" || key != "" {
 			t.Errorf("findManualCerts = (%q, %q), want empty strings", cert, key)
@@ -229,7 +229,7 @@ func TestFindManualCertsMissing(t *testing.T) {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		writeTestCert(t, filepath.Join(domainDir, "cert.pem"), filepath.Join(domainDir, "key.pem"), domain)
-		m := NewManager(Config{CertPath: dir})
+		m := NewSSLManager(SSLManagerConfig{CertPath: dir})
 		cert, key := m.findManualCerts([]string{"first.example.com", domain})
 		if cert == "" || key == "" {
 			t.Error("findManualCerts: expected match on second domain")
@@ -250,7 +250,7 @@ func TestFindManualCertsMissing(t *testing.T) {
 		writeTestCert(t, filepath.Join(leDir, "fullchain.pem"), filepath.Join(leDir, "privkey.pem"), domain)
 		writeTestCert(t, filepath.Join(localDir, "cert.pem"), filepath.Join(localDir, "key.pem"), domain)
 
-		m := NewManager(Config{CertPath: dir})
+		m := NewSSLManager(SSLManagerConfig{CertPath: dir})
 		cert, _ := m.findManualCerts([]string{domain})
 		if cert != filepath.Join(leDir, "fullchain.pem") {
 			t.Errorf("findManualCerts = %q, want app-managed letsencrypt cert %q", cert, filepath.Join(leDir, "fullchain.pem"))
@@ -262,7 +262,7 @@ func TestFindManualCertsMissing(t *testing.T) {
 // autocert manager has been initialized (never called GetTLSConfig with LE
 // enabled).
 func TestGetHTTPHandlerFallback(t *testing.T) {
-	m := NewManager(Config{})
+	m := NewSSLManager(SSLManagerConfig{})
 	called := false
 	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -287,7 +287,7 @@ func TestGetHTTPHandlerFallback(t *testing.T) {
 // fallback directly for ACME challenge paths.
 func TestGetHTTPHandlerWithCertManager(t *testing.T) {
 	dir := testTempDir(t)
-	m := NewManager(Config{
+	m := NewSSLManager(SSLManagerConfig{
 		Enabled:     true,
 		CertPath:    dir,
 		LetsEncrypt: LetsEncryptConfig{Enabled: true, Email: "ops@example.com"},
@@ -410,7 +410,7 @@ func TestParseChallenge(t *testing.T) {
 // Covers RenewIfNeeded's disabled short-circuit: no certManager/dns01
 // state, must return nil without touching either renewal path.
 func TestRenewIfNeededDisabled(t *testing.T) {
-	m := NewManager(Config{Enabled: false})
+	m := NewSSLManager(SSLManagerConfig{Enabled: false})
 	renewed, err := m.RenewIfNeeded([]string{"example.com"})
 	if err != nil {
 		t.Errorf("RenewIfNeeded(disabled) = %v, want nil", err)
@@ -423,7 +423,7 @@ func TestRenewIfNeededDisabled(t *testing.T) {
 // Covers RenewIfNeeded's autocert branch when no certManager has been
 // initialized yet (GetTLSConfig never called): must return nil.
 func TestRenewIfNeededNoCertManager(t *testing.T) {
-	m := NewManager(Config{
+	m := NewSSLManager(SSLManagerConfig{
 		Enabled:     true,
 		LetsEncrypt: LetsEncryptConfig{Enabled: true, Challenge: "http-01"},
 	})
@@ -440,7 +440,7 @@ func TestRenewIfNeededNoCertManager(t *testing.T) {
 // yet within the renewal window: must return nil without attempting a new
 // ACME issuance (which would require network access).
 func TestRenewIfNeededDNS01NotDue(t *testing.T) {
-	m := NewManager(Config{
+	m := NewSSLManager(SSLManagerConfig{
 		Enabled:     true,
 		LetsEncrypt: LetsEncryptConfig{Enabled: true, Challenge: "dns-01"},
 	})
@@ -459,7 +459,7 @@ func TestRenewIfNeededDNS01NotDue(t *testing.T) {
 // Covers CertificateExpiry's dns-01 branch and its not-found error when no
 // managed certificate exists for the given domain yet.
 func TestCertificateExpiryDNS01(t *testing.T) {
-	m := NewManager(Config{
+	m := NewSSLManager(SSLManagerConfig{
 		Enabled:     true,
 		LetsEncrypt: LetsEncryptConfig{Enabled: true, Challenge: "dns-01"},
 	})
@@ -477,7 +477,7 @@ func TestCertificateExpiryDNS01(t *testing.T) {
 }
 
 func TestCertificateExpiryUnknown(t *testing.T) {
-	m := NewManager(Config{Enabled: true})
+	m := NewSSLManager(SSLManagerConfig{Enabled: true})
 	if _, err := m.CertificateExpiry("unmanaged.example.com"); err == nil {
 		t.Error("CertificateExpiry(unmanaged) = nil error, want error")
 	}

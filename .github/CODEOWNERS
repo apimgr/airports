@@ -1,0 +1,9 @@
+* @apimgr
+.github/ @apimgr
+/.github/workflows/ @apimgr
+/docker/ @apimgr
+/src/security/ @apimgr
+/src/server/api_auth.go @apimgr
+/src/server/owner_tokens.go @apimgr
+/src/client/update.go @apimgr
+/SECURITY.md @apimgr

@@ -58,7 +58,7 @@ func SpecHandler(version, apiVersion string, baseURLResolver ...func(*http.Reque
 			spec := BuildSpec(version, apiVersion, lang, baseURLResolver[0](r))
 			body, err := json.MarshalIndent(spec, "", "  ")
 			if err != nil {
-				http.Error(w, "failed to encode OpenAPI spec", http.StatusInternalServerError)
+				http.Error(w, i18n.TranslateText(lang, "errors.internal"), http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")

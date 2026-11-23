@@ -5,6 +5,12 @@ import (
 	"html"
 )
 
+// ThemeCSS returns the external stylesheet used to synchronize Swagger UI with
+// the application theme without adding inline CSS to the document.
+func ThemeCSS() string {
+	return `body{margin:0;display:flex;min-height:100vh;flex-direction:column}#swagger-container{flex:1}.swagger-ui{background:var(--color-bg);color:var(--color-text)}.swagger-ui .topbar{display:none}.swagger-ui .info,.swagger-ui .info .title,.swagger-ui .opblock-tag{color:var(--color-text)}.swagger-ui .scheme-container,.swagger-ui .opblock{background:var(--color-bg-secondary);border-color:var(--color-border)}.swagger-ui .opblock-summary{background:var(--color-bg-hover)}.swagger-ui .opblock-description{color:var(--color-muted)}.swagger-ui table thead tr td,.swagger-ui table thead tr th{color:var(--color-text);border-color:var(--color-border)}.swagger-ui .parameter__name{color:var(--color-primary)}.swagger-ui .response-col_status{color:var(--color-success)}.swagger-ui input,.swagger-ui select,.swagger-ui textarea{background:var(--color-bg-hover);color:var(--color-text);border-color:var(--color-border)}.swagger-ui .btn{background:var(--color-primary);color:var(--color-text-on-primary)}.swagger-ui .model-box,.swagger-ui section.models{background:var(--color-bg-secondary);border-color:var(--color-border)}.swagger-ui .markdown p,.swagger-ui .renderedMarkdown p{color:var(--color-text)}.swagger-ui .response-col_description__inner div.markdown{color:var(--color-text)}`
+}
+
 // renderSwaggerHTML returns the Swagger UI page that loads the embedded
 // assets at assetsPrefix and fetches the OpenAPI spec from specURL.
 //

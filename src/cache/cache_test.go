@@ -9,9 +9,9 @@ import (
 )
 
 func TestNewNoneType(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "none"})
+	c, err := NewCache(config.CacheConfig{Type: "none"})
 	if err != nil {
-		t.Fatalf("New(none) returned error: %v", err)
+		t.Fatalf("NewCache(none) returned error: %v", err)
 	}
 	if _, ok := c.(*noopCache); !ok {
 		t.Fatalf("expected *noopCache, got %T", c)
@@ -19,9 +19,9 @@ func TestNewNoneType(t *testing.T) {
 }
 
 func TestNewEmptyTypeDefaultsToNoop(t *testing.T) {
-	c, err := New(config.CacheConfig{})
+	c, err := NewCache(config.CacheConfig{})
 	if err != nil {
-		t.Fatalf("New(empty) returned error: %v", err)
+		t.Fatalf("NewCache(empty) returned error: %v", err)
 	}
 	if _, ok := c.(*noopCache); !ok {
 		t.Fatalf("expected *noopCache for empty type, got %T", c)
@@ -29,9 +29,9 @@ func TestNewEmptyTypeDefaultsToNoop(t *testing.T) {
 }
 
 func TestNewWithDebugWrapsCacheAndPreservesMetrics(t *testing.T) {
-	c, err := NewWithDebug(config.CacheConfig{Type: "memory", Prefix: "debug:"}, true)
+	c, err := NewCacheWithDebug(config.CacheConfig{Type: "memory", Prefix: "debug:"}, true)
 	if err != nil {
-		t.Fatalf("NewWithDebug(memory) returned error: %v", err)
+		t.Fatalf("NewCacheWithDebug(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 	if _, ok := c.(*debugCache); !ok {
@@ -51,21 +51,21 @@ func TestNewWithDebugWrapsCacheAndPreservesMetrics(t *testing.T) {
 }
 
 func TestNewUnknownType(t *testing.T) {
-	if _, err := New(config.CacheConfig{Type: "bogus"}); err == nil {
+	if _, err := NewCache(config.CacheConfig{Type: "bogus"}); err == nil {
 		t.Fatal("expected error for unknown cache type")
 	}
 }
 
 func TestNewInvalidTTL(t *testing.T) {
-	if _, err := New(config.CacheConfig{Type: "memory", TTL: "not-a-duration"}); err == nil {
+	if _, err := NewCache(config.CacheConfig{Type: "memory", TTL: "not-a-duration"}); err == nil {
 		t.Fatal("expected error for invalid ttl")
 	}
 }
 
 func TestMemoryCacheGetSetDelete(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory", Prefix: "test:"})
+	c, err := NewCache(config.CacheConfig{Type: "memory", Prefix: "test:"})
 	if err != nil {
-		t.Fatalf("New(memory) returned error: %v", err)
+		t.Fatalf("NewCache(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -96,9 +96,9 @@ func TestMemoryCacheGetSetDelete(t *testing.T) {
 }
 
 func TestMemoryCacheExpiry(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory"})
+	c, err := NewCache(config.CacheConfig{Type: "memory"})
 	if err != nil {
-		t.Fatalf("New(memory) returned error: %v", err)
+		t.Fatalf("NewCache(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -113,9 +113,9 @@ func TestMemoryCacheExpiry(t *testing.T) {
 }
 
 func TestMemoryCacheNoExpiryWithNegativeTTL(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory"})
+	c, err := NewCache(config.CacheConfig{Type: "memory"})
 	if err != nil {
-		t.Fatalf("New(memory) returned error: %v", err)
+		t.Fatalf("NewCache(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -129,9 +129,9 @@ func TestMemoryCacheNoExpiryWithNegativeTTL(t *testing.T) {
 }
 
 func TestMemoryCacheGetOrSet(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory"})
+	c, err := NewCache(config.CacheConfig{Type: "memory"})
 	if err != nil {
-		t.Fatalf("New(memory) returned error: %v", err)
+		t.Fatalf("NewCache(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -163,9 +163,9 @@ func TestMemoryCacheGetOrSet(t *testing.T) {
 }
 
 func TestMemoryCacheDefaultTTLApplied(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "memory", TTL: "1ms"})
+	c, err := NewCache(config.CacheConfig{Type: "memory", TTL: "1ms"})
 	if err != nil {
-		t.Fatalf("New(memory) returned error: %v", err)
+		t.Fatalf("NewCache(memory) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -180,9 +180,9 @@ func TestMemoryCacheDefaultTTLApplied(t *testing.T) {
 }
 
 func TestNoopCache(t *testing.T) {
-	c, err := New(config.CacheConfig{Type: "none"})
+	c, err := NewCache(config.CacheConfig{Type: "none"})
 	if err != nil {
-		t.Fatalf("New(none) returned error: %v", err)
+		t.Fatalf("NewCache(none) returned error: %v", err)
 	}
 	defer func() { _ = c.Close() }()
 
@@ -208,7 +208,7 @@ func TestNoopCache(t *testing.T) {
 }
 
 func TestNewRedisTypeUnreachableFallsBackToError(t *testing.T) {
-	_, err := New(config.CacheConfig{
+	_, err := NewCache(config.CacheConfig{
 		Type:    "redis",
 		Host:    "127.0.0.1",
 		Port:    1, // nothing listens here
@@ -219,17 +219,45 @@ func TestNewRedisTypeUnreachableFallsBackToError(t *testing.T) {
 	}
 }
 
-func TestRedisMetricsExposeOnlyClientObservedCacheLookups(t *testing.T) {
-	cache := &redisCache{hits: 7, misses: 3}
-	stats := cache.MetricsStats()
-	if stats.Hits != 7 || stats.Misses != 3 {
-		t.Fatalf("Redis hit/miss metrics = %d/%d, want 7/3", stats.Hits, stats.Misses)
+func TestRedisMetricEvictionsExcludeExpiredAndExplicitlyDeletedKeys(t *testing.T) {
+	cache := &redisCache{
+		hits: 7, misses: 3,
+		known: map[string]time.Time{
+			"app:live":    {},
+			"app:expired": time.Now().Add(-time.Minute),
+		},
 	}
-	if !stats.Enabled {
-		t.Fatal("Redis metrics are disabled, want lookup counters enabled")
+	now := time.Now()
+	cache.recordMetricSnapshot(now, map[string]time.Time{"app:live": {}}, true)
+	cache.recordMetricSnapshot(now, map[string]time.Time{}, true)
+	if cache.evictions != 1 {
+		t.Fatalf("evictions = %d, want one missing non-expired key", cache.evictions)
 	}
-	if stats.HasEvictionCount || stats.HasSize {
-		t.Fatalf("Redis metrics claim unsupported eviction/size data: %+v", stats)
+	if _, ok := cache.known["app:live"]; ok {
+		t.Fatal("missing key retained in observed-key set")
+	}
+}
+
+func TestRedisMetricIncompleteSnapshotDoesNotChangeEvictionBaseline(t *testing.T) {
+	cache := &redisCache{
+		evictions: 4,
+		known:     map[string]time.Time{"app:live": {}},
+	}
+	cache.recordMetricSnapshot(time.Now(), map[string]time.Time{}, false)
+	if cache.evictions != 4 {
+		t.Fatalf("incomplete snapshot changed evictions to %d, want 4", cache.evictions)
+	}
+	if _, ok := cache.known["app:live"]; !ok {
+		t.Fatal("incomplete snapshot removed the prior key baseline")
+	}
+}
+
+func TestRedisMetricSnapshotCountsDuplicateScanKeysOnce(t *testing.T) {
+	seen := make(map[string]time.Time)
+	firstItems, firstBytes := addRedisMetricSample(seen, "app:key", time.Time{}, 100)
+	duplicateItems, duplicateBytes := addRedisMetricSample(seen, "app:key", time.Time{}, 100)
+	if firstItems != 1 || firstBytes != 107 || duplicateItems != 0 || duplicateBytes != 0 {
+		t.Fatalf("first sample=(%d,%d), duplicate=(%d,%d); want (1,107) then (0,0)", firstItems, firstBytes, duplicateItems, duplicateBytes)
 	}
 }
 

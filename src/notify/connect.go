@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/smtp"
 	"strconv"
 	"time"
@@ -21,6 +22,7 @@ const connectTimeout = 5 * time.Second
 // on a fully successful handshake (including AUTH, when credentials are
 // configured).
 func TestConnection(host string, port int, username, password, tlsMode string) error {
+	tlsMode = effectiveTLSMode(tlsMode, port)
 	client, err := dialSMTP(host, port, tlsMode)
 	if err != nil {
 		return err
@@ -44,8 +46,7 @@ func handshakeAndAuth(client *smtp.Client, host, tlsMode, username, password str
 
 	if tlsMode == "starttls" || tlsMode == "auto" {
 		if ok, _ := client.Extension("STARTTLS"); ok {
-			tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
-			if err := client.StartTLS(tlsConfig); err != nil {
+			if err := client.StartTLS(smtpTLSConfig(host)); err != nil {
 				return fmt.Errorf("STARTTLS failed: %w", err)
 			}
 		} else if tlsMode == "starttls" {
@@ -72,11 +73,12 @@ func handshakeAndAuth(client *smtp.Client, host, tlsMode, username, password str
 // "starttls", "none") dial plaintext and let TestConnection/sendMail
 // upgrade via STARTTLS afterward when applicable.
 func dialSMTP(host string, port int, tlsMode string) (*smtp.Client, error) {
+	tlsMode = effectiveTLSMode(tlsMode, port)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 
 	if tlsMode == "tls" {
 		dialer := &net.Dialer{Timeout: connectTimeout}
-		conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, smtpTLSConfig(host))
 		if err != nil {
 			return nil, fmt.Errorf("TLS connect to %s failed: %w", addr, err)
 		}
@@ -98,4 +100,37 @@ func dialSMTP(host string, port int, tlsMode string) (*smtp.Client, error) {
 		return nil, fmt.Errorf("SMTP handshake with %s failed: %w", addr, err)
 	}
 	return client, nil
+}
+
+func effectiveTLSMode(tlsMode string, port int) string {
+	if tlsMode == "auto" && port == 465 {
+		return "tls"
+	}
+	return tlsMode
+}
+
+func smtpTLSConfig(host string) *tls.Config {
+	return &tls.Config{
+		ServerName:         host,
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: privateSMTPHost(host), // AI.md limits this relaxation to configured private IP literals.
+	}
+}
+
+func privateSMTPHost(host string) bool {
+	address, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	address = address.Unmap()
+	if address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() {
+		return true
+	}
+	sharedAddressSpace := netip.MustParsePrefix("100.64.0.0/10")
+	return sharedAddressSpace.Contains(address)
+}
+
+// IsPrivateSMTPHost reports whether a configured SMTP host is a private IP literal.
+func IsPrivateSMTPHost(host string) bool {
+	return privateSMTPHost(host)
 }

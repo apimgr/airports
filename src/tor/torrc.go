@@ -9,7 +9,7 @@ import "fmt"
 // logFile is the absolute path to {log_dir}/tor.log (AI.md PART 31
 // "Storage Locations") — Tor is told to log there directly via a
 // `Log notice file` directive so tor.log is actually produced.
-func generateTorrc(cfg Config, logFile, siteDir string, backendPort int) string {
+func generateTorrc(cfg TorConfig, logFile, siteDir string, backendPort int) string {
 	socksConfig := "SocksPort 0"
 	if cfg.UseNetwork {
 		socksConfig = "SocksPort auto"

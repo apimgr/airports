@@ -29,7 +29,7 @@ func respondGeoBlocked(w http.ResponseWriter, r *http.Request) {
 	resp := ErrorResponse{
 		OK:      false,
 		Error:   "IP_BLOCKED",
-		Message: i18n.T(lang, "errors.forbidden"),
+		Message: i18n.TranslateText(lang, "errors.forbidden"),
 		Details: map[string]interface{}{},
 	}
 	if err := encodeJSON(w, resp); err != nil {
@@ -68,7 +68,7 @@ func countryAllowed(country string, allowCountries, denyCountries []string) bool
 //   - the country lookup itself errors
 //
 // Only a definitive "this country is not permitted" result blocks.
-func GeoIPMiddleware(svc *geoip.Service, enabled bool, allowCountries, denyCountries []string) func(http.Handler) http.Handler {
+func GeoIPMiddleware(svc *geoip.GeoIPService, enabled bool, allowCountries, denyCountries []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if TorCircuitID(r) != "" || !enabled || (len(allowCountries) == 0 && len(denyCountries) == 0) {

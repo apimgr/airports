@@ -1,6 +1,6 @@
 {{define "content"}}
 <div class="page-header">
-    <h1>🌍 {{t "geoip.title"}}</h1>
+    <h1 class="page-title">🌍 {{t "geoip.title"}}</h1>
     <p>{{t "geoip.subtitle"}}</p>
 </div>
 
@@ -22,13 +22,13 @@
         <div class="result-data" id="location-data">
             {{if .Location}}
             <dl>
-                <dt>IP</dt><dd>{{.Location.IP}}</dd>
-                <dt>Country</dt><dd>{{.Location.CountryName}} ({{.Location.Country}})</dd>
-                <dt>City</dt><dd>{{if .Location.City}}{{.Location.City}}{{else}}-{{end}}</dd>
-                <dt>Latitude</dt><dd>{{.Location.Latitude}}</dd>
-                <dt>Longitude</dt><dd>{{.Location.Longitude}}</dd>
-                <dt>ASN</dt><dd>{{if .Location.ASN}}{{.Location.ASN}}{{else}}-{{end}}</dd>
-                <dt>ISP</dt><dd>{{if .Location.ASNOrg}}{{.Location.ASNOrg}}{{else}}-{{end}}</dd>
+                <dt>{{t "geoip.ip_label"}}</dt><dd>{{.Location.IP}}</dd>
+                <dt>{{t "geoip.country_label"}}</dt><dd>{{.Location.CountryName}} ({{.Location.Country}})</dd>
+                <dt>{{t "geoip.city_label"}}</dt><dd>{{if .Location.City}}{{.Location.City}}{{else}}-{{end}}</dd>
+                <dt>{{t "geoip.latitude_label"}}</dt><dd>{{.Location.Latitude}}</dd>
+                <dt>{{t "geoip.longitude_label"}}</dt><dd>{{.Location.Longitude}}</dd>
+                <dt>{{t "geoip.asn_label"}}</dt><dd>{{if .Location.ASN}}{{.Location.ASN}}{{else}}-{{end}}</dd>
+                <dt>{{t "geoip.isp_label"}}</dt><dd>{{if .Location.ASNOrg}}{{.Location.ASNOrg}}{{else}}-{{end}}</dd>
             </dl>
             {{end}}
         </div>

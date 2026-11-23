@@ -1,9 +1,22 @@
 {{define "nav"}}
-<nav id="main-nav" class="header-center">
-    <a href="{{.BaseURL}}/" class="nav-link">{{t "nav.home"}}</a>
-    <a href="{{.BaseURL}}/airports/search" class="nav-link">{{t "nav.search"}}</a>
-    <a href="{{.BaseURL}}/airports/nearby" class="nav-link">{{t "nav.nearby"}}</a>
-    <a href="{{.BaseURL}}/stats" class="nav-link">{{t "nav.statistics"}}</a>
-    <a href="{{.BaseURL}}/geoip" class="nav-link">{{t "nav.geoip"}}</a>
+<nav id="main-navigation" class="nav-links" aria-label="{{t "nav.main_navigation"}}">
+    {{template "nav-links" .}}
 </nav>
+{{end}}
+
+{{define "nav-links"}}
+    <a href="{{.BaseURL}}/" class="nav-link{{if eq .CanonicalURL (printf "%s/" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.home"}}</a>
+    <a href="{{.BaseURL}}/airports" class="nav-link{{if eq .CanonicalURL (printf "%s/airports" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/airports" .BaseURL)}}aria-current="page"{{end}}>{{t "airport_list.title"}}</a>
+    <a href="{{.BaseURL}}/airports/search" class="nav-link{{if eq .CanonicalURL (printf "%s/airports/search" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/airports/search" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.search"}}</a>
+    <a href="{{.BaseURL}}/airports/nearby" class="nav-link{{if eq .CanonicalURL (printf "%s/airports/nearby" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/airports/nearby" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.nearby"}}</a>
+    <a href="{{.BaseURL}}/stats" class="nav-link{{if eq .CanonicalURL (printf "%s/stats" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/stats" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.statistics"}}</a>
+    <a href="{{.BaseURL}}/geoip" class="nav-link{{if eq .CanonicalURL (printf "%s/geoip" .BaseURL)}} active{{end}}" {{if eq .CanonicalURL (printf "%s/geoip" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.geoip"}}</a>
+{{end}}
+
+{{define "nav-panel"}}
+<nav class="nav-panel" id="nav-panel" aria-label="{{t "nav.main_navigation"}}">
+    <label class="nav-close" for="nav-toggle" aria-label="{{t "nav.close_navigation"}}">×</label>
+    {{template "nav-links" .}}
+</nav>
+<label class="nav-overlay" for="nav-toggle" aria-label="{{t "nav.close_navigation"}}"></label>
 {{end}}

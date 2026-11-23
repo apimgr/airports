@@ -37,8 +37,8 @@ func OriginalRequestHost(r *http.Request) string {
 	return r.Host
 }
 
-// Options supplies URL sources and trust checks to a resolver.
-type Options struct {
+// URLResolverOptions supplies URL sources and trust checks to a resolver.
+type URLResolverOptions struct {
 	FQDN         string
 	DomainEnv    string
 	Hostname     string
@@ -58,11 +58,11 @@ type domainSample struct {
 	at   time.Time
 }
 
-// Manager resolves request URL variables and learns domains only from trusted
+// URLResolverManager resolves request URL variables and learns domains only from trusted
 // reverse-proxy observations.
-type Manager struct {
+type URLResolverManager struct {
 	mu                  sync.RWMutex
-	options             Options
+	options             URLResolverOptions
 	samples             []domainSample
 	baseDomain          string
 	wildcard            string
@@ -73,7 +73,7 @@ type Manager struct {
 }
 
 // NewManager creates a resolver with the configured URL-detection policy.
-func NewManager(options Options) *Manager {
+func NewURLResolverManager(options URLResolverOptions) *URLResolverManager {
 	if options.Hostname == "" {
 		options.Hostname, _ = os.Hostname()
 	}
@@ -89,14 +89,14 @@ func NewManager(options Options) *Manager {
 	if _, err := time.ParseDuration(options.Detection.SampleWindow); err != nil {
 		options.Detection.SampleWindow = "5m"
 	}
-	m := &Manager{options: options}
+	m := &URLResolverManager{options: options}
 	m.seedConfiguredDomains()
 	return m
 }
 
 // UpdateOptions replaces runtime URL settings while preserving observations
 // that remain within the configured sample window.
-func (m *Manager) UpdateOptions(options Options) {
+func (m *URLResolverManager) UpdateOptions(options URLResolverOptions) {
 	m.mu.Lock()
 	if options.Hostname == "" {
 		options.Hostname = m.options.Hostname
@@ -119,7 +119,7 @@ func (m *Manager) UpdateOptions(options Options) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) seedConfiguredDomains() {
+func (m *URLResolverManager) seedConfiguredDomains() {
 	valid := m.configuredDomains()
 	if len(valid) == 0 {
 		return
@@ -137,14 +137,14 @@ func (m *Manager) seedConfiguredDomains() {
 	}
 }
 
-func (m *Manager) configuredDomains() []string {
+func (m *URLResolverManager) configuredDomains() []string {
 	m.mu.RLock()
 	options := m.options
 	m.mu.RUnlock()
 	return configuredDomains(options)
 }
 
-func configuredDomains(options Options) []string {
+func configuredDomains(options URLResolverOptions) []string {
 	values := strings.Split(options.DomainEnv, ",")
 	if strings.TrimSpace(options.DomainEnv) == "" {
 		values = []string{options.FQDN}
@@ -172,8 +172,8 @@ func configuredDomains(options Options) []string {
 	return result
 }
 
-// GetURLVars resolves protocol, FQDN, and non-default port for a request.
-func (m *Manager) GetURLVars(r *http.Request) (proto, fqdn, port string) {
+// GetRequestURLVariables resolves protocol, FQDN, and non-default port for a request.
+func (m *URLResolverManager) GetRequestURLVariables(r *http.Request) (proto, fqdn, port string) {
 	m.mu.RLock()
 	options := m.options
 	m.mu.RUnlock()
@@ -267,8 +267,8 @@ func (m *Manager) GetURLVars(r *http.Request) (proto, fqdn, port string) {
 }
 
 // BuildURL builds an absolute URL using the current request and configured base path.
-func (m *Manager) BuildURL(r *http.Request, path string) string {
-	proto, fqdn, port := m.GetURLVars(r)
+func (m *URLResolverManager) BuildURL(r *http.Request, path string) string {
+	proto, fqdn, port := m.GetRequestURLVariables(r)
 	base := ""
 	m.mu.RLock()
 	baseURL := m.options.BaseURL
@@ -289,7 +289,7 @@ func (m *Manager) BuildURL(r *http.Request, path string) string {
 }
 
 // GetBaseDomain returns the configured or inferred registrable domain.
-func (m *Manager) GetBaseDomain() string {
+func (m *URLResolverManager) GetBaseDomain() string {
 	m.mu.Lock()
 	m.pruneSamplesLocked(time.Now())
 	m.recalculateLocked()
@@ -299,7 +299,7 @@ func (m *Manager) GetBaseDomain() string {
 }
 
 // GetWildcardDomain returns the inferred wildcard domain, if available.
-func (m *Manager) GetWildcardDomain() string {
+func (m *URLResolverManager) GetWildcardDomain() string {
 	m.mu.Lock()
 	m.pruneSamplesLocked(time.Now())
 	m.recalculateLocked()
@@ -308,7 +308,7 @@ func (m *Manager) GetWildcardDomain() string {
 	return wildcard
 }
 
-func (m *Manager) observeDomain(host string, now time.Time) {
+func (m *URLResolverManager) observeDomain(host string, now time.Time) {
 	m.mu.Lock()
 	beforeBase, beforeWildcard, beforePrimary := m.baseDomain, m.wildcard, m.primaryHost
 	m.pruneSamplesLocked(now)
@@ -327,7 +327,7 @@ func (m *Manager) observeDomain(host string, now time.Time) {
 	}
 }
 
-func (m *Manager) pruneSamplesLocked(now time.Time) {
+func (m *URLResolverManager) pruneSamplesLocked(now time.Time) {
 	window, err := time.ParseDuration(m.options.Detection.SampleWindow)
 	if err != nil || window <= 0 {
 		window = 5 * time.Minute
@@ -342,7 +342,7 @@ func (m *Manager) pruneSamplesLocked(now time.Time) {
 	m.samples = kept
 }
 
-func (m *Manager) recalculateLocked() {
+func (m *URLResolverManager) recalculateLocked() {
 	configured := configuredDomains(m.options)
 	explicitBase, explicitWildcard := "", ""
 	if m.options.DomainEnv != "" && len(configured) > 0 {
@@ -455,7 +455,7 @@ func (m *Manager) recalculateLocked() {
 	}
 }
 
-func (m *Manager) observeResolution(proto, host string) {
+func (m *URLResolverManager) observeResolution(proto, host string) {
 	m.mu.Lock()
 	changed := m.lastProto != "" && (m.lastProto != proto || m.lastHost != host)
 	m.lastProto, m.lastHost = proto, host
@@ -465,7 +465,7 @@ func (m *Manager) observeResolution(proto, host string) {
 	}
 }
 
-func configuredPrimary(options Options) string {
+func configuredPrimary(options URLResolverOptions) string {
 	for _, candidate := range strings.Split(options.DomainEnv, ",") {
 		host, _, ok := parseHostPort(strings.TrimSpace(candidate))
 		if ok && IsValidHost(host, options.Development, options.ProjectName) && !isOverlayHost(host) {
@@ -481,7 +481,7 @@ func configuredPrimary(options Options) string {
 	return ""
 }
 
-func validObservedHost(host string, options Options) bool {
+func validObservedHost(host string, options URLResolverOptions) bool {
 	if !isOverlayHost(host) {
 		return true
 	}
@@ -600,24 +600,24 @@ func listenPort(value, proto string) string {
 }
 
 var defaultMu sync.RWMutex
-var defaultManager = NewManager(Options{DomainEnv: os.Getenv("DOMAIN")})
+var defaultManager = NewURLResolverManager(URLResolverOptions{DomainEnv: os.Getenv("DOMAIN")})
 
-// SetDefaultManager changes the process-wide resolver used by package helpers.
-func SetDefaultManager(manager *Manager) {
+// SetDefaultURLResolverManager changes the process-wide resolver used by package helpers.
+func SetDefaultURLResolverManager(manager *URLResolverManager) {
 	if manager == nil {
-		manager = NewManager(Options{DomainEnv: os.Getenv("DOMAIN")})
+		manager = NewURLResolverManager(URLResolverOptions{DomainEnv: os.Getenv("DOMAIN")})
 	}
 	defaultMu.Lock()
 	defaultManager = manager
 	defaultMu.Unlock()
 }
 
-// GetURLVars resolves URL variables using the current process resolver.
-func GetURLVars(r *http.Request) (string, string, string) {
+// GetRequestURLVariables resolves URL variables using the current process resolver.
+func GetRequestURLVariables(r *http.Request) (string, string, string) {
 	defaultMu.RLock()
 	manager := defaultManager
 	defaultMu.RUnlock()
-	return manager.GetURLVars(r)
+	return manager.GetRequestURLVariables(r)
 }
 
 // BuildURL builds an absolute URL using the current process resolver.

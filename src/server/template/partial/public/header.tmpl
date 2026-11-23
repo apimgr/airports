@@ -1,33 +1,28 @@
 {{define "header"}}
 <div class="header-container">
-    <div class="header-left">
-        <button class="mobile-menu-toggle" data-action="toggle-mobile-menu">☰</button>
-        <a class="logo" href="{{.BaseURL}}/">✈️ Airports API</a>
-    </div>
+    <a class="logo" href="{{.BaseURL}}/">{{if .LogoURL}}<img src="{{.LogoURL}}"{{if .LogoSrcSet}} srcset="{{.LogoSrcSet}}" sizes="(max-width: 600px) 50px, 200px"{{end}} alt="{{.BrandTitle}}">{{else}}{{.BrandTitle}}{{end}}</a>
     {{template "nav" .}}
-    <div class="header-right">
-        <form class="lang-selector" method="get" action="">
-            <select name="lang" aria-label="{{t "common.select_language"}}" data-action="submit-lang-form">
-                {{range .AvailableLanguages}}
-                <option value="{{.Code}}" {{if eq .Code $.Lang}}selected{{end}}>{{.NativeName}}</option>
-                {{end}}
-            </select>
-            <button type="submit" class="lang-submit">{{t "common.submit"}}</button>
+    <label class="nav-toggle" for="nav-toggle" aria-controls="nav-panel" aria-label="{{t "nav.open_navigation"}}">☰</label>
+    <div class="header-actions">
+        <a class="preferences-link" href="{{.BaseURL}}/server/preferences" {{if eq .CanonicalURL (printf "%s/server/preferences" .BaseURL)}}aria-current="page"{{end}}>{{t "nav.preferences"}}</a>
+        <form class="theme-toggle-form" method="post" action="{{.BaseURL}}/server/preferences">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="theme" value="{{nextTheme .Theme}}">
+            <button class="theme-button" type="submit" aria-label="{{tf "theme.switch_current" "theme" (themeLabel .Theme)}}" title="{{t "theme.switch"}}">
+                <svg class="icon-dark" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {{if ne .Theme "dark"}}hidden{{end}}>
+                    <path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+                </svg>
+                <svg class="icon-light" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {{if ne .Theme "light"}}hidden{{end}}>
+                    <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                    <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                </svg>
+                <svg class="icon-auto" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {{if ne .Theme "auto"}}hidden{{end}}>
+                    <path d="M12 2a10 10 0 1 0 0 20V2Z" fill="currentColor"></path>
+                    <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
+                </svg>
+            </button>
         </form>
-        <button class="theme-toggle" data-action="toggle-theme" title="{{t "theme.toggle"}}">
-            <span class="theme-icon">🌙</span>
-        </button>
-        <noscript>
-            <form method="post" action="{{.BaseURL}}/theme" class="theme-form-noscript">
-                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                <select name="theme" aria-label="{{t "theme.toggle"}}">
-                    <option value="light" {{if eq .ThemeClass "theme-light"}}selected{{end}}>{{t "theme.light"}}</option>
-                    <option value="dark" {{if eq .ThemeClass "theme-dark"}}selected{{end}}>{{t "theme.dark"}}</option>
-                    <option value="auto" {{if eq .ThemeClass "theme-auto"}}selected{{end}}>{{t "theme.auto"}}</option>
-                </select>
-                <button type="submit">{{t "common.submit"}}</button>
-            </form>
-        </noscript>
     </div>
 </div>
+{{operatorHTML "header"}}
 {{end}}

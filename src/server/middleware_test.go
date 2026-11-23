@@ -76,6 +76,29 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestRedactSecurityReportTokenMiddleware(t *testing.T) {
+	var gotPath, gotQuery, gotToken string
+	handler := redactSecurityReportTokenMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		gotToken = securityStatusToken(r)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/server/security/report/sec_0123456789abcdef?token=secret-value&lang=en", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if gotPath != "/server/security/report/sec_0123456789abcdef" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if strings.Contains(gotQuery, "secret-value") || strings.Contains(gotQuery, "token=") {
+		t.Fatalf("access-log request URL retained token: %q", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "lang=en") {
+		t.Fatalf("non-sensitive query was removed: %q", gotQuery)
+	}
+	if gotToken != "secret-value" {
+		t.Fatalf("securityStatusToken() = %q", gotToken)
+	}
+}
+
 func TestSecurityHeadersTorHTTPSemantics(t *testing.T) {
 	s := newTestServer(t)
 	s.config.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"

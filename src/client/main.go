@@ -63,7 +63,7 @@ const (
 var (
 	cliShellCommands = []string{"search", "get", "nearby", "health", "version", "shell"}
 	cliShellFlags    = []string{
-		"--server", "--api-version", "--format", "--output", "--json", "--yaml", "--version", "-v",
+		"--server", "--api-version", "--format", "--output", "--limit", "--json", "--yaml", "--version", "-v",
 		"--help", "-h", "--token", "--config", "--color", "--lang", "--debug", "--shell",
 		"--update",
 	}
@@ -80,8 +80,9 @@ func honorNoColor() bool {
 // makes sense to persist gets a matching field here (PART 32: "every CLI
 // flag configurable via cli.yml with a documented default").
 type cliConfig struct {
-	Server  cliServerConfig `yaml:"server"`
-	Display struct {
+	Server   cliServerConfig `yaml:"server"`
+	Defaults cliDefaults     `yaml:"defaults,omitempty"`
+	Display  struct {
 		Mode string `yaml:"mode"`
 	} `yaml:"display,omitempty"`
 	Auth cliAuthConfig `yaml:"auth,omitempty"`
@@ -92,6 +93,10 @@ type cliConfig struct {
 	// Color reads the legacy root-level config key and is omitted when saved.
 	Color string `yaml:"color,omitempty"`
 	Lang  string `yaml:"lang"`
+}
+
+type cliDefaults struct {
+	Limit int `yaml:"limit,omitempty"`
 }
 
 type cliServerConfig struct {
@@ -245,6 +250,9 @@ func loadCLIConfig(name string) (*cliConfig, error) {
 }
 
 func applyCLIDefaults(cfg *cliConfig) {
+	if cfg.Defaults.Limit < 1 || cfg.Defaults.Limit > 1000 {
+		cfg.Defaults.Limit = 20
+	}
 	if cfg.Server.APIVersion == "" {
 		cfg.Server.APIVersion = defaultAPIVersion
 	}
@@ -372,7 +380,7 @@ func runFirstRunWizard(defaultURL, configName string) string {
 	}
 
 	lang := resolveLang(cfg.Lang)
-	fmt.Fprintln(os.Stderr, i18n.T(lang, "cli.first_run_title"))
+	fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.first_run_title"))
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Fprint(os.Stderr, "Server URL: ")
@@ -397,10 +405,10 @@ func runFirstRunWizard(defaultURL, configName string) string {
 		}
 		cfg.Server.Primary = strings.TrimRight(input, "/")
 		if saveErr := saveCLIConfig(cfg, configName); saveErr != nil {
-			fmt.Fprintln(os.Stderr, i18n.Tf(lang, "cli.config_save_warning", "error", saveErr))
+			fmt.Fprintln(os.Stderr, i18n.TranslateFormattedText(lang, "cli.config_save_warning", "error", saveErr))
 		} else {
 			configPath, _ := cliConfigPath(configName)
-			fmt.Fprintln(os.Stderr, i18n.Tf(lang, "cli.config_saved", "path", configPath))
+			fmt.Fprintln(os.Stderr, i18n.TranslateFormattedText(lang, "cli.config_saved", "path", configPath))
 		}
 		return cfg.Server.Primary
 	}
@@ -500,6 +508,7 @@ func applyDisplayConfig(env display.DisplayEnv, detected display.DisplayMode, co
 }
 
 func main() {
+	logCLIUpdateRestart()
 	// PART 7/32: --help/--version must show the actual invoked binary name
 	// (filepath.Base(os.Args[0])), never a hardcoded literal — the internal
 	// project name stays hardcoded only for User-Agent/config paths/DB ids.
@@ -518,7 +527,7 @@ func main() {
 	// it is extracted and handled before the first-run wizard or flag.Parse
 	// ever run — matching the exit-immediately behavior of --help/--version.
 	if shellFound, shellSubcmd, shellName, _ := shellcompl.Extract(os.Args[1:]); shellFound {
-		os.Exit(shellcompl.Handle(os.Stdout, os.Stderr, shellSubcmd, shellName, binaryName, cliShellCommands, cliShellFlags))
+		os.Exit(shellcompl.HandleShellCompletion(os.Stdout, os.Stderr, shellSubcmd, shellName, binaryName, cliShellCommands, cliShellFlags))
 	}
 
 	savedCfg, _ := loadCLIConfig(configName)
@@ -533,6 +542,7 @@ func main() {
 		baseURL    = flag.String("server", envOr("AIRPORTS_SERVER_PRIMARY", resolvedBaseURL), "Server base URL (env: AIRPORTS_SERVER_PRIMARY)")
 		apiVersion = flag.String("api-version", envOr("AIRPORTS_API_VERSION", firstNonEmptyStr(savedCfg.Server.APIVersion, defaultAPIVersion)), "API version path segment")
 		format     = flag.String("format", envOr("AIRPORTS_OUTPUT_FORMAT", savedCfg.Output.Format), "Output format: table|json|yaml|plain|csv")
+		limitFlag  = flag.Int("limit", cliLimitDefault(savedCfg), "Maximum search results (1-1000)")
 		jsonFlag   = flag.Bool("json", false, "Output as JSON")
 		yamlFlag   = flag.Bool("yaml", false, "Output as YAML")
 		showVer    = flag.Bool("version", false, "Print client version and exit")
@@ -551,7 +561,7 @@ func main() {
 	preParseLang := i18n.ResolveOutputLanguage(extractLangFlag(os.Args[1:]), savedCfg.Lang)
 
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, i18n.T(preParseLang, "cli.error_prefix"), err)
+		fmt.Fprintln(os.Stderr, i18n.TranslateText(preParseLang, "cli.error_prefix"), err)
 		printUsage(os.Stderr, binaryName, preParseLang)
 		os.Exit(2)
 	}
@@ -565,6 +575,10 @@ func main() {
 	}
 
 	lang := i18n.ResolveOutputLanguage(*langFlag, savedCfg.Lang)
+	if *limitFlag < 1 || *limitFlag > 1000 {
+		fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.err_invalid_limit"))
+		os.Exit(2)
+	}
 	args := flag.Args()
 	if *showHelp {
 		printUsage(os.Stdout, binaryName, lang)
@@ -574,7 +588,7 @@ func main() {
 	if updateAction != "" && updateAction != "check" {
 		updateEnabled, parseErr := config.ParseBool(updateAction, false)
 		if parseErr != nil {
-			fmt.Fprintln(os.Stderr, i18n.T(lang, "cli.error_prefix"), parseErr)
+			fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.error_prefix"), parseErr)
 			os.Exit(2)
 		}
 		if updateEnabled {
@@ -584,7 +598,7 @@ func main() {
 		}
 	}
 	if !validColor(*colorFlag) {
-		fmt.Fprintln(os.Stderr, i18n.T(lang, "cli.error_prefix"), i18n.Tf(lang, "cli.err_invalid_color", "value", *colorFlag))
+		fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.error_prefix"), i18n.TranslateFormattedText(lang, "cli.err_invalid_color", "value", *colorFlag))
 		os.Exit(2)
 	}
 	displayEnv := display.DetectDisplayEnv()
@@ -619,7 +633,7 @@ func main() {
 		}
 		c := newConfiguredClient(*baseURL, *token, lang, savedCfg)
 		if err := checkAndMaybeUpdateCLI(c, savedCfg, updateAction); err != nil {
-			fmt.Fprintln(os.Stderr, i18n.T(lang, "cli.error_prefix"), err)
+			fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.error_prefix"), err)
 			if updateAction == "check" || updateAction == "yes" || strings.Contains(err.Error(), "server requires") {
 				os.Exit(1)
 			}
@@ -633,8 +647,8 @@ func main() {
 		switch displayMode {
 		case display.DisplayModeGUI:
 			if gui.IsGUIAvailable() {
-				if err := gui.LaunchGUI(gui.Config{
-					ServerURL: *baseURL, Token: *token,
+				if err := gui.LaunchGUI(gui.NativeGUIConfig{
+					ServerURL: *baseURL, Token: *token, Language: lang,
 					OnConnect: func(ctx context.Context, serverURL, accessToken string) (string, error) {
 						return testClientConnectionWithConfig(ctx, serverURL, accessToken, savedCfg)
 					},
@@ -724,17 +738,30 @@ func main() {
 
 	c := newConfiguredClient(*baseURL, *token, lang, savedCfg)
 	c.apiVersion = *apiVersion
+	c.limit = *limitFlag
 	if err := dispatch(c, cmd, sub, outFormat, lang); err != nil {
-		fmt.Fprintln(os.Stderr, i18n.T(lang, "cli.error_prefix"), err)
+		fmt.Fprintln(os.Stderr, i18n.TranslateText(lang, "cli.error_prefix"), err)
 		os.Exit(1)
 	}
 
 	_ = configFlag // consumed via extractConfigFlag before flag.Parse; kept for --help documentation
 }
 
+func cliLimitDefault(cfg *cliConfig) int {
+	if raw := strings.TrimSpace(os.Getenv("AIRPORTS_LIMIT")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value >= 1 && value <= 1000 {
+			return value
+		}
+	}
+	if cfg != nil && cfg.Defaults.Limit >= 1 && cfg.Defaults.Limit <= 1000 {
+		return cfg.Defaults.Limit
+	}
+	return 20
+}
+
 func newClient(baseURL, token, lang string) *client {
 	return &client{
-		baseURL: strings.TrimRight(baseURL, "/"), apiVersion: defaultAPIVersion,
+		baseURL: strings.TrimRight(baseURL, "/"), apiVersion: defaultAPIVersion, limit: 20,
 		token: token, lang: lang, http: &http.Client{Timeout: requestTimeout}, timeout: requestTimeout,
 		retryCount: 3, retryDelay: time.Second,
 	}
@@ -766,11 +793,11 @@ func runTUI(baseURL, token, lang string, savedCfg *cliConfig, configName string,
 	if initialURL == "" {
 		initialURL = savedCfg.Server.Primary
 	}
-	updated, err := tui.Run(tui.Config{ServerURL: initialURL, Token: token, Language: lang, UseColor: useColor}, tui.Actions{
+	updated, err := tui.RunInteractiveTerminalClient(tui.TUIConfig{ServerURL: initialURL, Token: token, Language: lang, UseColor: useColor}, tui.Actions{
 		TestConnection: func(ctx context.Context, serverURL, accessToken string) (string, error) {
 			return testClientConnectionWithConfig(ctx, serverURL, accessToken, savedCfg)
 		},
-		Execute: func(ctx context.Context, serverURL, accessToken string, request tui.Request) (string, error) {
+		Execute: func(ctx context.Context, serverURL, accessToken string, request tui.TUIAPIRequest) (string, error) {
 			return executeTUIRequestWithConfig(ctx, serverURL, accessToken, lang, savedCfg, request)
 		},
 	})
@@ -800,11 +827,11 @@ func testClientConnectionWithConfig(ctx context.Context, serverURL, token string
 	return strings.TrimSpace(string(body)), err
 }
 
-func executeTUIRequest(ctx context.Context, serverURL, token, lang string, request tui.Request) (string, error) {
+func executeTUIRequest(ctx context.Context, serverURL, token, lang string, request tui.TUIAPIRequest) (string, error) {
 	return executeTUIRequestWithConfig(ctx, serverURL, token, lang, nil, request)
 }
 
-func executeTUIRequestWithConfig(ctx context.Context, serverURL, token, lang string, cfg *cliConfig, request tui.Request) (string, error) {
+func executeTUIRequestWithConfig(ctx context.Context, serverURL, token, lang string, cfg *cliConfig, request tui.TUIAPIRequest) (string, error) {
 	c := newConfiguredClient(serverURL, token, lang, cfg)
 	if request.Operation != "api" {
 		var path string
@@ -958,40 +985,41 @@ func firstNonEmptyStr(values ...string) string {
 
 func printUsage(w io.Writer, binaryName string, lang string) {
 	_, _ = fmt.Fprintf(w, "%s - %s\n\n%s\n  %s [flags] <command> [args...]\n\n%s\n  search <query>            %s\n  get <code>                %s\n  nearby <lat> <lon> [n]    %s\n  health                    %s\n  version                   %s\n\n%s\n",
-		binaryName, i18n.T(lang, "cli.description"),
-		i18n.T(lang, "cli.usage"), binaryName,
-		i18n.T(lang, "cli.commands"),
-		i18n.T(lang, "cli.cmd_search"),
-		i18n.T(lang, "cli.cmd_get"),
-		i18n.T(lang, "cli.cmd_nearby"),
-		i18n.T(lang, "cli.cmd_health"),
-		i18n.T(lang, "cli.cmd_version"),
-		i18n.T(lang, "cli.flags"))
+		binaryName, i18n.TranslateText(lang, "cli.description"),
+		i18n.TranslateText(lang, "cli.usage"), binaryName,
+		i18n.TranslateText(lang, "cli.commands"),
+		i18n.TranslateText(lang, "cli.cmd_search"),
+		i18n.TranslateText(lang, "cli.cmd_get"),
+		i18n.TranslateText(lang, "cli.cmd_nearby"),
+		i18n.TranslateText(lang, "cli.cmd_health"),
+		i18n.TranslateText(lang, "cli.cmd_version"),
+		i18n.TranslateText(lang, "cli.flags"))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintf(w, "  --server URL              %s\n", i18n.T(lang, "cli.flag_server"))
-	_, _ = fmt.Fprintf(w, "  --token TOKEN              %s\n", i18n.T(lang, "cli.flag_token"))
-	_, _ = fmt.Fprintf(w, "  --config NAME              %s\n", i18n.T(lang, "cli.flag_config"))
-	_, _ = fmt.Fprintf(w, "  --api-version VERSION     %s\n", i18n.Tf(lang, "cli.flag_api_version", "default", defaultAPIVersion))
-	_, _ = fmt.Fprintf(w, "  --json                    %s\n", i18n.T(lang, "cli.flag_json"))
-	_, _ = fmt.Fprintf(w, "  --yaml                    %s\n", i18n.T(lang, "cli.flag_yaml"))
-	_, _ = fmt.Fprintf(w, "  --format FORMAT           %s\n", i18n.T(lang, "cli.flag_format"))
+	_, _ = fmt.Fprintf(w, "  --server URL              %s\n", i18n.TranslateText(lang, "cli.flag_server"))
+	_, _ = fmt.Fprintf(w, "  --token TOKEN              %s\n", i18n.TranslateText(lang, "cli.flag_token"))
+	_, _ = fmt.Fprintf(w, "  --config NAME              %s\n", i18n.TranslateText(lang, "cli.flag_config"))
+	_, _ = fmt.Fprintf(w, "  --api-version VERSION     %s\n", i18n.TranslateFormattedText(lang, "cli.flag_api_version", "default", defaultAPIVersion))
+	_, _ = fmt.Fprintf(w, "  --json                    %s\n", i18n.TranslateText(lang, "cli.flag_json"))
+	_, _ = fmt.Fprintf(w, "  --yaml                    %s\n", i18n.TranslateText(lang, "cli.flag_yaml"))
+	_, _ = fmt.Fprintf(w, "  --format FORMAT           %s\n", i18n.TranslateText(lang, "cli.flag_format"))
+	_, _ = fmt.Fprintf(w, "  --limit N                 %s\n", i18n.TranslateText(lang, "cli.flag_limit"))
 	_, _ = fmt.Fprintln(w, "  --output FORMAT           Alias for --format")
-	_, _ = fmt.Fprintf(w, "  --color {auto|yes|no}      %s\n", i18n.T(lang, "cli.flag_color"))
-	_, _ = fmt.Fprintf(w, "  --lang CODE                %s\n", i18n.T(lang, "cli.flag_lang"))
-	_, _ = fmt.Fprintf(w, "  --debug                    %s\n", i18n.T(lang, "cli.flag_debug"))
+	_, _ = fmt.Fprintf(w, "  --color {auto|yes|no}      %s\n", i18n.TranslateText(lang, "cli.flag_color"))
+	_, _ = fmt.Fprintf(w, "  --lang CODE                %s\n", i18n.TranslateText(lang, "cli.flag_lang"))
+	_, _ = fmt.Fprintf(w, "  --debug                    %s\n", i18n.TranslateText(lang, "cli.flag_debug"))
 	_, _ = fmt.Fprintln(w, "  --update {check|yes|no}     Check or apply a CLI update")
-	_, _ = fmt.Fprintf(w, "  -h, --help                %s\n", i18n.T(lang, "cli.flag_help"))
-	_, _ = fmt.Fprintf(w, "  -v, --version              %s\n", i18n.T(lang, "cli.flag_version"))
+	_, _ = fmt.Fprintf(w, "  -h, --help                %s\n", i18n.TranslateText(lang, "cli.flag_help"))
+	_, _ = fmt.Fprintf(w, "  -v, --version              %s\n", i18n.TranslateText(lang, "cli.flag_version"))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, i18n.T(lang, "cli.shell_integration"))
-	_, _ = fmt.Fprintf(w, "  --shell completions [SHELL]  %s\n", i18n.T(lang, "cli.shell_completions_desc"))
-	_, _ = fmt.Fprintf(w, "  --shell init [SHELL]         %s\n", i18n.T(lang, "cli.shell_init_desc"))
-	_, _ = fmt.Fprintf(w, "  --shell help                 %s\n", i18n.T(lang, "cli.shell_help_desc"))
+	_, _ = fmt.Fprintln(w, i18n.TranslateText(lang, "cli.shell_integration"))
+	_, _ = fmt.Fprintf(w, "  --shell completions [SHELL]  %s\n", i18n.TranslateText(lang, "cli.shell_completions_desc"))
+	_, _ = fmt.Fprintf(w, "  --shell init [SHELL]         %s\n", i18n.TranslateText(lang, "cli.shell_init_desc"))
+	_, _ = fmt.Fprintf(w, "  --shell help                 %s\n", i18n.TranslateText(lang, "cli.shell_help_desc"))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, i18n.T(lang, "cli.config_section"))
-	_, _ = fmt.Fprintln(w, i18n.T(lang, "cli.config_paragraph"))
+	_, _ = fmt.Fprintln(w, i18n.TranslateText(lang, "cli.config_section"))
+	_, _ = fmt.Fprintln(w, i18n.TranslateText(lang, "cli.config_paragraph"))
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, i18n.T(lang, "cli.examples"))
+	_, _ = fmt.Fprintln(w, i18n.TranslateText(lang, "cli.examples"))
 	_, _ = fmt.Fprintf(w, `  %[1]s search "kennedy"
   %[1]s get KJFK
   %[1]s nearby 40.7128 -74.0060 5
@@ -1003,6 +1031,7 @@ func printUsage(w io.Writer, binaryName string, lang string) {
 type client struct {
 	baseURL    string
 	apiVersion string
+	limit      int
 	token      string
 	lang       string
 	http       *http.Client
@@ -1124,9 +1153,12 @@ func dispatch(c *client, cmd string, args []string, format string, lang string) 
 	switch cmd {
 	case "search":
 		if len(args) < 1 {
-			return errors.New(i18n.T(lang, "cli.err_missing_query"))
+			return errors.New(i18n.TranslateText(lang, "cli.err_missing_query"))
 		}
 		q := url.Values{"q": {strings.Join(args, " ")}}
+		if c.limit > 0 {
+			q.Set("limit", strconv.Itoa(c.limit))
+		}
 		body, err := c.get(ctx, c.apiURL("/airports/search", q), nil)
 		if err != nil {
 			return err
@@ -1135,7 +1167,7 @@ func dispatch(c *client, cmd string, args []string, format string, lang string) 
 
 	case "get":
 		if len(args) < 1 {
-			return errors.New(i18n.T(lang, "cli.err_missing_code"))
+			return errors.New(i18n.TranslateText(lang, "cli.err_missing_code"))
 		}
 		code := strings.ToUpper(args[0])
 		body, err := c.get(ctx, c.apiURL("/airports/"+url.PathEscape(code), nil), nil)
@@ -1146,7 +1178,7 @@ func dispatch(c *client, cmd string, args []string, format string, lang string) 
 
 	case "nearby":
 		if len(args) < 2 {
-			return errors.New(i18n.T(lang, "cli.err_missing_latlon"))
+			return errors.New(i18n.TranslateText(lang, "cli.err_missing_latlon"))
 		}
 		q := url.Values{"lat": {args[0]}, "lon": {args[1]}}
 		if len(args) >= 3 {
@@ -1169,14 +1201,22 @@ func dispatch(c *client, cmd string, args []string, format string, lang string) 
 		fmt.Println("client: " + (commonversion.BuildInfo{Version: Version, CommitID: CommitID, BuildDate: BuildDate}).Format(filepath.Base(os.Args[0])))
 		body, err := c.get(ctx, c.apiURL("/server/about", nil), nil)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, i18n.Tf(lang, "cli.server_unreachable", "error", err))
+			fmt.Fprintln(os.Stderr, i18n.TranslateFormattedText(lang, "cli.server_unreachable", "error", err))
 			return nil
 		}
 		fmt.Print("server: ")
 		return printResult(body, format, lang)
 
 	default:
-		return errors.New(i18n.Tf(lang, "cli.err_unknown_command", "command", cmd))
+		q := url.Values{"q": {strings.Join(append([]string{cmd}, args...), " ")}}
+		if c.limit > 0 {
+			q.Set("limit", strconv.Itoa(c.limit))
+		}
+		body, err := c.get(ctx, c.apiURL("/airports/search", q), nil)
+		if err != nil {
+			return err
+		}
+		return printResult(body, format, lang)
 	}
 }
 
@@ -1214,6 +1254,6 @@ func printResult(body []byte, format string, lang string) error {
 		fmt.Println(strings.TrimRight(string(body), "\n"))
 		return nil
 	default:
-		return errors.New(i18n.Tf(lang, "cli.err_unsupported_format", "format", format))
+		return errors.New(i18n.TranslateFormattedText(lang, "cli.err_unsupported_format", "format", format))
 	}
 }

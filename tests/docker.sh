@@ -14,11 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PROJECT_ORG="apimgr"
-PROJECT_NAME="airports"
-# Frozen forever per AI.md PART 2/3 - same as PROJECT_NAME here since no rename has occurred
+# Frozen forever per AI.md PART 2/3 - no project rename has occurred
 INTERNAL_NAME="airports"
-TEST_PORT="${TEST_PORT:-64581}"
+TEST_PORT="${TEST_PORT:-$((64000 + RANDOM % 1000))}"
 BASE_URL="http://127.0.0.1:${TEST_PORT}"
+HOST_BIND_ADDRESS="127.0.0.1"
+COMPOSE_PROJECT_NAME="airports-test-$(printf '%08x' "$(( (RANDOM << 15) | RANDOM ))")"
+TEST_IMAGE="${DOCKER_TEST_IMAGE:-airports-docker-test-local}"
+export COMPOSE_PROJECT_NAME HOST_BIND_ADDRESS TEST_PORT
 
 TEMP_DIR=""
 CLEANED_UP=0
@@ -31,7 +34,6 @@ __cleanup() {
         (cd "$TEMP_DIR" && docker compose down --volumes --remove-orphans) >/dev/null 2>&1 || true
         rm -rf -- "$TEMP_DIR"
     fi
-    docker network rm "${PROJECT_NAME}-test" >/dev/null 2>&1 || true
 }
 trap __cleanup EXIT INT TERM
 
@@ -56,13 +58,30 @@ fi
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")"
 mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
-# Container runs as a fixed non-root UID/GID (1000:1000, see docker/Dockerfile) -
-# pre-chown the bind-mounted volumes so the app can write config/data on start.
-chown -R 1000:1000 "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
 cp "$COMPOSE_SRC" "$TEMP_DIR/docker-compose.yml"
+if [[ -n "${DOCKER_TEST_IMAGE:-}" ]]; then
+    cat >"$TEMP_DIR/docker-compose.local.yml" <<EOF
+services:
+  airports:
+    image: "$TEST_IMAGE"
+    pull_policy: never
+EOF
+else
+    cat >"$TEMP_DIR/docker-compose.local.yml" <<EOF
+services:
+  airports:
+    image: "$TEST_IMAGE"
+    pull_policy: build
+    build:
+      context: "$REPO_ROOT"
+      dockerfile: docker/Dockerfile
+EOF
+fi
 
 echo ">> Bringing up Airports test stack in $TEMP_DIR"
-(cd "$TEMP_DIR" && docker compose up -d)
+(cd "$TEMP_DIR" && docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build)
+
+docker run --rm --network none --entrypoint sh "$TEST_IMAGE" -c 'for c in bash curl tor i2pd tini groupadd useradd; do command -v "$c" || exit 1; done; test -f /etc/ssl/cert.pem; test -d /usr/share/zoneinfo'
 
 echo ">> Waiting for /server/healthz to become ready..."
 __deadline=$(( $(date +%s) + 90 ))
@@ -76,6 +95,21 @@ done
 
 if ! curl -q -LSsf "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
     echo "ERROR: server did not become healthy in time" >&2
+    (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+    exit 1
+fi
+
+echo ">> Waiting for Tor hidden service health (up to 180 seconds)..."
+__tor_deadline=$(( $(date +%s) + 180 ))
+while [[ $(date +%s) -lt $__tor_deadline ]]; do
+    if curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}/server/healthz" 2>/dev/null | grep -Fxq 'features.tor.status: healthy'; then
+        echo ">> Tor hidden service is healthy."
+        break
+    fi
+    sleep 2
+done
+if ! curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}/server/healthz" 2>/dev/null | grep -Fxq 'features.tor.status: healthy'; then
+    echo "ERROR: Tor hidden service did not become healthy within 180 seconds" >&2
     (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
     exit 1
 fi

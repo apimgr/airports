@@ -54,7 +54,7 @@ func TestResponsiveLayoutAndTruncation(t *testing.T) {
 	if got := terminalSizeMode(100, 30); got != terminal.SizeModeStandard {
 		t.Errorf("standard size mode = %v", got)
 	}
-	if got := GetLayoutConfig(terminal.SizeModeWide); !got.ShowSidebar || got.SidebarWidth == 0 {
+	if got := GetTerminalLayoutConfig(terminal.SizeModeWide); !got.ShowSidebar || got.SidebarWidth == 0 {
 		t.Errorf("wide layout = %#v, want sidebar", got)
 	}
 	if got := truncate("airport search result", 12); got != "airport s..." {
@@ -66,7 +66,7 @@ func TestResponsiveLayoutAndTruncation(t *testing.T) {
 }
 
 func TestNewModelStartsSetupWhenServerMissing(t *testing.T) {
-	m := newModel(Config{}, Actions{})
+	m := newModel(TUIConfig{}, Actions{})
 	if m.page != pageSetup || len(m.inputs) != 2 || !m.inputs[0].Focused() {
 		t.Fatalf("initial setup state = page %v, inputs %d, focused %v", m.page, len(m.inputs), len(m.inputs) > 0 && m.inputs[0].Focused())
 	}

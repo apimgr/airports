@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"net/http"
@@ -23,9 +24,11 @@ import (
 	ossignal "os/signal"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	_ "time/tzdata" // embed the IANA timezone database for TZ / scheduler.timezone (alpine ships no zoneinfo)
 
@@ -48,6 +51,7 @@ import (
 	"github.com/apimgr/airports/src/notify"
 	"github.com/apimgr/airports/src/path"
 	"github.com/apimgr/airports/src/scheduler"
+	compliancerequirements "github.com/apimgr/airports/src/security/compliance"
 	"github.com/apimgr/airports/src/security/cve"
 	"github.com/apimgr/airports/src/server"
 	"github.com/apimgr/airports/src/service"
@@ -91,6 +95,16 @@ var (
 	backupDirOverride = ""
 	backupDataDir     = ""
 	resolvedBackupDir = ""
+)
+
+var diskLowState = struct {
+	sync.Mutex
+	volumes map[string]time.Time
+}{volumes: make(map[string]time.Time)}
+
+var (
+	errRestartForUpdate  = errors.New("staged update applied; restart required")
+	updateRestartRequest = make(chan struct{}, 1)
 )
 
 // buildEpoch parses the embedded BuildEpoch ldflag; 0 when unset or invalid.
@@ -147,9 +161,9 @@ func main() {
 	// is extracted the same way before flag.Parse() runs.
 	schedulerFound, schedulerAction, schedulerTaskID, afterSchedulerArgs := extractSchedulerCommand(afterShellArgs)
 
-	// `email test [address]` (PART 17 "CLI Commands") is likewise a
-	// positional subcommand, not a --flag, extracted the same way.
-	emailFound, emailAction, emailAddress, afterEmailArgs := extractEmailFlag(afterSchedulerArgs)
+	// `email test [--to ADDRESS] [--dry-run]` (PART 17) is a positional
+	// subcommand whose scoped options are parsed before flag.Parse.
+	emailFound, emailAction, emailAddress, emailDryRun, afterEmailArgs, emailParseErr := extractEmailFlag(afterSchedulerArgs)
 
 	// `tor status|validate|restart|regenerate|vanity start <prefix>|
 	// vanity apply|import-keys <path>` (PART 31 "CLI-to-running-server
@@ -167,15 +181,6 @@ func main() {
 	if err := flag.CommandLine.Parse(remainingArgs); err != nil {
 		os.Exit(2)
 	}
-
-	// --backup {backup_dir} sets the backup directory for the whole process
-	// (PART 8/21); running a backup immediately is done via
-	// `--maintenance backup [file]`, handled separately below.
-	if *backupDirFlag != "" {
-		backupDirOverride = *backupDirFlag
-	}
-	_, defaultDataDir, _ := paths.GetDefaultDirs(ProjectName)
-	backupDataDir = firstNonEmpty(*dataDirFlag, os.Getenv("DATA_DIR"), defaultDataDir)
 
 	// Immediate-exit flags take precedence over every operational command
 	// and must not initialize paths, configuration, or services (AI.md PART 8).
@@ -197,7 +202,7 @@ func main() {
 	}
 	if shellFound {
 		binaryName := filepath.Base(os.Args[0])
-		os.Exit(shellcompl.Handle(os.Stdout, os.Stderr, shellSubcmd, shellName, binaryName, serverShellCommands, serverShellFlags))
+		os.Exit(shellcompl.HandleShellCompletion(os.Stdout, os.Stderr, shellSubcmd, shellName, binaryName, serverShellCommands, serverShellFlags))
 	}
 	if serviceFound && serviceAction == "help" {
 		printServiceHelp()
@@ -211,6 +216,48 @@ func main() {
 		printUpdateHelp(filepath.Base(os.Args[0]))
 		return
 	}
+	for _, override := range []struct {
+		name  string
+		value *string
+	}{
+		{name: "--config", value: configDirFlag},
+		{name: "--data", value: dataDirFlag},
+		{name: "--cache", value: cacheDirFlag},
+		{name: "--log", value: logDirFlag},
+		{name: "--backup", value: backupDirFlag},
+		{name: "--pid", value: pidFileFlag},
+	} {
+		if *override.value == "" {
+			continue
+		}
+		safe, err := paths.SafeDirPath(*override.value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid %s path: %v\n", override.name, err)
+			os.Exit(2)
+		}
+		*override.value = safe
+	}
+	for _, variable := range []string{"CONFIG_DIR", "DATA_DIR", "CACHE_DIR", "LOG_DIR", "BACKUP_DIR", "PID_FILE"} {
+		value := os.Getenv(variable)
+		if value == "" {
+			continue
+		}
+		safe, err := paths.SafeDirPath(value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid %s path: %v\n", variable, err)
+			os.Exit(2)
+		}
+		if err := os.Setenv(variable, safe); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid %s path: %v\n", variable, err)
+			os.Exit(2)
+		}
+	}
+	// --backup {backup_dir} sets the backup directory for the whole process.
+	if *backupDirFlag != "" {
+		backupDirOverride = *backupDirFlag
+	}
+	_, defaultDataDir, _ := paths.GetDefaultDirs(ProjectName)
+	backupDataDir = firstNonEmpty(*dataDirFlag, os.Getenv("DATA_DIR"), defaultDataDir)
 
 	// Execute service commands before maintenance and update commands (PART 8).
 	if serviceFound {
@@ -261,18 +308,31 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+		case "security":
+			if err := runMaintenanceSecurity(*configDirFlag, maintenanceTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		case "pgp":
-			fmt.Fprintln(os.Stderr, "Error: --maintenance pgp is unavailable because the PGP keypair subsystem is not implemented")
-			os.Exit(1)
+			if err := runMaintenancePGP(*configDirFlag, *logDirFlag, maintenanceTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		case "secret":
-			fmt.Fprintln(os.Stderr, "Error: --maintenance secret is unavailable because secret rotation is not implemented")
-			os.Exit(1)
+			if err := runMaintenanceSecret(*configDirFlag, *logDirFlag, maintenanceTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		case "token":
-			fmt.Fprintln(os.Stderr, "Error: --maintenance token is unavailable because owner tokens are outside this project's IDEA.md scope")
-			os.Exit(1)
+			if err := runMaintenanceToken(*configDirFlag, *logDirFlag, maintenanceTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		case "data":
-			fmt.Fprintln(os.Stderr, "Error: --maintenance data is unavailable because this project stores no user data per IDEA.md")
-			os.Exit(1)
+			if err := runMaintenanceData(*configDirFlag, *logDirFlag, maintenanceTarget); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		return
 	}
@@ -307,15 +367,24 @@ func main() {
 		os.Exit(handleSchedulerCLI(schedulerAction, schedulerTaskID))
 	}
 	if emailFound {
-		os.Exit(handleEmailCLI(emailAction, emailAddress))
+		os.Exit(handleEmailCLI(emailAction, emailAddress, emailDryRun, emailParseErr))
 	}
 	if torFound {
 		os.Exit(handleTorCLI(torAction, torSubAction, torArg))
 	}
 
 	// Start server (possibly in maintenance mode)
-	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag, *cacheDirFlag, *logDirFlag, *pidFileFlag, *baseURLFlag, *modeFlag, *debugFlag, *colorFlag, *langFlag, *maintenanceMode, *daemonFlag, *i2pFlag); err != nil {
+	i2pFlagSet := false
+	flag.Visit(func(current *flag.Flag) {
+		if current.Name == "i2p" {
+			i2pFlagSet = true
+		}
+	})
+	if err := run(*portFlag, *addressFlag, *configDirFlag, *dataDirFlag, *cacheDirFlag, *logDirFlag, *pidFileFlag, *baseURLFlag, *modeFlag, *debugFlag, *colorFlag, *langFlag, *maintenanceMode, *daemonFlag, *i2pFlag, i2pFlagSet); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		if errors.Is(err, errRestartForUpdate) {
+			os.Exit(75)
+		}
 		os.Exit(1)
 	}
 }
@@ -447,18 +516,43 @@ func extractSchedulerCommand(args []string) (found bool, action string, taskID s
 // extractEmailFlag recognizes the positional `email` subcommand (PART 17
 // "CLI Commands": `email test [address]`) before flag.Parse() runs, since
 // it is not a --flag. Modeled directly on extractSchedulerCommand.
-func extractEmailFlag(args []string) (found bool, action string, address string, remaining []string) {
+func extractEmailFlag(args []string) (found bool, action, address string, dryRun bool, remaining []string, parseErr error) {
 	if len(args) == 0 || args[0] != "email" {
-		return false, "", "", args
+		return false, "", "", false, args, nil
 	}
 	found = true
 	if len(args) > 1 {
 		action = args[1]
 	}
-	if len(args) > 2 {
-		address = args[2]
+	for index := 2; index < len(args); index++ {
+		argument := args[index]
+		switch {
+		case argument == "--dry-run":
+			dryRun = true
+		case argument == "--to":
+			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "-") {
+				parseErr = fmt.Errorf("--to requires an address")
+				return found, action, address, dryRun, args[len(args):], parseErr
+			}
+			index++
+			address = args[index]
+		case strings.HasPrefix(argument, "--to="):
+			address = strings.TrimPrefix(argument, "--to=")
+			if address == "" {
+				parseErr = fmt.Errorf("--to requires an address")
+				return found, action, address, dryRun, args[len(args):], parseErr
+			}
+		case strings.HasPrefix(argument, "-"):
+			parseErr = fmt.Errorf("unknown email option %q", argument)
+			return found, action, address, dryRun, args[len(args):], parseErr
+		case address == "":
+			address = argument
+		default:
+			parseErr = fmt.Errorf("unexpected email argument %q", argument)
+			return found, action, address, dryRun, args[len(args):], parseErr
+		}
 	}
-	return found, action, address, args[len(args):]
+	return found, action, address, dryRun, args[len(args):], nil
 }
 
 // extractTorCommand recognizes the positional `tor` subcommand (PART 31
@@ -534,9 +628,13 @@ func extractMaintenanceFlag(args []string) (subcommandFound bool, action string,
 			if inlineValue == "" {
 				i++
 			}
-			if action == "backup" || action == "restore" || action == "mode" || action == "pgp" || action == "secret" || action == "token" || action == "data" || action == "compliance" {
+			if action == "backup" || action == "restore" || action == "mode" || action == "security" || action == "pgp" || action == "secret" || action == "token" || action == "data" || action == "compliance" {
 				var values []string
-				for i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				for i+1 < len(args) {
+					nextArg := args[i+1]
+					if strings.HasPrefix(nextArg, "-") && (action != "security" || !isSecurityMaintenanceOption(nextArg)) && (action != "data" || nextArg != "--owner" && nextArg != "--output" && nextArg != "--yes" && nextArg != "-") {
+						break
+					}
 					i++
 					values = append(values, args[i])
 					if action == "backup" || action == "restore" || action == "mode" || action == "compliance" {
@@ -545,17 +643,21 @@ func extractMaintenanceFlag(args []string) (subcommandFound bool, action string,
 					if action == "token" && (len(values) == 1 && values[0] == "list" || len(values) == 2) {
 						break
 					}
-					if action == "data" && len(values) == 1 {
-						break
-					}
 					if action == "secret" && (len(values) == 2 || len(values) == 1 && values[0] != "rotate") {
 						break
 					}
 					if action == "pgp" && (values[0] == "generate" || values[0] == "rotate" || values[0] == "publish" || values[0] == "delete" || len(values) >= 3) {
 						break
 					}
+					if action == "security" && len(values) == 1 && (values[0] == "list" || values[0] == "show") {
+						continue
+					}
 				}
-				target = strings.Join(values, " ")
+				separator := " "
+				if action == "security" {
+					separator = "\x00"
+				}
+				target = strings.Join(values, separator)
 			}
 			continue
 		}
@@ -568,7 +670,20 @@ func extractMaintenanceFlag(args []string) (subcommandFound bool, action string,
 
 func isMaintenanceAction(action string) bool {
 	switch action {
-	case "backup", "restore", "update", "mode", "setup", "pgp", "secret", "token", "data", "compliance", "help", "--help":
+	case "backup", "restore", "update", "mode", "security", "setup", "pgp", "secret", "token", "data", "compliance", "help", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSecurityMaintenanceOption(arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if index := strings.IndexByte(name, '='); index >= 0 {
+		name = name[:index]
+	}
+	switch name {
+	case "status", "comment", "disclosure-date", "severity":
 		return true
 	default:
 		return false
@@ -583,12 +698,13 @@ func isMaintenanceAction(action string) bool {
 func handleSchedulerCLI(action, taskID string) int {
 	applyTZEnv()
 
-	defaultConfigDir, _, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
+	defaultConfigDir, defaultDataDir, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
+	dataDir := firstNonEmpty(os.Getenv("DATA_DIR"), defaultDataDir)
 	logsDir := firstNonEmpty(os.Getenv("LOG_DIR"), defaultLogsDir)
 	configPath := filepath.Join(configDir, "server.yml")
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
 		return 1
@@ -596,7 +712,8 @@ func handleSchedulerCLI(action, taskID string) int {
 	db.SetQueryLoggingEnabled(cfg.Server.Debug.LogQueries)
 	cfg.Server.FQDN = resolveFQDN()
 
-	dbHandle, err := db.Open(cfg.Server.Database, ProjectName)
+	var dbHandle db.Handle
+	dbHandle, err = db.OpenStore(cfg.Server.Database, ProjectName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to open database: %v\n", err)
 		return 1
@@ -613,11 +730,17 @@ func handleSchedulerCLI(action, taskID string) int {
 	if parseErr != nil || catchUpWindow <= 0 {
 		catchUpWindow = time.Hour
 	}
-	sched := scheduler.NewWithLocation(dbHandle, catchUpWindow, resolveSchedulerLocation(cfg.Server.Scheduler.Timezone))
+	sched := scheduler.NewSchedulerWithLocation(dbHandle, catchUpWindow, resolveSchedulerLocation(cfg.Server.Scheduler.Timezone))
 	blockStore := server.NewBlockStore(cfg.Server.Security.BlockedIPs)
 	portInt, _ := strconv.Atoi(cfg.Server.Port)
-	torMgr := tor.NewManager(ProjectName, portInt, cfg.Server.Tor)
-	deps := buildSchedulerDeps(cfg, configDir, logsDir, nil, blockStore, cfg.Server.Port, torMgr)
+	torMgr := tor.NewTorManager(ProjectName, portInt, cfg.Server.Tor)
+	deps := buildSchedulerDeps(cfg, configDir, dataDir, logsDir, false, dbHandle, nil, blockStore, cfg.Server.Port, torMgr, nil)
+	defer func() { _ = deps.logMgr.Close() }()
+	sched.SetLogger(func(level, format string, args ...any) {
+		if err := deps.logMgr.Server().Write(fmt.Sprintf("%s %s", level, fmt.Sprintf(format, args...))); err != nil {
+			_ = deps.logMgr.Error().Write(fmt.Sprintf("ERROR could not write scheduler log event: %v", err))
+		}
+	})
 	registerSchedulerTasks(sched, cfg, deps)
 
 	switch action {
@@ -628,7 +751,7 @@ func handleSchedulerCLI(action, taskID string) int {
 			fmt.Fprintln(os.Stderr, "Error: scheduler show requires a task id")
 			return 1
 		}
-		st, ok := sched.Get(taskID)
+		st, ok := sched.GetScheduledTaskState(taskID)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "Error: unknown task %q\n", taskID)
 			return 1
@@ -687,21 +810,20 @@ func handleSchedulerCLI(action, taskID string) int {
 // email.from.email > server.web.security.admin (security.txt contact).
 // Returns "" when none are configured, in which case notify.Send correctly
 // errors on the empty recipient and the caller should just log a warning.
-func notifyRecipient(cfg *config.Config) string {
+func notifyRecipient(cfg *config.ApplicationConfig) string {
 	return firstNonEmpty(
 		cfg.Server.Notifications.Email.ReplyTo,
 		cfg.Server.Notifications.Email.From.Email,
 		cfg.Web.Security.Admin)
 }
 
-// handleEmailCLI implements `{project_name} email test [address]` per AI.md
-// PART 17 "CLI Commands". It loads server.yml, resolves a recipient address
-// (explicit argument > server.notifications.email.reply_to >
-// server.notifications.email.from.email > server.web.security.admin), and
-// sends the "test" template through notify.Send — the exact same SMTP path
-// real notifications use.
-func handleEmailCLI(action, address string) int {
-	if action != "" && action != "test" {
+// handleEmailCLI implements PART 17 email test and dry-run commands.
+func handleEmailCLI(action, address string, dryRun bool, parseErr error) int {
+	if parseErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", parseErr)
+		return 1
+	}
+	if action != "test" {
 		fmt.Fprintf(os.Stderr, "Error: unknown email command %q (expected test)\n", action)
 		return 1
 	}
@@ -710,15 +832,33 @@ func handleEmailCLI(action, address string) int {
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	configPath := filepath.Join(configDir, "server.yml")
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to load configuration: %v\n", err)
 		return 1
 	}
 
-	recipient := firstNonEmpty(address, notifyRecipient(cfg))
+	if dryRun {
+		previews, err := notify.PreviewEmailTemplates(configDir, cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to preview email templates: %v\n", err)
+			return 1
+		}
+		for index, preview := range previews {
+			if index > 0 {
+				fmt.Println()
+			}
+			fmt.Printf("Template: %s\nSubject: %s\n\n%s", preview.Name, preview.Subject, preview.Body)
+			for _, warning := range preview.Warnings {
+				fmt.Fprintf(os.Stderr, "Warning: template %s: %s\n", preview.Name, warning)
+			}
+		}
+		return 0
+	}
+
+	recipient := firstNonEmpty(address, cfg.Server.Notifications.Email.ReplyTo)
 	if recipient == "" {
-		fmt.Fprintln(os.Stderr, "Error: no recipient address given and none configured (reply_to, from.email, web.security.admin are all empty)")
+		fmt.Fprintln(os.Stderr, "Error: no recipient address given and server.notifications.email.reply_to is empty")
 		return 1
 	}
 
@@ -727,12 +867,24 @@ func handleEmailCLI(action, address string) int {
 		return 1
 	}
 
+	subjectTemplate, _, err := notify.LoadEmailTemplate(configDir, "test")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load test email template: %v\n", err)
+		return 1
+	}
+	variables := notify.GlobalVars(cfg)
+	subjectTemplate, _ = notify.TranslateEmailTemplate(configDir, "test", subjectTemplate, "", cfg.Server.I18n.DefaultLanguage, variables)
+	subject, _ := notify.Render(subjectTemplate, "", variables)
+	subject = notify.TestEmailSubject(subject)
 	if err := notify.Send(cfg, configDir, "test", recipient, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to send test email: %v\n", err)
 		return 1
 	}
-
-	fmt.Printf("Test email sent to %s\n", recipient)
+	_, _, logsDir := paths.GetDefaultDirs(ProjectName)
+	if err := writeDataAudit(logsDir, toLoggingConfig(cfg.Server.Logging), "notification.email_test_sent", "operator", "template=test"); err != nil {
+		log.Printf("Warning: could not audit test email delivery: %v", err)
+	}
+	fmt.Printf("Test email sent to %s\nTemplate: test\nSubject: %s\n", recipient, subject)
 	return 0
 }
 
@@ -751,7 +903,7 @@ var errNoRunningTorServer = errors.New("no running server detected — start the
 func torServerBaseURL() (string, bool) {
 	defaultConfigDir, _, _ := paths.GetDefaultDirs(ProjectName)
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
-	cfg, err := config.Load(filepath.Join(configDir, "server.yml"))
+	cfg, err := config.LoadApplicationConfig(filepath.Join(configDir, "server.yml"))
 	if err != nil || cfg.Server.Port == "" {
 		return "", false
 	}
@@ -800,7 +952,7 @@ func torControlRequest(method, baseURL, path string, body io.Reader) (torControl
 	return env, nil
 }
 
-// printTorStatusData prints a decoded tor.Status payload in the same
+// printTorStatusData prints a decoded tor.TorRuntimeStatus payload in the same
 // key/value style as the Tor section of `--status` output (PART 31 "CLI"
 // table).
 func printTorStatusData(data json.RawMessage) {
@@ -1034,8 +1186,10 @@ func printSchedulerHistory(taskID string, entries []scheduler.HistoryEntry) {
 	}
 }
 
-func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDirFlag, pidFileFlag, baseURLFlag, modeFlag string, debug bool, color string, lang string, maintenance bool, daemon, enableI2P bool) error {
+func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDirFlag, pidFileFlag, baseURLFlag, modeFlag string, debug bool, color string, lang string, maintenance bool, daemon, enableI2P, i2PFlagSet bool) error {
 	recentLogBuffer := logging.NewRecentLogBuffer(10_000)
+	previousSlogLogger := slog.Default()
+	defer slog.SetDefault(previousSlogLogger)
 	previousLogOutput := log.Writer()
 	log.SetOutput(io.MultiWriter(previousLogOutput, recentLogBuffer))
 	defer log.SetOutput(previousLogOutput)
@@ -1087,11 +1241,30 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	resolvedBackupDir = paths.GetBackupDir(backupDirOverride, dataDir)
 	logsDir := firstNonEmpty(logDirFlag, os.Getenv("LOG_DIR"), defaultLogsDir)
 	cacheDir := firstNonEmpty(cacheDirFlag, os.Getenv("CACHE_DIR"), paths.GetCacheDir(ProjectName))
+	dbDir := firstNonEmpty(os.Getenv("DATABASE_DIR"), paths.GetSQLiteDBPath(ProjectName))
 	pidPath := firstNonEmpty(pidFileFlag, os.Getenv("PID_FILE"), paths.GetPIDFile(ProjectName))
+	for _, override := range []struct {
+		name  string
+		value *string
+	}{
+		{name: "config", value: &configDir},
+		{name: "data", value: &dataDir},
+		{name: "backup", value: &resolvedBackupDir},
+		{name: "log", value: &logsDir},
+		{name: "cache", value: &cacheDir},
+		{name: "pid", value: &pidPath},
+	} {
+		safe, err := paths.SafeDirPath(*override.value)
+		if err != nil {
+			return fmt.Errorf("invalid %s path: %w", override.name, err)
+		}
+		*override.value = safe
+	}
 	baseURL := ""
 	inContainer := paths.IsRunningInContainer()
 	paths.SetBinaryBaseName(ProjectName)
 	startedElevated := service.IsElevated()
+	stagedUpdateFailure := applyStagedUpdate(dataDir, startedElevated)
 
 	// If running as root, create the dedicated system user/group BEFORE
 	// creating directories, per AI.md PART 9/23 "Server Startup Sequence"
@@ -1111,6 +1284,12 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	}
 	if err := paths.EnsureDir(cacheDir); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
+	}
+	if err := paths.EnsureDir(dbDir); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
+	}
+	if err := paths.EnsureDir(resolvedBackupDir); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 	if err := paths.EnsureDir(filepath.Dir(pidPath)); err != nil {
 		return fmt.Errorf("failed to create PID directory: %w", err)
@@ -1139,13 +1318,13 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	configPath := filepath.Join(configDir, "server.yml")
 	log.Printf("Loading configuration from: %s", configPath)
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 	db.SetQueryLoggingEnabled(cfg.Server.Debug.LogQueries)
-	if enableI2P {
-		cfg.Server.I2P.Enabled = true
+	if i2PFlagSet {
+		cfg.Server.I2P.Enabled = enableI2P
 	}
 	outputEmojiSetting = cfg.Output.Emoji
 	lang = i18n.ResolveOutputLanguage(lang, cfg.Server.Lang)
@@ -1166,37 +1345,10 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	cfg.Server.FQDN = resolveFQDNWithMode(isDevelopmentMode(modeFlag))
 	log.Printf("FQDN: %s", cfg.Server.FQDN)
 
-	// SMTP autodetection / connection test, per AI.md PART 17 "SMTP
-	// Auto-Detection Process" and "Connection Test (when host is set)". A
-	// newly detected host:port is persisted to server.yml (email features
-	// enabled); a configured-but-failing connection is disabled in memory
-	// ONLY for this run (never persisted), so the next startup retries.
-	if cfg.Server.Notifications.Email.SMTP.Host == "" {
-		if host, smtpPort, ok := notify.Autodetect(cfg.Server.FQDN); ok {
-			cfg.Server.Notifications.Email.SMTP.Host = host
-			cfg.Server.Notifications.Email.SMTP.Port = smtpPort
-			cfg.Server.Notifications.Email.Enabled = true
-			log.Printf("SMTP auto-detected: %s:%d", host, smtpPort)
-			if saveErr := config.SaveCurrent(); saveErr != nil {
-				log.Printf("Warning: failed to persist auto-detected SMTP settings: %v", saveErr)
-			}
-		} else {
-			log.Println("SMTP auto-detection found no server — email notifications disabled")
-		}
-	} else {
-		smtpCfg := cfg.Server.Notifications.Email.SMTP
-		if testErr := notify.TestConnection(smtpCfg.Host, smtpCfg.Port, smtpCfg.Username, smtpCfg.Password, smtpCfg.TLS); testErr != nil {
-			log.Printf("Warning: configured SMTP connection test failed (%s:%d): %v — email disabled for this run, will retry next startup", smtpCfg.Host, smtpCfg.Port, testErr)
-			cfg.Server.Notifications.Email.Enabled = false
-		} else {
-			cfg.Server.Notifications.Email.Enabled = true
-		}
-	}
+	refreshSMTPStatus(cfg, true)
 	log.Printf("email.configured=%t", notify.CanSend(cfg))
 
-	if err := notify.Send(cfg, configDir, "startup", notifyRecipient(cfg), nil); err != nil {
-		log.Printf("Warning: failed to send startup notification email: %v", err)
-	}
+	reportStagedUpdate(dataDir, logsDir, configDir, cfg, stagedUpdateFailure)
 
 	// Resolve application mode per AI.md PART 6 priority: --mode flag, MODE
 	// environment variable, then production. Mode is runtime-only and does not
@@ -1213,6 +1365,17 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	if mode.IsDebugEnabled() {
 		log.Println("Debug mode enabled")
 	}
+	startupLogManager := logging.NewLogManager(logsDir, toLoggingConfig(cfg.Server.Logging))
+	logLevel := cfg.Server.Logging.Level
+	if strings.TrimSpace(logLevel) == "" {
+		logLevel = mode.GetLogLevel()
+	}
+	slog.SetDefault(slog.New(logging.NewSlogHandler(startupLogManager, logging.ParseSlogLevel(logLevel))))
+	defer func() {
+		if closeErr := startupLogManager.Close(); closeErr != nil {
+			log.Printf("Warning: error closing log files: %v", closeErr)
+		}
+	}()
 
 	// Determine port: Flag > ENV > Config > (container default 80) > Random.
 	// Per AI.md PART 4 "Container Port Behavior": the container's internal
@@ -1230,7 +1393,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 		}
 		log.Printf("Selected random available port: %s", port)
 		// Save to config for persistence
-		if err := config.SetPort(port); err != nil {
+		if err := config.SetConfiguredServerPort(port); err != nil {
 			log.Printf("Warning: Failed to save port to config: %v", err)
 		}
 	}
@@ -1261,7 +1424,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	listeners := make([]net.Listener, len(portBindings))
 	if runtime.GOOS != "windows" && service.IsElevated() {
 		for i, binding := range portBindings {
-			listeners[i], err = net.Listen("tcp", net.JoinHostPort(address, binding.Port))
+			listeners[i], err = net.Listen("tcp", joinListenAddress(address, binding.Port))
 			if err != nil {
 				for _, listener := range listeners {
 					if listener != nil {
@@ -1276,8 +1439,8 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 		if idErr != nil {
 			return fmt.Errorf("failed to resolve service user for privilege drop: %w", idErr)
 		}
-		for _, dir := range []string{configDir, dataDir, logsDir} {
-			if chownErr := os.Chown(dir, uid, gid); chownErr != nil {
+		for _, dir := range []string{configDir, dataDir, logsDir, cacheDir, dbDir, resolvedBackupDir, filepath.Dir(pidPath)} {
+			if chownErr := chownPathTree(dir, uid, gid); chownErr != nil {
 				log.Printf("Warning: failed to chown %s to service user: %v", dir, chownErr)
 			}
 		}
@@ -1289,7 +1452,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 
 	// Load airport data
 	log.Println("Loading airport database...")
-	airportSvc, err := airports.NewService(airportsData)
+	airportSvc, err := airports.NewAirportDataService(airportsData)
 	if err != nil {
 		return fmt.Errorf("failed to load airports: %w", err)
 	}
@@ -1301,7 +1464,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	// must be {data_dir}/security to land databases in the spec-mandated
 	// {data_dir}/security/geoip path (AI.md PART 19).
 	log.Println("Loading GeoIP databases...")
-	geoipSvc, err := geoip.NewService(filepath.Join(dataDir, "security"))
+	geoipSvc, err := geoip.NewGeoIPService(filepath.Join(dataDir, "security"))
 	if err != nil {
 		log.Printf("Warning: GeoIP initialization failed: %v", err)
 		log.Println("GeoIP features will be unavailable")
@@ -1317,9 +1480,24 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 
 	// Open server.db and initialize the scheduler's persistent state per
 	// AI.md PART 18 "Persistent State" — task status must survive restarts.
-	dbHandle, err := db.Open(cfg.Server.Database, ProjectName)
+	var startupHTTPServers []*http.Server
+	var startupSwitchers []*startupRouteSwitcher
+	var dbHandle db.Handle
+	store, openErr := db.OpenStore(cfg.Server.Database, ProjectName)
+	if openErr != nil {
+		err = openErr
+	} else {
+		dbHandle = store
+		err = initializeStartupDatabase(dbHandle, cfg, configDir)
+	}
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		if dbHandle != nil {
+			_ = dbHandle.Close()
+		}
+		dbHandle, startupHTTPServers, startupSwitchers, err = waitForStartupDatabaseRecovery(cfg, configDir, dataDir, address, portBindings, listeners, airportSvc, geoipSvc, err)
+		if err != nil {
+			return fmt.Errorf("failed to recover database startup: %w", err)
+		}
 	}
 	scheduler.SetQueryObserver(db.ObserveQuery)
 	defer func() {
@@ -1327,15 +1505,18 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 			log.Printf("Warning: error closing database: %v", closeErr)
 		}
 	}()
-	if err := scheduler.EnsureSchema(dbHandle); err != nil {
-		return fmt.Errorf("failed to initialize scheduler schema: %w", err)
-	}
 
 	catchUpWindow, parseErr := time.ParseDuration(cfg.Server.Scheduler.CatchUpWindow)
 	if parseErr != nil || catchUpWindow <= 0 {
 		catchUpWindow = time.Hour
 	}
-	sched := scheduler.NewWithLocation(dbHandle, catchUpWindow, resolveSchedulerLocation(cfg.Server.Scheduler.Timezone))
+	sched := scheduler.NewSchedulerWithLocation(dbHandle, catchUpWindow, resolveSchedulerLocation(cfg.Server.Scheduler.Timezone))
+	sched.SetLogger(func(level, format string, args ...any) {
+		line := fmt.Sprintf("%s %s", level, fmt.Sprintf(format, args...))
+		if err := startupLogManager.Server().Write(line); err != nil {
+			_ = startupLogManager.Error().Write(fmt.Sprintf("ERROR could not write scheduler log event: %v", err))
+		}
+	})
 
 	// Lifecycle states are reported separately from the configured application
 	// mode. The mode remains production/development/debug during maintenance.
@@ -1349,18 +1530,18 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 		})
 	}
 	// Construct the Tor manager once, before the server, so the exact same
-	// *tor.Manager instance can be shared between server.New() (which
+	// *tor.TorManager instance can be shared between server.NewServer() (which
 	// reports live Tor state via /server/healthz, AI.md PART 13) and the
 	// scheduler deps (which start/stop the process, AI.md PART 31).
 	portInt, _ := strconv.Atoi(port)
-	torMgr := tor.NewManager(ProjectName, portInt, cfg.Server.Tor)
-	i2pMgr := i2p.NewManager(cfg.Server.I2P, i2p.Dirs{ConfigDir: configDir, DataDir: dataDir, LogDir: logsDir})
+	torMgr := tor.NewTorManager(ProjectName, portInt, cfg.Server.Tor)
+	i2pMgr := i2p.NewI2PManager(cfg.Server.I2P, i2p.I2PDirs{ConfigDir: configDir, DataDir: dataDir, LogDir: logsDir})
 
 	// Create HTTP server
-	srv := server.New(airportSvc, geoipSvc, cfg, sched, dbHandle, dataDir, configDir, torMgr, recentLogBuffer)
+	srv := server.NewServer(airportSvc, geoipSvc, cfg, sched, dbHandle, dataDir, configDir, torMgr, recentLogBuffer)
 	srv.SetI2PManager(i2pMgr)
 	defer func() {
-		if closeErr := i2pMgr.Close(); closeErr != nil {
+		if closeErr := i2pMgr.StopI2PService(); closeErr != nil {
 			log.Printf("Warning: error stopping I2P eepsite: %v", closeErr)
 		}
 	}()
@@ -1374,8 +1555,17 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	// blocklist_update task shares the exact in-memory store the live HTTP
 	// middleware enforces against — no restart required for updates to
 	// take effect.
-	schedDeps := buildSchedulerDeps(cfg, configDir, logsDir, geoipSvc, srv.BlockStore(), port, torMgr)
+	schedDeps := buildSchedulerDeps(cfg, configDir, dataDir, logsDir, startedElevated, dbHandle, geoipSvc, srv.BlockStore(), port, torMgr, startupLogManager)
+	srv.SetAccessLog(schedDeps.logMgr.Access())
+	srv.SetErrorLog(schedDeps.logMgr.Error())
+	srv.SetAuditLogger(schedDeps.logMgr)
+	for _, key := range cfg.GeneratedSecretPaths() {
+		if err := schedDeps.logMgr.WriteAudit(logging.AuditCategoryConfiguration, "event=config.secret_generated key="+strconv.Quote(key)); err != nil {
+			log.Printf("Warning: could not write generated-secret audit event: %v", err)
+		}
+	}
 	schedDeps.i2pMgr = i2pMgr
+	srv.SetSecurityLog(schedDeps.logMgr.Security())
 	if triggered, cleanupErr := runDiskPressureCleanup(cfg.Server.Maintenance.Cleanup, dataDir, resolvedBackupDir, schedDeps.logMgr, time.Now(), backup.DiskUsage); cleanupErr != nil {
 		log.Printf("Warning: maintenance disk-pressure cleanup failed: %v", cleanupErr)
 	} else if triggered {
@@ -1403,9 +1593,11 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	}
 
 	// Start scheduler
-	sched.Start()
-	defer sched.Stop()
-	log.Println("Scheduler started")
+	sched.StartScheduler()
+	defer sched.StopScheduler()
+	if err := startupLogManager.Server().Write(fmt.Sprintf("INFO scheduler started; registered tasks: %s", strings.Join(sched.RegisteredTaskIDs(), ", "))); err != nil {
+		_ = startupLogManager.Error().Write(fmt.Sprintf("ERROR could not write scheduler startup event: %v", err))
+	}
 
 	// --baseurl {path} mounts the entire router under a URL path prefix per
 	// AI.md "Server Binary Commands" (default "/", i.e. no prefix/no-op).
@@ -1420,11 +1612,10 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 	var torStartDone chan struct{}
 	var torStartCancel context.CancelFunc
 	if cfg.Server.I2P.Enabled {
-		if startErr := i2pMgr.Start(context.Background(), rootHandler); startErr != nil {
+		if startErr := i2pMgr.StartI2PService(context.Background(), rootHandler); startErr != nil {
 			log.Printf("Warning: I2P eepsite failed to start: %v", startErr)
 		} else {
 			srv.SetI2PManager(i2pMgr)
-			log.Printf("I2P eepsite started: %s", i2pMgr.EepsiteAddress())
 		}
 	}
 
@@ -1440,7 +1631,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 			handler = schedDeps.sslMgr.GetHTTPHandler(handler)
 		}
 		serverConfig := &http.Server{
-			Addr:         net.JoinHostPort(address, binding.Port),
+			Addr:         joinListenAddress(address, binding.Port),
 			Handler:      handler,
 			ReadTimeout:  cfg.Server.Limits.ReadTimeoutDuration(),
 			WriteTimeout: cfg.Server.Limits.WriteTimeoutDuration(),
@@ -1449,13 +1640,21 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 		if binding.TLS && tlsConfig != nil {
 			serverConfig.TLSConfig = tlsConfig.Clone()
 		}
-		httpServers[i] = serverConfig
+		if i < len(startupSwitchers) {
+			startupSwitchers[i].Set(handler)
+			httpServers[i] = startupHTTPServers[i]
+		} else {
+			httpServers[i] = serverConfig
+		}
+	}
+	if len(startupSwitchers) > 0 {
+		server.SetHealthMaintenance(nil)
 	}
 	for i, binding := range portBindings {
 		if listeners[i] != nil {
 			continue
 		}
-		listeners[i], err = net.Listen("tcp", net.JoinHostPort(address, binding.Port))
+		listeners[i], err = net.Listen("tcp", joinListenAddress(address, binding.Port))
 		if err != nil {
 			for _, listener := range listeners {
 				if listener != nil {
@@ -1493,6 +1692,9 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 			ConfigEmoji: cfg.Output.Emoji,
 		}, lang)
 		for i, listener := range listeners {
+			if i < len(startupSwitchers) {
+				continue
+			}
 			serverConfig := httpServers[i]
 			binding := portBindings[i]
 			go func(srv *http.Server, ln net.Listener, useTLS bool) {
@@ -1509,9 +1711,13 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 			}(serverConfig, listener, binding.TLS)
 		}
 	}()
+	log.Printf("Server ready on %s", strings.Join(urls, ", "))
+	if err := notify.Send(cfg, configDir, "startup", notifyRecipient(cfg), nil); err != nil {
+		log.Printf("Warning: failed to send startup notification email: %v", err)
+	}
 	// Tor bootstrap is independent of clearnet startup. A missing Tor network
 	// must never hold the public HTTP listener behind its bootstrap timeout.
-	if schedDeps.torMgr != nil && schedDeps.torMgr.Enabled() {
+	if schedDeps.torMgr != nil && schedDeps.torMgr.IsTorEnabled() {
 		torStartDone = make(chan struct{})
 		torStartContext, cancelTorStart := context.WithCancel(context.Background())
 		torStartCancel = cancelTorStart
@@ -1523,7 +1729,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 			}
 			torContext, cancel := context.WithTimeout(torStartContext, bootstrapTimeout)
 			defer cancel()
-			if startErr := schedDeps.torMgr.Start(torContext); startErr != nil {
+			if startErr := schedDeps.torMgr.StartTorService(torContext); startErr != nil {
 				log.Printf("Warning: Tor hidden service failed to start: %v", startErr)
 				return
 			}
@@ -1571,6 +1777,7 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 		ossignal.Notify(statusDump, sigs...)
 	}
 
+	updateRestart := false
 	for {
 		select {
 		case <-reopen:
@@ -1590,6 +1797,9 @@ func run(portFlag, addressFlag, configDirFlag, dataDirFlag, cacheDirFlag, logDir
 				Version, CommitID, runtime.NumGoroutine(), mem.HeapAlloc/1024)
 		case <-quit:
 			goto shutdown
+		case <-updateRestartRequest:
+			updateRestart = true
+			goto shutdown
 		}
 	}
 shutdown:
@@ -1603,7 +1813,11 @@ shutdown:
 		<-torStartDone
 	}
 
-	if err := notify.Send(cfg, configDir, "shutdown", notifyRecipient(cfg), nil); err != nil {
+	reason := "signal"
+	if updateRestart {
+		reason = "update restart"
+	}
+	if err := notify.Send(cfg, configDir, "shutdown", notifyRecipient(cfg), map[string]string{"reason": reason}); err != nil {
 		log.Printf("Warning: failed to send shutdown notification email: %v", err)
 	}
 
@@ -1621,9 +1835,12 @@ shutdown:
 			return fmt.Errorf("tor backend shutdown error: %w", err)
 		}
 	}
+	if err := srv.ShutdownRateLimitCounters(); err != nil {
+		log.Printf("Warning: failed to flush rate-limit counters during shutdown: %v", err)
+	}
 
-	if schedDeps.torMgr != nil && schedDeps.torMgr.Enabled() {
-		if stopErr := schedDeps.torMgr.Stop(); stopErr != nil {
+	if schedDeps.torMgr != nil && schedDeps.torMgr.IsTorEnabled() {
+		if stopErr := schedDeps.torMgr.StopTorService(); stopErr != nil {
 			log.Printf("Warning: error stopping Tor hidden service: %v", stopErr)
 		}
 		if torListener := schedDeps.torMgr.BackendListener(); torListener != nil {
@@ -1634,21 +1851,33 @@ shutdown:
 	}
 
 	log.Println("Server stopped")
+	if updateRestart {
+		return errRestartForUpdate
+	}
 	return nil
 }
 
-// watchConfigFile polls configPath for external mtime changes every 5
+func chownPathTree(root string, uid, gid int) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := os.Lchown(path, uid, gid); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// watchConfigFile polls the config file, drop-ins, secrets and assets every 5
 // seconds and hot-reloads the running server, per AI.md PART 5 "Live
-// Reload": server.yml is the sole source of truth and changes must apply
+// ReloadApplicationConfig": config files are the source of truth and changes must apply
 // without a restart. Settings that require a restart to fully take effect
 // (port/address/daemonize, SSL, database, and Tor settings) are still applied to the in-memory
 // config for consistency, but a warning is logged since the bound
 // listener/connection pool cannot change without a process restart.
-func watchConfigFile(configPath string, initial *config.Config, srv *server.Server, done <-chan struct{}, onReload func(*config.Config)) {
-	lastMod := time.Time{}
-	if info, err := os.Stat(configPath); err == nil {
-		lastMod = info.ModTime()
-	}
+func watchConfigFile(configPath string, initial *config.ApplicationConfig, srv *server.Server, done <-chan struct{}, onReload func(*config.ApplicationConfig)) {
+	lastStamp := configWatchStamp(configPath)
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -1659,19 +1888,20 @@ func watchConfigFile(configPath string, initial *config.Config, srv *server.Serv
 		case <-done:
 			return
 		case <-ticker.C:
-			info, err := os.Stat(configPath)
-			if err != nil || info.ModTime().Equal(lastMod) {
+			stamp := configWatchStamp(configPath)
+			if stamp == lastStamp {
 				continue
 			}
-			lastMod = info.ModTime()
+			lastStamp = stamp
 
-			newCfg, loadErr := config.Load(configPath)
+			newCfg, loadErr := config.LoadApplicationConfig(configPath)
 			if loadErr != nil {
 				log.Printf("Config file watcher: reload failed: %v — keeping current config", loadErr)
 				continue
 			}
 
 			warnRestartRequiredChanges(current, newCfg)
+			refreshSMTPStatus(newCfg, false)
 			db.SetQueryLoggingEnabled(newCfg.Server.Debug.LogQueries)
 			srv.ReloadConfig(newCfg)
 			if onReload != nil {
@@ -1684,16 +1914,67 @@ func watchConfigFile(configPath string, initial *config.Config, srv *server.Serv
 	}
 }
 
+func refreshSMTPStatus(cfg *config.ApplicationConfig, persistAutodetection bool) {
+	smtp := &cfg.Server.Notifications.Email.SMTP
+	if smtp.Host == "" {
+		if host, port, ok := notify.Autodetect(cfg.Server.FQDN); ok {
+			smtp.Host = host
+			smtp.Port = port
+			log.Printf("SMTP auto-detected: %s:%d", host, port)
+			if persistAutodetection {
+				if err := config.SaveCurrentApplicationConfig(); err != nil {
+					log.Printf("Warning: failed to persist auto-detected SMTP settings: %v", err)
+				}
+			}
+		} else {
+			cfg.Server.Notifications.Email.Enabled = false
+			log.Println("SMTP auto-detection found no server — email notifications disabled")
+			return
+		}
+	}
+	if notify.IsPrivateSMTPHost(smtp.Host) {
+		log.Printf("SMTP host %s is a private address: TLS certificate verification skipped", smtp.Host)
+	}
+	if err := notify.TestConnection(smtp.Host, smtp.Port, smtp.Username, smtp.Password, smtp.TLS); err != nil {
+		cfg.Server.Notifications.Email.Enabled = false
+		log.Printf("Warning: configured SMTP connection test failed (%s:%d): %v — email disabled until the next configuration check", smtp.Host, smtp.Port, err)
+		return
+	}
+	cfg.Server.Notifications.Email.Enabled = true
+}
+
+func configWatchStamp(configPath string) string {
+	paths := []string{
+		configPath,
+		filepath.Join(filepath.Dir(configPath), "yaml.d"),
+		filepath.Join(filepath.Dir(configPath), "secrets.yml"),
+		filepath.Join(filepath.Dir(configPath), "assets"),
+	}
+	var stamp strings.Builder
+	for _, path := range paths {
+		_ = filepath.Walk(path, func(entryPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				stamp.WriteString(entryPath)
+				stamp.WriteString(":missing;")
+				return nil
+			}
+			fmt.Fprintf(&stamp, "%s:%d:%d:%d;", entryPath, info.ModTime().UnixNano(), info.Size(), info.Mode())
+			return nil
+		})
+	}
+	return stamp.String()
+}
+
 // warnRestartRequiredChanges logs settings that AI.md PART 5 classifies as
 // process-restart-only when the config file changes.
-func warnRestartRequiredChanges(oldCfg, newCfg *config.Config) {
+func warnRestartRequiredChanges(oldCfg, newCfg *config.ApplicationConfig) {
 	changed := restartRequiredSettings(oldCfg, newCfg)
 	if len(changed) > 0 {
 		log.Printf("Warning: config changes require a restart to fully take effect: %s", strings.Join(changed, ", "))
 	}
 }
 
-func restartRequiredSettings(oldCfg, newCfg *config.Config) []string {
+func restartRequiredSettings(oldCfg, newCfg *config.ApplicationConfig) []string {
 	var changed []string
 	if oldCfg.Server.Port != newCfg.Server.Port {
 		changed = append(changed, "server.port")
@@ -1857,7 +2138,8 @@ func printHelp(binaryName string) {
 	fmt.Println("  scheduler history <id>        Show a task's execution history")
 	fmt.Println()
 	fmt.Println("Email Commands:")
-	fmt.Println("  email test [address]          Send a test email (default recipient from config)")
+	fmt.Println("  email test [--to ADDRESS]     Send a test email (default recipient from config)")
+	fmt.Println("  email test --dry-run          Preview and validate all email templates")
 	fmt.Println()
 	fmt.Println("Tor Commands:")
 	fmt.Println("  tor status                    Show Tor hidden service status")
@@ -1912,6 +2194,7 @@ func printMaintenanceHelp(binaryName string) {
 	fmt.Println("  restore <path>                 Restore a backup archive")
 	fmt.Println("  update                         Check for and install a server update")
 	fmt.Println("  mode {production|development|debug}  Rejected pending the PART 6/PART 8 mode conflict")
+	fmt.Println("  security {list|show|update}         Manage coordinated-disclosure reports")
 	fmt.Println("  setup                          Reset server configuration (first run or root)")
 	fmt.Println("  pgp {generate|rotate|publish|export|import|delete} Manage the security keypair")
 	fmt.Println("  secret rotate {name}           Rotate a supported server secret")
@@ -2005,6 +2288,9 @@ func serverDatabaseIsEmpty(dbFile string) (bool, error) {
 		quotedTable := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
 		var hasRows bool
 		query := `SELECT EXISTS(SELECT 1 FROM ` + quotedTable + ` LIMIT 1)`
+		if table == "app_secrets" {
+			query = `SELECT EXISTS(SELECT 1 FROM "app_secrets" WHERE name NOT IN ('installation_secret', 'cookie_signing_key', 'csrf_token_secret') LIMIT 1)`
+		}
 		started := time.Now()
 		if err := database.QueryRow(query).Scan(&hasRows); err != nil {
 			db.LogQuery(query, 0, started, 0, err)
@@ -2060,10 +2346,10 @@ func runMaintenanceSetup(configDir string) error {
 	}
 
 	configPath := filepath.Join(configDir, "server.yml")
-	if err := config.Save(configPath, config.DefaultConfig()); err != nil {
+	if err := config.SaveApplicationConfig(configPath, config.DefaultApplicationConfig()); err != nil {
 		return fmt.Errorf("reset server configuration: %w", err)
 	}
-	if _, err := config.Load(configPath); err != nil {
+	if _, err := config.LoadApplicationConfig(configPath); err != nil {
 		return fmt.Errorf("initialize default server secrets: %w", err)
 	}
 	fmt.Printf("Server configuration reset to defaults: %s\n", configPath)
@@ -2071,13 +2357,32 @@ func runMaintenanceSetup(configDir string) error {
 }
 
 func runComplianceReport(configDir, logsDir string) error {
-	defaultConfigDir, _, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
+	defaultConfigDir, defaultDataDir, defaultLogsDir := paths.GetDefaultDirs(ProjectName)
 	configDir = firstNonEmpty(configDir, os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	logsDir = firstNonEmpty(logsDir, os.Getenv("LOG_DIR"), defaultLogsDir)
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("load server configuration: %w", err)
+	}
+	if !service.IsElevated() {
+		provided, err := promptBackupPassword("Operator token (server.token): ")
+		if err != nil {
+			return err
+		}
+		if cfg.Server.Token == "" || len(provided) != len(cfg.Server.Token) || subtle.ConstantTimeCompare([]byte(provided), []byte(cfg.Server.Token)) != 1 {
+			return errors.New("compliance maintenance denied: invalid operator token")
+		}
+	}
+	database, err := db.OpenStore(cfg.Server.Database, ProjectName)
+	if err != nil {
+		return fmt.Errorf("open server database: %w", err)
+	}
+	defer func() { _ = database.Close() }()
+	backupDir := paths.GetBackupDir("", firstNonEmpty(os.Getenv("DATA_DIR"), defaultDataDir))
+	owners, resources, activeTokens, openReports, recentEvents, lastBackup, err := complianceCounts(database, backupDir, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("collect compliance summary: %w", err)
 	}
 
 	generatedAt := time.Now().UTC()
@@ -2114,19 +2419,6 @@ func runComplianceReport(configDir, logsDir string) error {
 	if cfg.Server.SSL.Enabled {
 		transportEncryption = "configured"
 	}
-	fmt.Println("Airports compliance summary")
-	fmt.Printf("Generated at: %s\n", generatedAt.Format(time.RFC3339))
-	fmt.Printf("Compliance mode: %s\n", complianceMode)
-	if len(standards) == 0 {
-		fmt.Println("Enabled standards: none")
-	} else {
-		fmt.Printf("Enabled standards: %s\n", strings.Join(standards, ", "))
-	}
-	fmt.Println("User-account data stored: none (per IDEA.md project scope)")
-	fmt.Println("Consent state: client-side only")
-	fmt.Printf("Backup encryption: %s\n", backupEncryption)
-	fmt.Printf("TLS configuration: %s\n", transportEncryption)
-
 	auditCfg := toLoggingConfig(cfg.Server.Logging)
 	auditCfg.Audit.Events = logging.AuditEventsConfig{
 		Configuration: cfg.Server.Logging.Audit.Events.Configuration,
@@ -2135,17 +2427,97 @@ func runComplianceReport(configDir, logsDir string) error {
 		Server:        cfg.Server.Logging.Audit.Events.Server,
 	}
 	auditCfg.Audit.MaskEmails = cfg.Server.Logging.Audit.MaskEmails
-	auditManager := logging.NewManager(logsDir, auditCfg)
+	auditManager := logging.NewLogManager(logsDir, auditCfg)
 	defer func() {
 		if closeErr := auditManager.Close(); closeErr != nil {
 			log.Printf("Warning: could not close compliance report audit log: %v", closeErr)
 		}
 	}()
+	auditIntegrity := auditManager.AuditIntegrity()
+	fmt.Println("Airports compliance summary")
+	fmt.Printf("Generated at: %s\n", generatedAt.Format(time.RFC3339))
+	fmt.Printf("Compliance mode: %s\n", complianceMode)
+	if len(standards) == 0 {
+		fmt.Println("Enabled standards: none")
+	} else {
+		fmt.Printf("Enabled standards: %s\n", strings.Join(standards, ", "))
+	}
+	fmt.Println("Consent state: client-side only")
+	effectiveRequirements := compliancerequirements.Resolve(cfg.Server.Compliance)
+	if effectiveRequirements.AuditRetentionYears > 0 {
+		fmt.Printf("Minimum audit retention: %d years\n", effectiveRequirements.AuditRetentionYears)
+	}
+	if effectiveRequirements.BreachNotification {
+		if effectiveRequirements.BreachNotificationHours > 0 {
+			fmt.Printf("Breach notification: required; shortest specified deadline=%d hours\n", effectiveRequirements.BreachNotificationHours)
+		} else {
+			fmt.Println("Breach notification: required; enabled standards define no common numeric deadline")
+		}
+	}
+	fmt.Printf("Matrix requirements: encrypt_at_rest=%t encrypt_in_transit=%t erasure=%t portability=%t consent=%t access_logging=%t data_residency=%t strong_auth=%t token_policy=%t session_timeout=%t vulnerability_scanning=%t\n",
+		effectiveRequirements.EncryptAtRest,
+		effectiveRequirements.EncryptInTransit,
+		effectiveRequirements.RightToErasure,
+		effectiveRequirements.DataPortability,
+		effectiveRequirements.ConsentTracking,
+		effectiveRequirements.AccessLogging,
+		effectiveRequirements.DataResidency,
+		effectiveRequirements.StrongAuthentication,
+		effectiveRequirements.TokenPolicy,
+		effectiveRequirements.SessionTimeoutRequired,
+		effectiveRequirements.VulnerabilityScanning,
+	)
+	fmt.Printf("Data retention: %s\n", firstNonEmpty(cfg.Server.Privacy.Retention.Period, "not configured"))
+	if cfg.Server.Compliance.GDPR {
+		regions := "not configured"
+		if len(cfg.Server.Compliance.GDPRAllowedRegions) > 0 {
+			regions = strings.Join(cfg.Server.Compliance.GDPRAllowedRegions, ", ")
+		}
+		fmt.Printf("GDPR allowed data regions: %s\n", regions)
+	}
+	if cfg.Server.Compliance.FedRAMP {
+		fmt.Printf("FedRAMP impact level: %s\n", firstNonEmpty(cfg.Server.Compliance.FedRAMPImpactLevel, "not configured"))
+		fmt.Println("FedRAMP data residency: US-only required; deployment location is not verified by this report")
+	}
+	dpoContact := strings.TrimSpace(cfg.Server.Contact.DPO.Email)
+	if dpoContact == "" {
+		dpoContact = strings.TrimSpace(cfg.Server.Contact.General.Email)
+	}
+	dpoStatus := "not configured"
+	if dpoContact != "" {
+		dpoStatus = "configured"
+	}
+	fmt.Printf("DPO contact: %s\n", dpoStatus)
+	fmt.Printf("CCPA opt-out applicable: %t\n", cfg.Server.Privacy.Data.Sold)
+	fmt.Printf("Backup retention: daily=%d weekly=%d monthly=%d yearly=%d\n", cfg.Server.Backup.Retention.MaxBackups, cfg.Server.Backup.Retention.KeepWeekly, cfg.Server.Backup.Retention.KeepMonthly, cfg.Server.Backup.Retention.KeepYearly)
+	fmt.Printf("Audit logging: enabled=%t retention=%s categories=configuration:%t,security:%t,backup:%t,server:%t\n",
+		cfg.Server.Logging.Audit.Enabled,
+		firstNonEmpty(cfg.Server.Logging.Audit.Keep, "none"),
+		cfg.Server.Logging.Audit.Events.Configuration,
+		cfg.Server.Logging.Audit.Events.Security,
+		cfg.Server.Logging.Audit.Events.Backup,
+		cfg.Server.Logging.Audit.Events.Server,
+	)
+	if auditIntegrity.Intact {
+		fmt.Printf("Audit log integrity: intact (%d entries)\n", auditIntegrity.Entries)
+	} else {
+		fmt.Printf("Audit log integrity: broken at %s:%d\n", auditIntegrity.File, auditIntegrity.Line)
+	}
+	fmt.Printf("Security report retention: %d days\n", cfg.Server.Security.Reports.RetentionDays)
+	fmt.Printf("Counts: owners=%d resources=%d active_tokens=%d open_security_reports=%d\n", owners, resources, activeTokens, openReports)
+	fmt.Printf("Compliance events in last 30 days: %d\n", recentEvents)
+	fmt.Printf("Last backup: %s\n", lastBackup)
+	fmt.Printf("Backup encryption: %s\n", backupEncryption)
+	fmt.Printf("TLS configuration: %s\n", transportEncryption)
+
 	generatedBy := "unknown"
 	if currentUser, userErr := user.Current(); userErr == nil && currentUser.Username != "" {
 		generatedBy = currentUser.Username
 	}
 	auditLine := fmt.Sprintf("event=compliance.report_generated report_type=summary generated_by=%s", strconv.Quote(generatedBy))
+	if err := recordComplianceEvent(database, "compliance.report_generated", "", "report_type=summary"); err != nil {
+		return fmt.Errorf("record compliance report event: %w", err)
+	}
 	if err := auditManager.WriteAudit(logging.AuditCategoryServer, auditLine); err != nil {
 		return fmt.Errorf("write compliance report audit event: %w", err)
 	}
@@ -2158,7 +2530,7 @@ func checkStatus() int {
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	configPath := filepath.Join(configDir, "server.yml")
 
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
 		fmt.Println("Status: Not configured")
 		return 1
@@ -2255,25 +2627,25 @@ func handleServiceCommand(cmd string) error {
 
 	switch cmd {
 	case "start":
-		return service.Start()
+		return service.StartSystemService()
 	case "stop":
-		return service.Stop()
+		return service.StopSystemService()
 	case "restart":
-		return service.Restart()
+		return service.RestartSystemService()
 	case "reload":
-		return service.Reload()
+		return service.ReloadSystemService()
 	case "disable":
-		return service.Disable()
+		return service.DisableSystemService()
 	case "install":
 		// Per AI.md PART 23 the install flow must detect the init system,
 		// write the service file, enable it, AND start it. Install() writes
 		// and enables; start it immediately afterwards.
-		if err := service.Install(); err != nil {
+		if err := service.InstallSystemService(); err != nil {
 			return err
 		}
-		return service.Start()
+		return service.StartSystemService()
 	case "uninstall":
-		return service.Uninstall()
+		return service.UninstallSystemService()
 	default:
 		return fmt.Errorf("unknown service command: %s", cmd)
 	}
@@ -2284,25 +2656,30 @@ func handleServiceCommand(cmd string) error {
 // buildSchedulerDeps) and shared by both call sites: the live server's run()
 // and the standalone `scheduler run <id>` CLI path in handleSchedulerCLI.
 type schedulerDeps struct {
-	geoipSvc   *geoip.Service
-	cveSvc     *cve.Service
-	blockStore *server.BlockStore
-	logMgr     *logging.Manager
-	torMgr     *tor.Manager
-	i2pMgr     *i2p.Manager
-	sslMgr     *ssl.Manager
-	fqdn       string
-	healthURL  string
-	configDir  string
+	db              db.Handle
+	geoipSvc        *geoip.GeoIPService
+	cveSvc          *cve.CVEService
+	blockStore      *server.BlockStore
+	logMgr          *logging.LogManager
+	torMgr          *tor.TorManager
+	i2pMgr          *i2p.I2PManager
+	sslMgr          *ssl.SSLManager
+	fqdn            string
+	healthURL       string
+	configDir       string
+	dataDir         string
+	logsDir         string
+	backupDir       string
+	startedElevated bool
 }
 
 // toLoggingConfig bridges config.LoggingConfig (server.yml's `server.logs`
-// schema, PART 11 "Logging" § Configuration) to logging.Config, the log
+// schema, PART 11 "Logging" § Configuration) to logging.LogManagerConfig, the log
 // rotation subsystem's own shape. Only Audit and Debug expose an `enabled`
 // toggle in server.yml (matching PART 11 — every other log type is always
 // on), so Access/Server/Error/Security are always mapped Enabled: true.
-func toLoggingConfig(lc config.LoggingConfig) logging.Config {
-	return logging.Config{
+func toLoggingConfig(lc config.LoggingConfig) logging.LogManagerConfig {
+	return logging.LogManagerConfig{
 		Level: lc.Level,
 		Access: logging.AccessFileConfig{
 			FileConfig: logging.FileConfig{
@@ -2362,7 +2739,7 @@ func toLoggingConfig(lc config.LoggingConfig) logging.Config {
 }
 
 // toSSLConfig bridges config.SSLConfig (server.yml's `server.ssl` schema) to
-// ssl.Config, the SSL/Let's Encrypt subsystem's own shape. certPath is the
+// ssl.SSLManagerConfig, the SSL/Let's Encrypt subsystem's own shape. certPath is the
 // on-disk directory the ssl package uses for both the autocert cache and
 // manually-placed certificates (paths.GetSSLDir), never a config value.
 // encryptionKey is server.security.encryption_key, used to decrypt
@@ -2371,7 +2748,7 @@ func toLoggingConfig(lc config.LoggingConfig) logging.Config {
 // "Provider Credential Storage". If decryption fails (e.g. dns-01 not
 // configured yet, or the blob is empty), DNSCredentials is left empty and
 // the failure is logged rather than aborting startup.
-func toSSLConfig(cfg config.SSLConfig, encryptionKey string, certPath string) ssl.Config {
+func toSSLConfig(cfg config.SSLConfig, encryptionKey string, certPath string) ssl.SSLManagerConfig {
 	var dnsCreds map[string]string
 	if cfg.LetsEncrypt.DNSCredentials != "" {
 		decrypted, err := ssl.DecryptDNSCredentials(encryptionKey, cfg.LetsEncrypt.DNSCredentials)
@@ -2382,7 +2759,7 @@ func toSSLConfig(cfg config.SSLConfig, encryptionKey string, certPath string) ss
 		}
 	}
 
-	return ssl.Config{
+	return ssl.SSLManagerConfig{
 		Enabled:  cfg.Enabled,
 		CertPath: certPath,
 		LetsEncrypt: ssl.LetsEncryptConfig{
@@ -2404,25 +2781,33 @@ func toSSLConfig(cfg config.SSLConfig, encryptionKey string, certPath string) ss
 // with. listenPort is used only to build the self health-check URL; it may
 // be empty in the CLI-only path, in which case healthcheck_self becomes a
 // no-op. torMgr is constructed once by the caller (so the exact same
-// *tor.Manager instance can also be shared with server.New(), letting
+// *tor.TorManager instance can also be shared with server.NewServer(), letting
 // /server/healthz report the live Tor state) and simply attached here.
-func buildSchedulerDeps(cfg *config.Config, configDir, logsDir string, geoipSvc *geoip.Service, blockStore *server.BlockStore, listenPort string, torMgr *tor.Manager) schedulerDeps {
+func buildSchedulerDeps(cfg *config.ApplicationConfig, configDir, dataDir, logsDir string, startedElevated bool, database db.Handle, geoipSvc *geoip.GeoIPService, blockStore *server.BlockStore, listenPort string, torMgr *tor.TorManager, logManager *logging.LogManager) schedulerDeps {
 	deps := schedulerDeps{
-		geoipSvc:   geoipSvc,
-		blockStore: blockStore,
-		fqdn:       cfg.Server.FQDN,
-		torMgr:     torMgr,
-		configDir:  configDir,
+		db:              database,
+		geoipSvc:        geoipSvc,
+		blockStore:      blockStore,
+		fqdn:            cfg.Server.FQDN,
+		torMgr:          torMgr,
+		configDir:       configDir,
+		dataDir:         dataDir,
+		logsDir:         logsDir,
+		backupDir:       paths.GetBackupDir(backupDirOverride, dataDir),
+		startedElevated: startedElevated,
 	}
 
 	securityDir := paths.GetSecurityDir(ProjectName)
-	if cveSvc, err := cve.NewService(securityDir, cfg.Server.CVE.APIKey); err != nil {
+	if cveSvc, err := cve.NewCVEService(securityDir, cfg.Server.CVE.APIKey); err != nil {
 		log.Printf("Warning: CVE service unavailable: %v", err)
 	} else {
 		deps.cveSvc = cveSvc
 	}
 
-	deps.logMgr = logging.NewManager(logsDir, toLoggingConfig(cfg.Server.Logging))
+	deps.logMgr = logManager
+	if deps.logMgr == nil {
+		deps.logMgr = logging.NewLogManager(logsDir, toLoggingConfig(cfg.Server.Logging))
+	}
 
 	sslCfg := toSSLConfig(cfg.Server.SSL, cfg.Server.Security.EncryptionKey, paths.GetSSLDir(ProjectName))
 	if sslCfg.LetsEncrypt.Challenge == "dns-01" && sslCfg.LetsEncrypt.DNSProvider != "" {
@@ -2433,7 +2818,7 @@ func buildSchedulerDeps(cfg *config.Config, configDir, logsDir string, geoipSvc 
 		}
 	}
 
-	sslMgr := ssl.NewManager(sslCfg)
+	sslMgr := ssl.NewSSLManager(sslCfg)
 	if cfg.Server.SSL.Enabled && cfg.Server.SSL.LetsEncrypt.Enabled && cfg.Server.FQDN != "" {
 		if _, err := sslMgr.GetTLSConfig([]string{cfg.Server.FQDN}); err != nil {
 			log.Printf("Warning: Let's Encrypt initialization failed: %v", err)
@@ -2448,16 +2833,8 @@ func buildSchedulerDeps(cfg *config.Config, configDir, logsDir string, geoipSvc 
 	return deps
 }
 
-// registerSchedulerTasks wires up the 11 built-in scheduled tasks required
-// by AI.md PART 18 "Built-in Tasks". token_cleanup is a permanent no-op, not
-// deferred work: AI.md PART 10 "Resource Owner Tokens" (line 11812) states
-// resource owner tokens exist only when a project's resources are writable
-// ("a read-only stats API generates none"), and IDEA.md "Product scope &
-// non-goals" explicitly rules out any write/mutation API and any user
-// accounts for airports. There is no resource-creation flow that could ever
-// issue a tok_-prefixed owner token, so the api_tokens table is never
-// populated and this task has nothing to clean up.
-func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps schedulerDeps) {
+// registerSchedulerTasks wires the configured built-in tasks from AI.md PART 18.
+func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.ApplicationConfig, deps schedulerDeps) {
 	tasks := cfg.Server.Scheduler.Tasks
 
 	mustRegister := func(id, name, schedule string, enabledDefault, retryOnFail bool, retryDelayStr string, handler func() error) {
@@ -2500,7 +2877,9 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps
 			if deps.geoipSvc == nil {
 				return fmt.Errorf("geoip service unavailable")
 			}
-			return deps.geoipSvc.UpdateDatabases()
+			updateErr := deps.geoipSvc.UpdateDatabases()
+			server.RefreshHealthChecks()
+			return updateErr
 		})
 
 	mustRegister("blocklist_update", "IP blocklist update", tasks.BlocklistUpdate.Schedule,
@@ -2509,7 +2888,9 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps
 			if deps.blockStore == nil {
 				return fmt.Errorf("blocklist store unavailable")
 			}
-			return server.UpdateBlocklist(deps.blockStore, ProjectName)
+			updateErr := server.UpdateBlocklistInDir(deps.blockStore, filepath.Join(deps.dataDir, "security"), ProjectName)
+			server.RefreshHealthChecks()
+			return updateErr
 		})
 
 	mustRegister("cve_update", "CVE database update", tasks.CVEUpdate.Schedule,
@@ -2518,24 +2899,45 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps
 			if deps.cveSvc == nil {
 				return fmt.Errorf("cve service unavailable")
 			}
-			return deps.cveSvc.Update()
+			updateErr := deps.cveSvc.UpdateCVEFeed()
+			server.RefreshHealthChecks()
+			return updateErr
 		})
+
+	mustRegister("health_dataset_refresh", "Refresh data set health checks", "@every 1m", true, true, "1m", func() error {
+		server.RefreshHealthChecks()
+		return nil
+	})
 
 	mustRegister("update_check", "Update check", tasks.UpdateCheck.Schedule,
 		tasks.UpdateCheck.Enabled, false, "",
 		func() error {
-			return runScheduledUpdateCheck(cfg, deps.configDir)
+			return runScheduledUpdateCheckWithPaths(cfg, deps.configDir, deps.dataDir, deps.logsDir, deps.startedElevated, &http.Client{Timeout: 30 * time.Second})
+		})
+
+	mustRegister("disk_check", "Disk space low check", tasks.DiskCheck.Schedule,
+		tasks.DiskCheck.Enabled, false, "",
+		func() error {
+			return runDiskLowCheck(cfg, deps.configDir, []string{deps.dataDir, deps.logsDir, deps.backupDir}, time.Now())
 		})
 
 	mustRegister("token_cleanup", "Expired token cleanup", tasks.TokenCleanup.Schedule,
 		tasks.TokenCleanup.Enabled, false, "",
 		func() error {
-			// Permanent no-op per AI.md PART 10 "Resource Owner Tokens"
-			// (a read-only project generates none) and IDEA.md's explicit
-			// no-write/no-accounts scope — no api_tokens rows are ever
-			// created, so there is nothing to expire. Honest no-op, not
-			// a fake stub or deferred work.
-			return nil
+			if err := server.CleanupExpiredContactChallenges(deps.db, time.Now()); err != nil {
+				return err
+			}
+			return server.CleanupOwnerTokenData(deps.db, cfg.Server.Tokens.IdlePurgeDays, time.Now())
+		})
+
+	mustRegister("security_cleanup", "Security report and retired PGP key cleanup", "30 3 * * *", true, true, "5m",
+		func() error {
+			return CleanupSecurityReports(deps.db, deps.configDir, time.Now().UTC(), cfg.Server.Security.Reports.RetentionDays)
+		})
+
+	mustRegister("pgp_keyserver_retry", "PGP keyserver retry", "@every 1m", true, true, "1m",
+		func() error {
+			return retryPendingPGPKeyservers(deps.db, deps.configDir, cfg.Web.Security.Keyservers, deps.logMgr, time.Now().UTC())
 		})
 
 	mustRegister("log_rotation", "Log rotation", tasks.LogRotation.Schedule,
@@ -2659,7 +3061,7 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps
 	mustRegister("tor_health", "Tor hidden service health check", tasks.TorHealth.Schedule,
 		tasks.TorHealth.Enabled, tasks.TorHealth.RetryOnFail, tasks.TorHealth.RetryDelay,
 		func() error {
-			if deps.torMgr == nil || !deps.torMgr.Enabled() {
+			if deps.torMgr == nil || !deps.torMgr.IsTorEnabled() {
 				return nil
 			}
 			return deps.torMgr.HealthCheck()
@@ -2672,6 +3074,110 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.Config, deps
 			return deps.i2pMgr.HealthCheck()
 		})
 	}
+}
+
+func runDiskLowCheck(cfg *config.ApplicationConfig, configDir string, directories []string, now time.Time) error {
+	settings := cfg.Server.Notifications.DiskLow
+	if !settings.Enabled {
+		return nil
+	}
+	type volumeUsage struct {
+		path        string
+		usedPercent int
+		free        uint64
+		total       uint64
+	}
+	volumes := make(map[string]volumeUsage)
+	for _, directory := range directories {
+		if directory == "" {
+			continue
+		}
+		total, free, err := backup.DiskUsage(directory)
+		if err != nil {
+			return fmt.Errorf("measure filesystem for %q: %w", directory, err)
+		}
+		if total == 0 {
+			continue
+		}
+		key, err := diskVolumeKey(directory, total, free)
+		if err != nil {
+			return fmt.Errorf("identify filesystem for %q: %w", directory, err)
+		}
+		if _, exists := volumes[key]; exists {
+			continue
+		}
+		used := total - free
+		volumes[key] = volumeUsage{path: directory, usedPercent: int((used*100 + total/2) / total), free: free, total: total}
+	}
+	repeat, err := time.ParseDuration(settings.Repeat)
+	if err != nil || repeat <= 0 {
+		repeat = 24 * time.Hour
+	}
+	for key, usage := range volumes {
+		diskLowState.Lock()
+		lastNotice, notified := diskLowState.volumes[key]
+		if usage.usedPercent <= settings.ThresholdPercent-5 {
+			if notified {
+				delete(diskLowState.volumes, key)
+				diskLowState.Unlock()
+				slog.Info("Disk space recovered", "path", usage.path, "used_percent", usage.usedPercent, "threshold_percent", settings.ThresholdPercent)
+				continue
+			}
+			diskLowState.Unlock()
+			continue
+		}
+		if usage.usedPercent < settings.ThresholdPercent || notified && now.Sub(lastNotice) < repeat {
+			diskLowState.Unlock()
+			continue
+		}
+		diskLowState.volumes[key] = now
+		diskLowState.Unlock()
+		slog.Warn("Disk space low", "path", usage.path, "used_percent", usage.usedPercent, "free_bytes", usage.free, "threshold_percent", settings.ThresholdPercent)
+		vars := notify.GlobalVars(cfg)
+		vars["path"] = usage.path
+		vars["used_percent"] = strconv.Itoa(usage.usedPercent)
+		vars["free"] = humanBytes(usage.free)
+		vars["threshold_percent"] = strconv.Itoa(settings.ThresholdPercent)
+		if sendErr := notify.Send(cfg, configDir, "disk_low", notifyRecipient(cfg), vars); sendErr != nil {
+			log.Printf("Warning: failed to send disk_low notification email: %v", sendErr)
+		}
+	}
+	return nil
+}
+
+func diskVolumeKey(path string, total, free uint64) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	system := reflect.ValueOf(info.Sys())
+	if system.Kind() == reflect.Pointer && !system.IsNil() {
+		system = system.Elem()
+	}
+	if system.IsValid() && system.Kind() == reflect.Struct {
+		device := system.FieldByName("Dev")
+		if device.IsValid() && device.CanUint() {
+			return fmt.Sprintf("device:%d", device.Uint()), nil
+		}
+	}
+	if volume := filepath.VolumeName(path); volume != "" {
+		return "volume:" + strings.ToLower(volume), nil
+	}
+	return fmt.Sprintf("capacity:%d:%d", total, free), nil
+}
+
+func humanBytes(value uint64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB", "PB"}
+	size := float64(value)
+	unit := 0
+	for size >= 1024 && unit < len(units)-1 {
+		size /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%d %s", value, units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", size, units[unit])
 }
 
 func printServiceHelp() {
@@ -2738,7 +3244,7 @@ func resolveBackupDir() string {
 	return paths.GetBackupDir(backupDirOverride, dataDir)
 }
 
-func runDiskPressureCleanup(cleanup config.CleanupConfig, dataDir, backupDir string, logs *logging.Manager, now time.Time, diskUsage func(string) (uint64, uint64, error)) (bool, error) {
+func runDiskPressureCleanup(cleanup config.CleanupConfig, dataDir, backupDir string, logs *logging.LogManager, now time.Time, diskUsage func(string) (uint64, uint64, error)) (bool, error) {
 	if dataDir == "" || diskUsage == nil {
 		return false, fmt.Errorf("maintenance cleanup requires a data directory and disk-usage provider")
 	}
@@ -2834,6 +3340,16 @@ func pruneProjectTempFiles(cutoff time.Time, tempRoot string) (int, error) {
 	return removed, cleanupErr
 }
 
+func snapshotDatabaseForBackup(ctx context.Context, cfg config.DatabaseConfig, destination string) error {
+	store, err := db.OpenStore(cfg, ProjectName)
+	if err != nil {
+		return err
+	}
+	snapshotErr := store.Snapshot(ctx, destination)
+	closeErr := store.Close()
+	return errors.Join(snapshotErr, closeErr)
+}
+
 // createBackup builds a backup archive via the src/backup package (AI.md
 // PART 21) and applies retention afterward. An empty fileLocation resolves
 // to {backup_dir}/{project}_backup_{date}.tar.gz[.enc], matching the
@@ -2841,7 +3357,7 @@ func pruneProjectTempFiles(cutoff time.Time, tempRoot string) (int, error) {
 // encryption password is prompted for (never for scheduled/non-TTY calls).
 func createBackup(fileLocation string, interactive bool) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	cfg := config.Get()
+	cfg := config.GetApplicationConfig()
 
 	password := cfg.Server.Backup.EncryptionPassword
 	if password == "" && interactive {
@@ -2877,9 +3393,12 @@ func createBackup(fileLocation string, interactive bool) error {
 
 	fmt.Printf("Creating backup: %s\n", fileLocation)
 
-	if err := backup.Create(fileLocation, backup.CreateOptions{
-		ConfigDir:          configDir,
-		DataDir:            dataDir,
+	if err := backup.CreateBackupArchive(fileLocation, backup.BackupArchiveOptions{
+		ConfigDir: configDir,
+		DataDir:   dataDir,
+		DatabaseSnapshot: func(ctx context.Context, destination string) error {
+			return snapshotDatabaseForBackup(ctx, cfg.Server.Database, destination)
+		},
 		IncludeSSL:         true,
 		IncludeData:        true,
 		EncryptionPassword: password,
@@ -2963,7 +3482,7 @@ func createBackup(fileLocation string, interactive bool) error {
 // backup's own fail-safe behavior.
 func createIncrementalBackup(kind string) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	cfg := config.Get()
+	cfg := config.GetApplicationConfig()
 
 	password := cfg.Server.Backup.EncryptionPassword
 	if cfg.Server.Compliance.IsEnabled() && password == "" {
@@ -2983,9 +3502,12 @@ func createIncrementalBackup(kind string) error {
 	}
 	fileLocation := filepath.Join(backupDir, fmt.Sprintf("%s-%s.%s", ProjectName, kind, ext))
 
-	if err := backup.Create(fileLocation, backup.CreateOptions{
-		ConfigDir:          configDir,
-		DataDir:            dataDir,
+	if err := backup.CreateBackupArchive(fileLocation, backup.BackupArchiveOptions{
+		ConfigDir: configDir,
+		DataDir:   dataDir,
+		DatabaseSnapshot: func(ctx context.Context, destination string) error {
+			return snapshotDatabaseForBackup(ctx, cfg.Server.Database, destination)
+		},
 		IncludeSSL:         true,
 		IncludeData:        true,
 		EncryptionPassword: password,
@@ -3031,7 +3553,7 @@ func createIncrementalBackup(kind string) error {
 // backupMaxTotalSizeBytes resolves server.backup.retention.max_total_size
 // (percent or absolute string) to a byte count via the backup package's
 // parser. Falls back to 0 (disabled) on parse failure.
-func backupMaxTotalSizeBytes(cfg *config.Config, backupDir string) (int64, error) {
+func backupMaxTotalSizeBytes(cfg *config.ApplicationConfig, backupDir string) (int64, error) {
 	value := cfg.Server.Backup.Retention.MaxTotalSize
 	if value == "" {
 		return 0, nil
@@ -3056,7 +3578,7 @@ func authorizeRestore(configDir string, interactive bool) error {
 
 	configuredToken := ""
 	if !dbIsEmpty && !runningAsRoot {
-		cfg, err := config.Load(filepath.Join(configDir, "server.yml"))
+		cfg, err := config.LoadApplicationConfig(filepath.Join(configDir, "server.yml"))
 		if err != nil {
 			return fmt.Errorf("restore: cannot read server.yml to authorize: %w", err)
 		}
@@ -3122,7 +3644,7 @@ func restoreBackup(fileLocation string, interactive bool) error {
 		}
 	}
 
-	err := backup.Restore(fileLocation, backup.RestoreOptions{
+	err := backup.RestoreBackupArchive(fileLocation, backup.BackupRestoreOptions{
 		ConfigDir:  configDir,
 		DataDir:    dataDir,
 		Password:   password,
@@ -3276,7 +3798,7 @@ func loadUpdateBranch() string {
 	defaultConfigDir, _, _ := paths.GetDefaultDirs(ProjectName)
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil || cfg.Server.Update.Branch == "" {
 		return "stable"
 	}
@@ -3314,19 +3836,15 @@ func checkForUpdate() error {
 	return nil
 }
 
-// runScheduledUpdateCheck implements the built-in `update_check` scheduler
-// task (PART 22 "Scheduled Check"). Unlike manual `--update check`/`--update
-// yes`, it filters candidate releases by defer_days and only fires the
-// update_available notification once per newly-eligible version; if
-// auto_install is enabled it also performs the install.
-func runScheduledUpdateCheck(cfg *config.Config, configDir string) error {
-	return runScheduledUpdateCheckWithClient(cfg, configDir, &http.Client{Timeout: 30 * time.Second})
-}
-
 // runScheduledUpdateCheckWithClient is the client-injectable core of
 // runScheduledUpdateCheck, split out so tests can point release fetching at
 // a local httptest.Server instead of the real GitHub API.
-func runScheduledUpdateCheckWithClient(cfg *config.Config, configDir string, httpClient *http.Client) error {
+func runScheduledUpdateCheckWithClient(cfg *config.ApplicationConfig, configDir string, httpClient *http.Client) error {
+	_, dataDir, logsDir := paths.GetDefaultDirs(ProjectName)
+	return runScheduledUpdateCheckWithPaths(cfg, configDir, dataDir, logsDir, false, httpClient)
+}
+
+func runScheduledUpdateCheckWithPaths(cfg *config.ApplicationConfig, configDir, dataDir, logsDir string, startedElevated bool, httpClient *http.Client) error {
 	branch, ok := config.NormalizeUpdateBranch(cfg.Server.Update.Branch)
 	if !ok {
 		branch = "stable"
@@ -3356,10 +3874,17 @@ func runScheduledUpdateCheckWithClient(cfg *config.Config, configDir string, htt
 	// version becomes eligible, not on every scheduler run.
 	if latestVersion != cfg.Server.Update.LastNotifiedVersion {
 		log.Printf("WARN: update available: %s (current: %s, channel: %s)", latestVersion, Version, branch)
+		manualCommand := ProjectName + " --update yes"
+		if runtime.GOOS == "windows" {
+			manualCommand += " (run from an elevated prompt)"
+		} else if !startedElevated {
+			manualCommand = "sudo " + manualCommand
+		}
 		if sendErr := notify.Send(cfg, configDir, "update_available", notifyRecipient(cfg), map[string]string{
 			"current_version": Version,
 			"new_version":     latestVersion,
 			"channel":         branch,
+			"manual_command":  manualCommand,
 		}); sendErr != nil {
 			log.Printf("Warning: failed to send update_available notification email: %v", sendErr)
 		}
@@ -3373,18 +3898,51 @@ func runScheduledUpdateCheckWithClient(cfg *config.Config, configDir string, htt
 	if !cfg.Server.Update.AutoInstall {
 		return nil
 	}
-
-	previousVersion := Version
-	if err := checkAndUpdate(); err != nil {
+	if !startedElevated || runtime.GOOS == "windows" || isRunningInContainer() {
+		reason := "not_elevated"
+		if runtime.GOOS == "windows" {
+			reason = "windows_service"
+		} else if isRunningInContainer() {
+			reason = "container"
+		}
+		if err := writeDataAudit(logsDir, toLoggingConfig(cfg.Server.Logging), "update.install_skipped", "operator", "reason="+strconv.Quote(reason)+" version="+strconv.Quote(latestVersion)); err != nil {
+			log.Printf("Warning: could not audit skipped update installation: %v", err)
+		}
+		return nil
+	}
+	if err := stageReleaseBinary(httpClient, release, dataDir); err != nil {
+		failStagedUpdate(cfg, configDir, logsDir, latestVersion, err)
 		return err
 	}
-	if sendErr := notify.Send(cfg, configDir, "update_installed", notifyRecipient(cfg), map[string]string{
-		"old_version": previousVersion,
-		"new_version": latestVersion,
+	if err := writeDataAudit(logsDir, toLoggingConfig(cfg.Server.Logging), "update.staged", "operator", "version="+strconv.Quote(latestVersion)); err != nil {
+		log.Printf("Warning: could not audit staged update: %v", err)
+	}
+	manager := service.DetectServiceManager()
+	manualCommand := stagedUpdateRestartCommand(manager)
+	if sendErr := notify.Send(cfg, configDir, "update_staged", notifyRecipient(cfg), map[string]string{
+		"new_version":    latestVersion,
+		"manual_command": manualCommand,
 	}); sendErr != nil {
-		log.Printf("Warning: failed to send update_installed notification email: %v", sendErr)
+		log.Printf("Warning: failed to send update_staged notification email: %v", sendErr)
+	}
+	if manager == service.ServiceSystemd || manager == service.ServiceLaunchd || manager == service.ServiceRunit || manager == service.ServiceS6 {
+		select {
+		case updateRestartRequest <- struct{}{}:
+		default:
+		}
 	}
 	return nil
+}
+
+func stagedUpdateRestartCommand(manager service.ServiceType) string {
+	switch manager {
+	case service.ServiceOpenRC:
+		return "rc-service " + ProjectName + " restart"
+	case service.ServiceSysVinit, service.ServiceBSDRC:
+		return "service " + ProjectName + " restart"
+	default:
+		return ProjectName + " --service restart"
+	}
 }
 
 // setUpdateBranch implements `--update branch {stable|beta|devel}`: writes
@@ -3401,7 +3959,7 @@ func setUpdateBranch(branch string) error {
 	configDir := firstNonEmpty(os.Getenv("CONFIG_DIR"), defaultConfigDir)
 	configPath := filepath.Join(configDir, "server.yml")
 
-	if _, err := config.Load(configPath); err != nil {
+	if _, err := config.LoadApplicationConfig(configPath); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
@@ -3547,7 +4105,7 @@ func checkAndUpdate() error {
 	fmt.Printf("Updated to version %s\n", latestVersion)
 
 	// Attempt to restart via service manager (PART 22).
-	if err := service.Restart(); err != nil {
+	if err := service.RestartSystemService(); err != nil {
 		// Not running as a managed service — inform the operator.
 		fmt.Println("Please restart the service manually to apply the update.")
 	} else {
@@ -3586,6 +4144,13 @@ type portBinding struct {
 	TLS  bool
 }
 
+func joinListenAddress(address, port string) string {
+	if strings.HasPrefix(address, "[") && strings.HasSuffix(address, "]") {
+		address = strings.TrimSuffix(strings.TrimPrefix(address, "["), "]")
+	}
+	return net.JoinHostPort(address, port)
+}
+
 // parsePortSpec parses the documented single- and dual-port forms. A single
 // port is HTTP unless it is 443 or SSL is enabled; a pair is HTTP,HTTPS.
 func parsePortSpec(value string, sslEnabled bool) ([]portBinding, error) {
@@ -3615,6 +4180,171 @@ func parsePortSpec(value string, sslEnabled bool) ([]portBinding, error) {
 		return []portBinding{{Port: ports[0]}, {Port: ports[1], TLS: true}}, nil
 	}
 	return []portBinding{{Port: ports[0], TLS: ports[0] == "443" || sslEnabled}}, nil
+}
+
+type retainedListener struct{ net.Listener }
+
+func (retainedListener) Close() error { return nil }
+
+type startupRouteSwitcher struct {
+	mu      sync.RWMutex
+	handler http.Handler
+}
+
+func (s *startupRouteSwitcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	handler := s.handler
+	s.mu.RUnlock()
+	if handler == nil {
+		http.Error(w, "service starting", http.StatusServiceUnavailable)
+		return
+	}
+	handler.ServeHTTP(w, r)
+}
+
+func (s *startupRouteSwitcher) Set(handler http.Handler) {
+	s.mu.Lock()
+	s.handler = handler
+	s.mu.Unlock()
+}
+
+func initializeStartupDatabase(database db.Handle, cfg *config.ApplicationConfig, configDir string) error {
+	if err := db.EnsureAppSecrets(database); err != nil {
+		return fmt.Errorf("database write: initialize application secrets: %w", err)
+	}
+	if err := applyPGPRotationJournal(database, configDir); err != nil {
+		return fmt.Errorf("database write: resume PGP key rotation: %w", err)
+	}
+	if err := resumeSecretRotations(database, cfg, configDir); err != nil {
+		return fmt.Errorf("database write: resume secret rotation: %w", err)
+	}
+	if err := scheduler.EnsureSchema(database); err != nil {
+		return fmt.Errorf("database write: initialize scheduler schema: %w", err)
+	}
+	return nil
+}
+
+// waitForStartupDatabaseRecovery keeps only the canonical health page/assets
+// reachable while database open and initialization steps are retried.
+func waitForStartupDatabaseRecovery(cfg *config.ApplicationConfig, configDir, dataDir, address string, bindings []portBinding, listeners []net.Listener, airportSvc *airports.AirportDataService, geoipSvc *geoip.GeoIPService, initialErr error) (db.Handle, []*http.Server, []*startupRouteSwitcher, error) {
+	interval, err := time.ParseDuration(cfg.Server.Maintenance.SelfHealing.RetryInterval)
+	if err != nil || interval <= 0 {
+		interval = 30 * time.Second
+	}
+	maxAttempts := cfg.Server.Maintenance.SelfHealing.MaxAttempts
+	if maxAttempts < 0 {
+		maxAttempts = 0
+	}
+	since := time.Now().UTC()
+	reason := "database_connection"
+	if initialErr != nil && strings.Contains(strings.ToLower(initialErr.Error()), "database write") {
+		reason = "database_write"
+	}
+	databaseError := "unknown database startup error"
+	if initialErr != nil {
+		databaseError = initialErr.Error()
+	}
+	if cfg.Server.Database.Token != "" {
+		databaseError = strings.ReplaceAll(databaseError, cfg.Server.Database.Token, "xxxxx")
+	}
+	if cfg.Server.Database.URL != "" {
+		databaseError = strings.ReplaceAll(databaseError, cfg.Server.Database.URL, "database URL")
+	}
+	log.Printf("Database startup failed (%s): %s; entering read-only maintenance mode and retrying every %s", reason, databaseError, interval)
+	if notify.CanSend(cfg) {
+		vars := notify.GlobalVars(cfg)
+		vars["error"] = databaseError
+		vars["since"] = since.Format(time.RFC1123)
+		if sendErr := notify.Send(cfg, configDir, "database_error", notifyRecipient(cfg), vars); sendErr != nil {
+			log.Printf("Warning: failed to send database error notification: %v", sendErr)
+		}
+	}
+
+	server.SetHealthMaintenance(&server.MaintenanceHealthInfo{Reason: reason, Since: since, SelfHealing: server.SelfHealingHealthStatus{Enabled: true}})
+	maintenanceServer := server.NewServer(airportSvc, geoipSvc, cfg, nil, nil, dataDir, configDir, nil)
+	defer func() {
+		if closeErr := maintenanceServer.CloseCache(); closeErr != nil {
+			log.Printf("Warning: failed to close maintenance cache: %v", closeErr)
+		}
+	}()
+	serverConfig := make([]*http.Server, len(bindings))
+	switchers := make([]*startupRouteSwitcher, len(bindings))
+	for i, binding := range bindings {
+		if listeners[i] == nil {
+			listeners[i], err = net.Listen("tcp", joinListenAddress(address, binding.Port))
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("maintenance listener bind failed: %w", err)
+			}
+		}
+		switchers[i] = &startupRouteSwitcher{handler: server.StartupMaintenanceHandler(maintenanceServer)}
+		serverConfig[i] = &http.Server{Handler: switchers[i], ReadTimeout: cfg.Server.Limits.ReadTimeoutDuration(), WriteTimeout: cfg.Server.Limits.WriteTimeoutDuration(), IdleTimeout: cfg.Server.Limits.IdleTimeoutDuration()}
+		if binding.TLS {
+			manager := ssl.NewSSLManager(toSSLConfig(cfg.Server.SSL, cfg.Server.Security.EncryptionKey, paths.GetSSLDir(ProjectName)))
+			serverConfig[i].TLSConfig, err = manager.GetTLSConfig([]string{cfg.Server.FQDN})
+			if err != nil {
+				log.Printf("Warning: maintenance HTTPS configuration unavailable: %v", err)
+			}
+		}
+		listener := retainedListener{Listener: listeners[i]}
+		go func(srv *http.Server, ln net.Listener, useTLS bool) {
+			var serveErr error
+			if useTLS {
+				serveErr = srv.ServeTLS(ln, "", "")
+			} else {
+				serveErr = srv.Serve(ln)
+			}
+			if serveErr != nil && serveErr != http.ErrServerClosed {
+				log.Printf("Maintenance listener stopped unexpectedly: %v", serveErr)
+			}
+		}(serverConfig[i], listener, binding.TLS)
+	}
+
+	quit := make(chan os.Signal, 1)
+	ossignal.Notify(quit, appsignal.ShutdownSignals()...)
+	defer ossignal.Stop(quit)
+	attempts := 0
+	for {
+		if maxAttempts == 0 || attempts < maxAttempts {
+			attempts++
+			now := time.Now().UTC()
+			next := now.Add(interval)
+			server.SetHealthMaintenance(&server.MaintenanceHealthInfo{Reason: reason, Since: since, SelfHealing: server.SelfHealingHealthStatus{Enabled: true, Attempts: attempts, LastAttempt: &now, NextAttempt: &next}})
+			candidate, openErr := db.OpenStore(cfg.Server.Database, ProjectName)
+			if openErr == nil {
+				openErr = initializeStartupDatabase(candidate, cfg, configDir)
+			}
+			if openErr == nil {
+				log.Printf("Database startup recovery succeeded after %d attempt(s); resuming normal initialization", attempts)
+				if notify.CanSend(cfg) {
+					if sendErr := notify.Send(cfg, configDir, "maintenance_recovered", notifyRecipient(cfg), map[string]string{"reason": reason, "duration": time.Since(since).String()}); sendErr != nil {
+						log.Printf("Warning: failed to send maintenance recovery notification: %v", sendErr)
+					}
+				}
+				return candidate, serverConfig, switchers, nil
+			}
+			if candidate != nil {
+				_ = candidate.Close()
+			}
+			log.Printf("Database startup recovery attempt %d failed; retrying in %s", attempts, interval)
+			if maxAttempts > 0 && attempts >= maxAttempts {
+				lastAttempt := now
+				server.SetHealthMaintenance(&server.MaintenanceHealthInfo{Reason: reason, Since: since, SelfHealing: server.SelfHealingHealthStatus{Enabled: true, Attempts: attempts, LastAttempt: &lastAttempt}})
+				log.Printf("Database startup recovery reached configured max_attempts=%d; maintenance mode remains active", maxAttempts)
+			}
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-quit:
+			timer.Stop()
+			for _, srv := range serverConfig {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = srv.Shutdown(ctx)
+				cancel()
+			}
+			return nil, nil, nil, initialErr
+		case <-timer.C:
+		}
+	}
 }
 
 func httpsPortFromBindings(bindings []portBinding) string {
@@ -3830,20 +4560,28 @@ func getGlobalInterfaceIP(wantIPv6 bool) string {
 }
 
 // resolveSchedulerLocation parses server.scheduler.timezone (AI.md PART 18)
-// into a *time.Location for cron.WithLocation. An empty or invalid value
-// falls back to time.Local (itself already TZ-env-aware via applyTZEnv)
-// rather than failing startup, per config-rules.md's validate-and-default
-// rule.
+// and falls back to the specified default when it is empty or invalid.
 func resolveSchedulerLocation(timezone string) *time.Location {
-	if timezone == "" {
-		return time.Local
+	const defaultTimezone = "America/New_York"
+	if timezone != "" {
+		if loc, err := time.LoadLocation(timezone); err == nil {
+			return loc
+		} else {
+			log.Printf("Warning: invalid server.scheduler.timezone %q: %v — using default %q", timezone, err, defaultTimezone)
+		}
+	} else {
+		return loadDefaultSchedulerLocation(defaultTimezone)
 	}
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		log.Printf("Warning: invalid server.scheduler.timezone %q: %v — using local timezone", timezone, err)
-		return time.Local
+	return loadDefaultSchedulerLocation(defaultTimezone)
+}
+
+func loadDefaultSchedulerLocation(defaultTimezone string) *time.Location {
+	loc, err := time.LoadLocation(defaultTimezone)
+	if err == nil {
+		return loc
 	}
-	return loc
+	log.Printf("Warning: could not load scheduler default timezone %q: %v — using UTC", defaultTimezone, err)
+	return time.UTC
 }
 
 // colorSetting holds the validated --color CLI flag value (auto/yes/no) for

@@ -1,124 +1,145 @@
 {{define "content"}}
-<article class="page-section privacy-page">
-    <h1>{{t "privacy.title"}}</h1>
-    <p>{{t "privacy.intro"}}</p>
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "privacy.title"}}</h1>
+        <p class="page-lead">{{t "privacy.intro"}}</p>
+        {{if ne .BuildDate "unknown"}}<p class="form-help">{{tf "common.last_updated" "datetime" .BuildDate}}</p>{{end}}
+    </header>
 
-    <section id="cookie-policy">
-        <h2>Cookies and Consent</h2>
-        <p>{{.Privacy.GetConsentMessage}}</p>
-        <h3>Cookie Categories</h3>
-        <ul>
-            <li><strong>Essential:</strong> {{.Privacy.Cookies.Essential.Description}}</li>
-            <li><strong>Preferences:</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
-            <li><strong>Analytics:</strong> {{.Privacy.GetAnalyticsDescription}}</li>
-        </ul>
-        <p>Consent is saved in a first-party cookie. You can manage your choices using the cookie controls.</p>
-    </section>
-
-    <section id="data-collection">
-        <h2>Data We Collect</h2>
-        {{.Privacy.Content.DataCollection | markdownToHTML}}
-    </section>
-
-    <section id="data-usage">
-        <h2>How We Use Your Data</h2>
-        {{.Privacy.GetDataUsageContent | markdownToHTML}}
-    </section>
-
-    <section id="data-security">
-        <h2>Data Security</h2>
-        {{.Privacy.Content.DataSecurity | markdownToHTML}}
-    </section>
-
-    <section id="data-storage">
-        <h2>Data Storage and Third-Party Sharing</h2>
+    <section id="summary" class="section-card" aria-labelledby="privacy-summary">
+        <h2 id="privacy-summary">{{t "privacy.summary_heading"}}</h2>
         {{if .Privacy.Data.StoredOnServer}}
-        <p>Data is stored on this server.</p>
+        <p>{{t "privacy.stored_on_server"}}</p>
         {{else}}
-        <p>Data is not stored on this server.</p>
+        <p>{{t "privacy.not_stored_on_server"}}</p>
         {{end}}
-        <h3>When Data May Be Shared</h3>
-        {{if .Privacy.Data.Sharing}}
+        {{if .Privacy.Data.Sold}}
+        <p class="alert alert-warning" role="status">{{t "privacy.data_sold"}} <a href="#ccpa-opt-out">{{t "privacy.ccpa_opt_out"}}</a></p>
+        {{else}}
+        <p>{{t "privacy.data_not_sold"}}</p>
+        {{end}}
+    </section>
+
+    <section class="section-card" aria-labelledby="privacy-cookies">
+        <h2 id="privacy-cookies">{{t "privacy.cookies_heading"}}</h2>
+        <p>{{.PrivacyText.ConsentMessage}}</p>
+        <h3>{{t "privacy.cookie_categories"}}</h3>
         <ul>
-            {{range .Privacy.Data.Sharing}}
-            <li><strong>{{.Condition | humanize}}:</strong> {{.When}} — {{.Data}}</li>
+            <li><strong>{{t "privacy.essential_label"}}:</strong> {{.PrivacyText.EssentialCookieDescription}}</li>
+            <li><strong>{{t "privacy.preferences_label"}}:</strong> {{.PrivacyText.PreferencesCookieDescription}}</li>
+            <li><strong>{{t "privacy.analytics_label"}}:</strong> {{.PrivacyText.AnalyticsCookieDescription}}</li>
+        </ul>
+        <p>{{t "privacy.cookie_note"}}</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="privacy-collection">
+        <h2 id="privacy-collection">{{t "privacy.collect_heading"}}</h2>
+        <h3>{{t "privacy.collect_logs_label"}}</h3>
+        <p>{{t "privacy.collect_logs_desc"}}</p>
+        <h3>{{t "privacy.collect_geoip_label"}}</h3>
+        <p>{{t "privacy.collect_geoip_desc"}}</p>
+        <h3>{{t "privacy.not_collect_heading"}}</h3>
+        <ul>
+            <li>{{t "privacy.not_collect_accounts"}}</li>
+            <li>{{t "privacy.not_collect_cookies"}}</li>
+            <li>{{t "privacy.not_collect_analytics"}}</li>
+        </ul>
+    </section>
+
+    <section class="section-card" aria-labelledby="privacy-usage">
+        <h2 id="privacy-usage">{{t "privacy.data_usage_heading"}}</h2>
+        {{.PrivacyText.DataUsage | markdownToHTML}}
+    </section>
+
+    <section class="section-card" aria-labelledby="privacy-security">
+        <h2 id="privacy-security">{{t "privacy.data_security_heading"}}</h2>
+        {{.PrivacyText.DataSecurity | markdownToHTML}}
+    </section>
+
+    <section class="section-card" aria-labelledby="privacy-storage">
+        <h2 id="privacy-storage">{{t "privacy.data_storage_heading"}}</h2>
+        {{if .Privacy.Data.StoredOnServer}}
+        <p>{{t "privacy.stored_on_server"}}</p>
+        {{else}}
+        <p>{{t "privacy.not_stored_on_server"}}</p>
+        {{end}}
+        <h3>{{t "privacy.sharing_heading"}}</h3>
+        {{if .PrivacyText.Sharing}}
+        <ul>
+            {{range .PrivacyText.Sharing}}
+            <li>{{.Description}}</li>
             {{end}}
         </ul>
         {{else}}
-        <p>No third-party sharing conditions are configured.</p>
+        <p>{{t "privacy.no_sharing"}}</p>
         {{end}}
         {{if .Privacy.Data.Sold}}
-        <p>Your data may be sold to third parties. See the CCPA opt-out section below.</p>
+        <p>{{t "privacy.data_sold"}}</p>
         {{else}}
-        <p>Your data is never sold.</p>
+        <p>{{t "privacy.data_not_sold"}}</p>
         {{end}}
     </section>
 
-    <section id="data-retention">
-        <h2>Data Retention</h2>
-        <p>{{.Privacy.Retention.Period}}</p>
+    <section class="section-card" aria-labelledby="privacy-retention">
+        <h2 id="privacy-retention">{{t "privacy.retention_heading"}}</h2>
+        <p>{{.PrivacyText.RetentionPeriod}}</p>
     </section>
 
-    <section id="third-parties">
-        <h2>Third-Party Services</h2>
+    <section class="section-card" aria-labelledby="privacy-third-parties">
+        <h2 id="privacy-third-parties">{{t "privacy.third_party_heading"}}</h2>
+        <p>{{t "privacy.third_party_desc"}}</p>
         {{if .ThirdPartyServices}}
-        <p>These services may receive data for the purposes described below:</p>
-        <table>
-            <thead><tr><th>Service</th><th>Purpose</th><th>Data Sent</th><th>Privacy Policy</th></tr></thead>
-            <tbody>
-                {{range .ThirdPartyServices}}
-                <tr>
-                    <td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td>
-                    <td>{{if .PolicyURL}}<a href="{{.PolicyURL}}" rel="noopener noreferrer">View policy</a>{{else}}Not provided{{end}}</td>
-                </tr>
-                {{end}}
-            </tbody>
-        </table>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "privacy.third_party_heading"}}</caption>
+                <thead><tr><th scope="col">{{t "privacy.service_label"}}</th><th scope="col">{{t "privacy.purpose_label"}}</th><th scope="col">{{t "privacy.data_sent_label"}}</th><th scope="col">{{t "privacy.policy_label"}}</th></tr></thead>
+                <tbody>
+                    {{range .ThirdPartyServices}}
+                    <tr><td>{{.Name}}</td><td>{{.Purpose}}</td><td>{{.DataSent}}</td><td>{{if .PolicyURL}}<a href="{{.PolicyURL}}" rel="noopener noreferrer">{{t "privacy.view_policy"}}</a>{{else}}{{t "privacy.policy_not_provided"}}{{end}}</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
         {{else}}
-        <p>No third-party services are configured.</p>
+        <p>{{t "privacy.no_third_parties"}}</p>
         {{end}}
     </section>
 
-    <section id="your-rights">
-        <h2>Your Rights</h2>
+    <section class="section-card" aria-labelledby="privacy-rights">
+        <h2 id="privacy-rights">{{t "privacy.rights_heading"}}</h2>
         <ul>
-            {{if .Privacy.Retention.ExportAvailable}}<li>You can request or export a copy of your data.</li>{{end}}
-            {{if .Privacy.Retention.DeletionAvailable}}<li>You can request deletion of your data.</li>{{end}}
-            <li>You can change cookie preferences at any time.</li>
+            {{if .Privacy.Retention.ExportAvailable}}<li>{{t "privacy.export_right"}}</li>{{end}}
+            {{if .Privacy.Retention.DeletionAvailable}}<li>{{t "privacy.deletion_right"}}</li>{{end}}
+            <li>{{t "privacy.cookie_right"}}</li>
         </ul>
-        <form method="post" action="{{.BaseURL}}/server/consent" class="cookie-preferences-form">
-            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-            <input type="hidden" name="choice" value="save">
-            <label><input type="checkbox" name="preferences" value="true" {{if .ConsentPreferences}}checked{{end}} {{if not .Privacy.Cookies.Preferences.Enabled}}disabled{{end}}> {{.Privacy.Cookies.Preferences.Description}}</label>
-            <label><input type="checkbox" name="analytics" value="true" {{if .ConsentAnalytics}}checked{{end}} {{if not .Privacy.Cookies.Analytics.Enabled}}disabled{{end}}> {{.Privacy.GetAnalyticsDescription}}</label>
-            <button type="submit">Save Preferences</button>
-        </form>
+        <button type="button" class="btn btn-secondary" data-action="cookie-preferences">{{t "privacy.manage_preferences"}}</button>
     </section>
 
-    {{if .Privacy.IsCCPAApplicable}}
-    <section id="ccpa-opt-out" class="ccpa-section">
-        <h2>California Privacy Rights (CCPA)</h2>
-        <p>You can opt out of the sale of your personal information.</p>
+    {{if .Privacy.Data.Sold}}
+    <section id="ccpa-opt-out" class="section-card" aria-labelledby="privacy-ccpa">
+        <h2 id="privacy-ccpa">{{t "privacy.ccpa_heading"}}</h2>
+        <p>{{t "privacy.ccpa_description"}}</p>
+        {{if .CCPAOptedOut}}<p class="alert alert-success" role="status">{{t "privacy.ccpa_opted_out"}}</p>{{end}}
         {{if .CCPAOptedOut}}
-        <p class="ccpa-status opted-out">You have opted out of data sales.</p>
-        <form method="post" action="{{.BaseURL}}/server/ccpa">
+        <form method="post" action="/server/ccpa">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <input type="hidden" name="choice" value="opt-in">
-            <button type="submit" class="btn-secondary">Opt Back In</button>
+            <button type="submit" class="btn btn-secondary">{{t "privacy.ccpa_opt_in"}}</button>
         </form>
         {{else}}
-        <form method="post" action="{{.BaseURL}}/server/ccpa">
+        <form method="post" action="/server/ccpa">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <input type="hidden" name="choice" value="opt-out">
-            <button type="submit" class="btn-primary btn-ccpa-opt-out">Do Not Sell My Personal Information</button>
+            <button type="submit" class="btn btn-primary">{{t "privacy.ccpa_opt_out"}}</button>
         </form>
         {{end}}
     </section>
     {{end}}
 
-    <section id="contact">
-        <h2>Contact</h2>
-        <p>For privacy-related inquiries, use the <a href="{{.BaseURL}}/server/contact">contact page</a>.</p>
+    {{operatorHTML "privacy"}}
+    <section class="section-card" aria-labelledby="privacy-contact">
+        <h2 id="privacy-contact">{{t "privacy.contact_heading"}}</h2>
+        {{if .PrivacyDPOEmail}}<p><a href="mailto:{{.PrivacyDPOEmail}}">{{tf "privacy.contact" "contact" .PrivacyDPOEmail}}</a></p>{{else}}<p><a href="{{.BaseURL}}/server/security">{{tf "privacy.contact" "contact" (t "privacy.contact_security_link")}}</a></p>{{end}}
     </section>
-</article>
+</div>
 {{end}}

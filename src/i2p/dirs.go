@@ -7,19 +7,19 @@ import (
 	"runtime"
 )
 
-// Dirs holds the application-owned I2P filesystem locations.
-type Dirs struct {
+// I2PDirs holds the application-owned I2P filesystem locations.
+type I2PDirs struct {
 	ConfigDir string
 	DataDir   string
 	LogDir    string
 }
 
-func (d Dirs) i2pConfigDir() string { return filepath.Join(d.ConfigDir, "i2p") }
-func (d Dirs) i2pDataDir() string   { return filepath.Join(d.DataDir, "i2p") }
-func (d Dirs) siteDir() string      { return filepath.Join(d.i2pDataDir(), "site") }
-func (d Dirs) keysPath() string     { return filepath.Join(d.siteDir(), "site-keys.dat") }
+func (d I2PDirs) i2pConfigDir() string { return filepath.Join(d.ConfigDir, "i2p") }
+func (d I2PDirs) i2pDataDir() string   { return filepath.Join(d.DataDir, "i2p") }
+func (d I2PDirs) siteDir() string      { return filepath.Join(d.i2pDataDir(), "site") }
+func (d I2PDirs) keysPath() string     { return filepath.Join(d.siteDir(), "site-keys.dat") }
 
-func ensureDirs(d Dirs) error {
+func ensureDirs(d I2PDirs) error {
 	for _, dir := range []string{d.i2pConfigDir(), d.i2pDataDir(), d.siteDir()} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return fmt.Errorf("create i2p directory %s: %w", dir, err)

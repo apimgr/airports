@@ -2,7 +2,7 @@ package tor
 
 import "errors"
 
-// ErrNotEnabled is returned by HealthCheck and other Manager methods when
+// ErrNotEnabled is returned by HealthCheck and other TorManager methods when
 // Tor hidden service support is not enabled and not configured. Callers
 // (such as the scheduler) must treat this as a skip condition, not a
 // failure.

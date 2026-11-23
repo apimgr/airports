@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,6 +171,7 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 		return errors.New("CLI update size is invalid")
 	}
 	if !strings.EqualFold(hex.EncodeToString(hasher.Sum(nil)), hex.EncodeToString(expected)) {
+		writeCLIAudit("cli.update_checksum_invalid", "old_version="+strconv.Quote(Version)+" new_version="+strconv.Quote(release.Version)+" os_arch="+strconv.Quote(runtime.GOOS+"-"+runtime.GOARCH))
 		return errors.New("CLI update checksum mismatch; update refused")
 	}
 
@@ -189,7 +191,7 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 		}
 		return fmt.Errorf("replace CLI binary: %w", err)
 	}
-	return reexecCLI(currentPath, os.Args, os.Environ())
+	return reexecCLI(currentPath, os.Args, withCLIUpdateRestartMarker(os.Environ(), Version, release.Version))
 }
 
 func promptForCLIUpdate(version string) bool {
@@ -250,9 +252,11 @@ func checkAndMaybeUpdateCLI(c *client, cfg *cliConfig, action string) error {
 		return nil
 	}
 	if minRequired && action != "yes" {
+		writeCLIAudit("cli.update_forced", "current_version="+strconv.Quote(Version)+" minimum="+strconv.Quote(metadata.MinVersion))
 		return fmt.Errorf("this CLI is too old; the server requires %s — run '%s --update yes' to upgrade", metadata.MinVersion, cliBinaryDisplayName())
 	}
 	if minRequired && release.Version == "" {
+		writeCLIAudit("cli.update_forced", "current_version="+strconv.Quote(Version)+" minimum="+strconv.Quote(metadata.MinVersion))
 		return fmt.Errorf("this CLI is too old; the server requires %s but has no downloadable CLI release for %s-%s", metadata.MinVersion, runtime.GOOS, runtime.GOARCH)
 	}
 	if minRequired {
@@ -279,6 +283,7 @@ func checkAndMaybeUpdateCLI(c *client, cfg *cliConfig, action string) error {
 	}
 	if !shouldUpdate {
 		if minRequired {
+			writeCLIAudit("cli.update_forced", "current_version="+strconv.Quote(Version)+" minimum="+strconv.Quote(metadata.MinVersion))
 			return fmt.Errorf("this CLI is too old; the server requires %s — run 'airports-cli --update yes' to upgrade", metadata.MinVersion)
 		}
 		return nil

@@ -17,7 +17,7 @@ func TestRenderTemplateNegotiatesFrontendFormat(t *testing.T) {
 		omits       string
 	}{
 		{name: "browser", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "text/html", contains: "<!doctype html"},
-		{name: "first party CLI", userAgent: "airports-cli/1.0", contentType: "application/json", contains: `"Title":"Airport"`, omits: "CSRFToken"},
+		{name: "first party CLI", userAgent: "airports-cli/1.0", contentType: "application/json", contains: `"Title":"Global Airports Database"`, omits: "CSRFToken"},
 		{name: "HTTP tool", userAgent: "curl/8.0", contentType: "text/plain", contains: "Airport"},
 		{name: "text browser", userAgent: "Lynx/2.9", contentType: "text/html", contains: "Airport"},
 	}
@@ -103,14 +103,15 @@ func TestGeneratedResourcesHonorBaseURL(t *testing.T) {
 		path string
 		want []string
 	}{
-		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/swagger"`, `href="/myproject/static/css/common.css"`, `href="/myproject/server/docs/graphql"`}},
-		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/graphql"`, `src="/myproject/server/docs/graphql/assets/react.production.min.js"`, `href="/myproject/server/docs/swagger"`}},
+		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/v1/server/swagger"`, `href="/myproject/static/css/common.css"`, `href="/myproject/server/docs/graphql"`}},
+		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/server/docs/graphql/assets/react.production.min.js"`, `href="/myproject/server/docs/swagger"`}},
 		{path: "/api/swagger", want: []string{`"url": "/myproject/api/v1"`}},
 	}
 	for _, tc := range routes {
 		t.Run(tc.path, func(t *testing.T) {
 			request := httptest.NewRequest("GET", tc.path, nil)
 			request.RemoteAddr = "10.0.0.5:443"
+			request.Header.Set("Accept", "text/html")
 			request.Header.Set("X-Forwarded-Prefix", "/myproject")
 			response := httptest.NewRecorder()
 			s.Router().ServeHTTP(response, request)

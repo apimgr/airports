@@ -122,10 +122,6 @@ func CanEscalate() bool {
 // shellQuote wraps s in single quotes for safe inclusion in a POSIX shell
 // command string (used to build the `su -c "..."` argument), escaping any
 // embedded single quotes.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // appleScriptQuote wraps s in double quotes for safe inclusion in an
 // AppleScript string literal (used to build the `osascript -e "do shell
 // script \"...\" with administrator privileges"` argument), escaping

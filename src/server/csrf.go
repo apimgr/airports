@@ -46,7 +46,7 @@ func generateCSRFToken(length int) (string, error) {
 // csrfCookieSecure resolves the csrf_token cookie's Secure attribute from
 // server.csrf.secure. "auto" follows the resolved request scheme (TLS or a
 // trusted X-Forwarded-Proto: https), mirroring canonicalURL's detection.
-func csrfCookieSecure(r *http.Request, mode string, resolvers ...*urlvars.Manager) bool {
+func csrfCookieSecure(r *http.Request, mode string, resolvers ...*urlvars.URLResolverManager) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "true", "yes", "on", "1":
 		return true
@@ -54,10 +54,10 @@ func csrfCookieSecure(r *http.Request, mode string, resolvers ...*urlvars.Manage
 		return false
 	default:
 		if len(resolvers) > 0 && resolvers[0] != nil {
-			proto, _, _ := resolvers[0].GetURLVars(r)
+			proto, _, _ := resolvers[0].GetRequestURLVariables(r)
 			return proto == "https"
 		}
-		proto, _, _ := urlvars.GetURLVars(r)
+		proto, _, _ := urlvars.GetRequestURLVariables(r)
 		return proto == "https"
 	}
 }
@@ -156,7 +156,7 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			ip := middleware.GetClientIP(r.Context())
 			log.Printf("security.csrf_failure: rejected request ip=%s path=%s method=%s", ip, r.URL.Path, r.Method)
 			lang := i18n.FromContext(r.Context())
-			s.writeErrorJSON(w, r, http.StatusForbidden, "CSRF_FAILED", i18n.T(lang, "errors.csrf_failed"))
+			s.writeErrorJSON(w, r, http.StatusForbidden, "CSRF_FAILED", i18n.TranslateText(lang, "errors.csrf_failed"))
 			return
 		}
 

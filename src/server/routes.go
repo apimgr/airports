@@ -30,9 +30,16 @@ func (s *Server) setupRouter() {
 // registerRoutes mounts the public web, API, metrics, debug, and error routes.
 func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, string)) {
 	r.Get("/cli/binaries/{binary}", s.handleCLIBinaryDownload)
+	if s.brandingAssets != nil {
+		r.Handle("/branding-assets/*", s.brandingAssets.Handler())
+	}
+	r.Handle("/mcp", http.HandlerFunc(s.handleMCP))
+	r.Handle("/api/mcp", http.HandlerFunc(s.handleMCP))
+	r.Handle(s.APIBasePath()+"/server/mcp", http.HandlerFunc(s.handleMCP))
 
 	// Static files — serve with long-lived cache (1 year) per AI.md PART 9 caching rules.
 	// Files are embedded at build time; content is immutable per build.
+	r.Get("/static/css/accent.css", s.handleAccentCSS)
 	staticFiles, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// AI.md PART 6: static file caching is aggressive in production and
@@ -54,14 +61,17 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 
 	// Special files
 	r.Get("/robots.txt", s.handleRobotsTxt)
-	r.Get("/security.txt", s.handleSecurityTxt)
+	r.Get("/llms.txt", s.handleLLMSTxt)
 	r.Get("/.well-known/security.txt", s.handleSecurityTxt)
+	r.Get("/.well-known/llms.txt", s.handleLLMSTxt)
+	r.Get("/.well-known/pgp-key.asc", s.handleSecurityPGPKey)
 	r.Get("/manifest.webmanifest", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 
 	// Web routes (HTML - All Public, NO AUTH)
 	// Canonical paths per AI.md route table: /airports/search, /airports/nearby.
 	r.Get("/", s.handleHome)
+	r.Get("/airports", s.handleAirportList)
 	r.Get("/airports/search", s.handleSearch)
 	r.Get("/airports/nearby", s.handleNearby)
 	r.Get("/airports/{ident}", s.handleAirportDetail)
@@ -81,14 +91,37 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 		}
 	}
 	r.Get("/server/help", s.handleServerHelp)
+	if s.helpPageEnabled("/server/help/mcp") {
+		r.Get("/server/help/mcp", s.handleServerMCPHelp)
+	}
 	r.Get("/server/healthz", s.handleServerHealthz)
 	r.Get("/server/healthz.txt", s.handleServerHealthz)
 	r.Get("/server/privacy", s.handleServerPrivacy)
+	r.Get("/server/preferences", s.handleServerPreferences)
+	r.Post("/server/preferences", s.handleServerPreferencesSave)
+	r.Get("/server/preferences/sync", s.handleServerPreferencesSync)
+	r.Post("/server/preferences/sync", s.handleServerPreferencesSync)
+	r.Get("/server/preferences/sync/import", s.handleServerPreferencesImport)
+	r.Get("/server/preferences/tokens", s.handleOwnerTokensPage)
+	r.Post("/server/preferences/token/create", s.handleOwnerTokenIssueWeb)
+	r.Post("/server/preferences/token/restore", s.handleOwnerTokenRestoreWeb)
+	r.Post("/server/preferences/token/forget", s.handleOwnerTokenForgetWeb)
+	r.Post("/server/preferences/token/reveal", s.handleOwnerTokenPrimaryRevealWeb)
+	r.Post("/server/preferences/token/rotate", s.handleOwnerTokenPrimaryRotateWeb)
+	r.Post("/server/preferences/token/revoke", s.handleOwnerTokenPrimaryRevokeWeb)
+	r.Post("/server/preferences/tokens", s.handleOwnerTokenCreateLinkedWeb)
+	r.Post("/server/preferences/tokens/{id}/reveal", s.handleOwnerTokenLinkedActionWeb)
+	r.Post("/server/preferences/tokens/{id}/rotate", s.handleOwnerTokenLinkedActionWeb)
+	r.Post("/server/preferences/tokens/{id}/update", s.handleOwnerTokenLinkedActionWeb)
+	r.Post("/server/preferences/tokens/{id}/revoke", s.handleOwnerTokenLinkedActionWeb)
+	r.Get("/server/dpo", s.handleServerDPO)
 	r.Get("/server/terms", s.handleServerTerms)
 	r.Get("/server/contact", s.handleServerContact)
+	r.Post("/server/contact", s.handleContactSubmission)
 	r.Get("/server/security", s.handleServerSecurity)
 	r.Get("/server/security/policy", s.handleServerSecurityPolicy)
 	r.Get("/server/security/thanks", s.handleServerSecurityThanks)
+	r.Get("/server/security/report/{tracking_id}", s.handleServerSecurityReportStatus)
 	r.Post("/server/consent", s.handleServerConsent)
 	r.Post("/server/ccpa", s.handleServerCCPA)
 	// /server/tor/* — INTERNAL CLI-to-running-server control channel per
@@ -104,8 +137,11 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	r.Post("/server/tor/vanity/apply", torLoopbackOnly(s.handleTorVanityApply))
 	r.Post("/server/tor/import-keys", torLoopbackOnly(s.handleTorImportKeys))
 	r.Post("/announcements/dismiss", s.handleAnnouncementDismiss)
-	r.Post("/theme", s.handleSetTheme)
 	r.Get("/sitemap.xml", s.handleSitemap)
+	r.Get("/feed.xml", s.handleAtomFeed)
+	r.Head("/feed.xml", s.handleAtomFeed)
+	r.Get("/rss.xml", s.handleRSSFeed)
+	r.Head("/rss.xml", s.handleRSSFeed)
 	// Swagger UI + GraphiQL — handlers live in src/swagger and src/graphql
 	// per AI.md PART 14 "Standardized File Locations". UI assets are
 	// served from embed.FS in those packages (no CDN, single binary).
@@ -113,13 +149,19 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 	requestBaseURL := func(r *http.Request) string {
 		return strings.TrimSuffix(RequestBaseURL(r), "/")
 	}
-	swaggerUI := swaggerpkg.Handler("/api/swagger", swaggerAssetsPrefix, requestBaseURL)
 	swaggerSpec := swaggerpkg.SpecHandler(Version, s.config.Server.APIVersion, requestBaseURL)
-	graphqlUI := graphqlpkg.UIHandler("/api/graphql", graphqlAssetsPrefix, requestBaseURL)
 	graphqlQuery := graphqlpkg.QueryHandler(s.airports, s.geoip)
 
-	r.Get("/server/docs/swagger", swaggerUI)
-	r.Get("/server/docs/graphql", graphqlUI)
+	r.Get("/server/docs/swagger", s.handleServerSwaggerUI)
+	r.Get("/server/docs/graphql", s.handleServerGraphQLUI)
+	r.Get("/server/docs/swagger/theme.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = w.Write([]byte(swaggerpkg.ThemeCSS()))
+	})
+	r.Get("/server/docs/graphql/theme.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = w.Write([]byte(graphqlpkg.ThemeCSS()))
+	})
 	r.Mount(swaggerAssetsPrefix, swaggerpkg.AssetsHandler(swaggerAssetsPrefix))
 	r.Mount(graphqlAssetsPrefix, graphqlpkg.AssetsHandler(graphqlAssetsPrefix))
 
@@ -168,9 +210,30 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(string, strin
 		}
 		r.Get("/server/about", s.handleServerAboutAPI)
 		r.Get("/server/help", s.handleServerHelpAPI)
+		if s.helpPageEnabled("/server/help/mcp") {
+			r.Get("/server/help/mcp", s.handleServerMCPHelpAPI)
+		}
 		r.Get("/server/privacy", s.handleServerPrivacyAPI)
+		r.Get("/server/preferences", s.handleServerPreferencesAPI)
+		r.Post("/server/preferences", s.handleServerPreferencesSaveAPI)
+		r.Get("/server/preferences/sync", s.handleServerPreferencesSyncAPI)
+		r.Get("/server/preferences/sync/import", s.handleServerPreferencesImportAPI)
+		r.Get("/server/preferences/tokens", s.handleOwnerTokenListAPI)
+		r.Post("/server/preferences/tokens/primary", s.handleOwnerTokenIssueAPI)
+		r.Post("/server/preferences/tokens/primary/reveal", s.handleOwnerTokenPrimaryRevealAPI)
+		r.Post("/server/preferences/tokens/primary/rotate", s.handleOwnerTokenPrimaryRotateAPI)
+		r.Delete("/server/preferences/tokens/primary", s.handleOwnerTokenPrimaryRevokeAPI)
+		r.Post("/server/preferences/tokens", s.handleOwnerTokenCreateLinkedAPI)
+		r.Post("/server/preferences/tokens/{id}/reveal", s.handleOwnerTokenLinkedActionAPI)
+		r.Post("/server/preferences/tokens/{id}/rotate", s.handleOwnerTokenLinkedActionAPI)
+		r.Patch("/server/preferences/tokens/{id}", s.handleOwnerTokenLinkedActionAPI)
+		r.Delete("/server/preferences/tokens/{id}", s.handleOwnerTokenLinkedActionAPI)
+		r.Get("/server/dpo", s.handleServerDPOAPI)
 		r.Get("/server/terms", s.handleServerTermsAPI)
 		r.Get("/server/contact", s.handleServerContactAPI)
+		r.Get("/server/security", s.handleServerSecurityAPI)
+		r.Get("/server/security/policy", s.handleServerSecurityPolicyAPI)
+		r.Get("/server/security/thanks", s.handleServerSecurityThanksAPI)
 		r.Post("/server/contact", s.handleContactSubmission)
 		r.Get("/server/swagger", swaggerSpec)
 		r.Post("/server/graphql", graphqlQuery)

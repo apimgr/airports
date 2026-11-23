@@ -11,24 +11,65 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/scheduler"
 	"github.com/google/uuid"
 )
 
-// validateConfig validates load-time numeric/range config values, replacing
-// any invalid value with its documented default and logging a warning -
-// per AI.md PART 12 "Config Validation Rule": invalid config must never fail
-// startup. Fields outside a sane range are the only thing checked here;
-// fields already covered by their own env-override/generation logic
-// (encryption key, cache type inference) are left to those functions.
-func validateConfig(cfg *Config) {
-	def := DefaultConfig()
+// validateConfig validates configuration and returns errors for invalid
+// combinations that cannot be safely repaired with defaults.
+func validateConfig(cfg *ApplicationConfig) {
+	def := DefaultApplicationConfig()
+	validateCompliance(&cfg.Server.Compliance)
+	cfg.Server.I18n.Supported = i18n.NormalizeAvailableLanguages(cfg.Server.I18n.Supported)
+	defaultLanguage := strings.ToLower(strings.TrimSpace(cfg.Server.I18n.DefaultLanguage))
+	defaultEnabled := false
+	for _, code := range cfg.Server.I18n.Supported {
+		if code == defaultLanguage {
+			defaultEnabled = true
+			break
+		}
+	}
+	if !defaultEnabled {
+		cfg.Server.I18n.DefaultLanguage = def.Server.I18n.DefaultLanguage
+	} else {
+		cfg.Server.I18n.DefaultLanguage = defaultLanguage
+	}
+	validateSEO(&cfg.Server.SEO, def.Server.SEO)
+	captcha := strings.ToLower(strings.TrimSpace(cfg.Server.Pages.Contact.Captcha))
+	cfg.Server.Pages.Contact.Captcha = captcha
+	if captcha == "recaptcha" || captcha == "hcaptcha" {
+		missingKeys := make([]string, 0, 2)
+		if strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSiteKey) == "" {
+			missingKeys = append(missingKeys, "server.pages.contact.captcha_site_key")
+		}
+		if strings.TrimSpace(cfg.Server.Pages.Contact.CaptchaSecretKey) == "" {
+			missingKeys = append(missingKeys, "server.pages.contact.captcha_secret_key")
+		}
+		if len(missingKeys) > 0 {
+			log.Printf("warning: server.pages.contact.captcha=%q requires %s; using default %q", captcha, strings.Join(missingKeys, " and "), def.Server.Pages.Contact.Captcha)
+			cfg.Server.Pages.Contact.Captcha = def.Server.Pages.Contact.Captcha
+		}
+	}
+	validateContactAntispam(&cfg.Server.Pages.Contact.Antispam, def.Server.Pages.Contact.Antispam)
 	if strings.TrimSpace(cfg.Server.Session.CookieName) == "" {
 		cfg.Server.Session.CookieName = def.Server.Session.CookieName
 	}
 	if maxAge, err := time.ParseDuration(strings.TrimSpace(cfg.Server.Session.MaxAge)); err != nil || maxAge < 0 {
 		log.Printf("warning: invalid server.session.max_age %q, using default %q", cfg.Server.Session.MaxAge, def.Server.Session.MaxAge)
 		cfg.Server.Session.MaxAge = def.Server.Session.MaxAge
+	}
+	if cfg.Server.Tokens.MaxLinked < 0 {
+		log.Printf("warning: invalid server.tokens.max_linked %d, using default %d", cfg.Server.Tokens.MaxLinked, def.Server.Tokens.MaxLinked)
+		cfg.Server.Tokens.MaxLinked = def.Server.Tokens.MaxLinked
+	}
+	if cfg.Server.Tokens.IdlePurgeDays < 0 {
+		log.Printf("warning: invalid server.tokens.idle_purge_days %d, using default %d", cfg.Server.Tokens.IdlePurgeDays, def.Server.Tokens.IdlePurgeDays)
+		cfg.Server.Tokens.IdlePurgeDays = def.Server.Tokens.IdlePurgeDays
+	}
+	if _, err := parseTokenCookieAge(cfg.Server.Tokens.CookieMaxAge); err != nil {
+		log.Printf("warning: invalid server.tokens.cookie_max_age %q, using default %q", cfg.Server.Tokens.CookieMaxAge, def.Server.Tokens.CookieMaxAge)
+		cfg.Server.Tokens.CookieMaxAge = def.Server.Tokens.CookieMaxAge
 	}
 	switch strings.ToLower(strings.TrimSpace(cfg.Server.Session.Secure)) {
 	case "auto", "true", "false":
@@ -107,7 +148,7 @@ func validateConfig(cfg *Config) {
 	if cfg.Server.Privacy.Content.DataSecurity == "" {
 		cfg.Server.Privacy.Content.DataSecurity = def.Server.Privacy.Content.DataSecurity
 	}
-	if err := cfg.Server.I2P.Validate(); err != nil {
+	if err := cfg.Server.I2P.ValidateI2PConfig(); err != nil {
 		log.Printf("warning: invalid I2P configuration (%v), using defaults", err)
 		cfg.Server.I2P = def.Server.I2P
 	}
@@ -139,6 +180,12 @@ func validateConfig(cfg *Config) {
 		log.Printf("warning: invalid web.ui.theme %q, using default %q", cfg.Web.UI.Theme, def.Web.UI.Theme)
 		cfg.Web.UI.Theme = def.Web.UI.Theme
 	}
+	if accent := strings.TrimSpace(cfg.Web.UI.Accent); accent != "" && !accentColorValidationPattern.MatchString(accent) {
+		log.Printf("warning: invalid web.ui.accent %q, using the built-in accent", accent)
+		cfg.Web.UI.Accent = ""
+	} else {
+		cfg.Web.UI.Accent = accent
+	}
 	switch cfg.Server.Cache.Type {
 	case "none", "memory", "valkey", "redis":
 	default:
@@ -146,6 +193,7 @@ func validateConfig(cfg *Config) {
 		cfg.Server.Cache.Type = def.Server.Cache.Type
 	}
 	validateSchedulerSchedules(&cfg.Server.Scheduler.Tasks, def.Server.Scheduler.Tasks)
+	validateDiskLowConfig(&cfg.Server.Notifications.DiskLow, def.Server.Notifications.DiskLow)
 
 	if normalized, ok := NormalizeBaseURL(cfg.Server.BaseURL); ok {
 		cfg.Server.BaseURL = normalized
@@ -157,6 +205,8 @@ func validateConfig(cfg *Config) {
 	validateRateLimitBucket("read", &cfg.Server.RateLimit.Read, def.Server.RateLimit.Read)
 	validateRateLimitBucket("write", &cfg.Server.RateLimit.Write, def.Server.RateLimit.Write)
 	validateRateLimitBucket("health", &cfg.Server.RateLimit.Health, def.Server.RateLimit.Health)
+	validateRateLimitBucket("strict", &cfg.Server.RateLimit.Strict, def.Server.RateLimit.Strict)
+	validateRateLimitBucket("auth_failures", &cfg.Server.RateLimit.AuthFailures, def.Server.RateLimit.AuthFailures)
 
 	if cfg.Server.RateLimit.GlobalBurst <= 0 {
 		log.Printf("warning: invalid server.rate_limit.global_burst %d, using default %d",
@@ -191,6 +241,11 @@ func validateConfig(cfg *Config) {
 			cfg.Server.Maintenance.Cleanup.DiskThreshold, def.Server.Maintenance.Cleanup.DiskThreshold)
 		cfg.Server.Maintenance.Cleanup.DiskThreshold = def.Server.Maintenance.Cleanup.DiskThreshold
 	}
+	if cfg.Server.Security.Reports.RetentionDays <= 0 {
+		log.Printf("warning: invalid server.security.reports.retention_days %d, using default %d",
+			cfg.Server.Security.Reports.RetentionDays, def.Server.Security.Reports.RetentionDays)
+		cfg.Server.Security.Reports.RetentionDays = def.Server.Security.Reports.RetentionDays
+	}
 	if cfg.Server.Maintenance.Cleanup.LogRetentionDays <= 0 {
 		log.Printf("warning: invalid server.maintenance.cleanup.log_retention_days %d, using default %d",
 			cfg.Server.Maintenance.Cleanup.LogRetentionDays, def.Server.Maintenance.Cleanup.LogRetentionDays)
@@ -213,26 +268,181 @@ func validateConfig(cfg *Config) {
 			msg.Type = "info"
 		}
 	}
+}
 
-	switch cfg.Web.Robots.AIBots.Default {
-	case "allow", "deny":
-		// valid
-	case "":
-		cfg.Web.Robots.AIBots.Default = def.Web.Robots.AIBots.Default
-	default:
-		log.Printf("warning: invalid web.robots.ai_bots.default %q, using default %q",
-			cfg.Web.Robots.AIBots.Default, def.Web.Robots.AIBots.Default)
-		cfg.Web.Robots.AIBots.Default = def.Web.Robots.AIBots.Default
+func validateContactAntispam(value *ContactAntispamConfig, defaults ContactAntispamConfig) {
+	checks := []struct {
+		name  string
+		value *int
+		def   int
+	}{
+		{"min_fill_seconds", &value.MinFillSeconds, defaults.MinFillSeconds},
+		{"max_age_seconds", &value.MaxAgeSeconds, defaults.MaxAgeSeconds},
+		{"per_ip", &value.PerIP, defaults.PerIP},
+		{"per_email", &value.PerEmail, defaults.PerEmail},
+		{"global", &value.Global, defaults.Global},
+		{"max_links", &value.MaxLinks, defaults.MaxLinks},
+		{"strikes", &value.Strikes, defaults.Strikes},
+		{"ban_hours", &value.BanHours, defaults.BanHours},
+		{"review_min_seconds", &value.ReviewMinSeconds, defaults.ReviewMinSeconds},
+		{"review_max_seconds", &value.ReviewMaxSeconds, defaults.ReviewMaxSeconds},
+		{"duplicate_window_hours", &value.DuplicateWindowHours, defaults.DuplicateWindowHours},
 	}
-	for bot, access := range cfg.Web.Robots.AIBots.Bots {
-		switch access {
-		case "allow", "deny", "":
-			// valid; an empty value inherits ai_bots.default
-		default:
-			log.Printf("warning: invalid web.robots.ai_bots.bots.%s %q, inheriting ai_bots.default",
-				bot, access)
-			cfg.Web.Robots.AIBots.Bots[bot] = ""
+	for _, check := range checks {
+		if *check.value < 0 {
+			log.Printf("warning: invalid server.pages.contact.antispam.%s %d, using default %d", check.name, *check.value, check.def)
+			*check.value = check.def
 		}
+	}
+	if strings.TrimSpace(value.Window) == "" {
+		value.Window = defaults.Window
+	} else if parsed, err := time.ParseDuration(strings.TrimSpace(value.Window)); err != nil || parsed <= 0 {
+		log.Printf("warning: invalid server.pages.contact.antispam.window %q, using default %q", value.Window, defaults.Window)
+		value.Window = defaults.Window
+	} else {
+		value.Window = parsed.String()
+	}
+}
+
+func validateCompliance(compliance *ComplianceConfig) {
+	regions := make([]string, 0, len(compliance.GDPRAllowedRegions))
+	seenRegions := make(map[string]struct{}, len(compliance.GDPRAllowedRegions))
+	for _, raw := range compliance.GDPRAllowedRegions {
+		region := strings.TrimSpace(raw)
+		if region == "" {
+			continue
+		}
+		if _, exists := seenRegions[region]; exists {
+			continue
+		}
+		seenRegions[region] = struct{}{}
+		regions = append(regions, region)
+	}
+	compliance.GDPRAllowedRegions = regions
+	level := strings.ToLower(strings.TrimSpace(compliance.FedRAMPImpactLevel))
+	switch level {
+	case "low", "moderate", "high":
+		compliance.FedRAMPImpactLevel = strings.ToUpper(level[:1]) + level[1:]
+	case "":
+		compliance.FedRAMPImpactLevel = ""
+	default:
+		log.Printf("warning: invalid server.compliance.fedramp_impact_level %q; unset it (valid values: Low, Moderate, High)", compliance.FedRAMPImpactLevel)
+		compliance.FedRAMPImpactLevel = ""
+	}
+	if compliance.GDPR && len(compliance.GDPRAllowedRegions) == 0 {
+		log.Printf("warning: server.compliance.gdpr is enabled but server.compliance.gdpr_allowed_regions is empty")
+	}
+	if compliance.FedRAMP && compliance.FedRAMPImpactLevel == "" {
+		log.Printf("warning: server.compliance.fedramp is enabled but server.compliance.fedramp_impact_level is unset")
+	}
+}
+
+func parseTokenCookieAge(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "y") {
+		years, err := strconv.Atoi(strings.TrimSuffix(value, "y"))
+		if err != nil || years < 1 || years > 100 {
+			return 0, fmt.Errorf("invalid year duration")
+		}
+		return time.Duration(years) * 365 * 24 * time.Hour, nil
+	}
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err != nil || days < 1 || days > 36500 {
+			return 0, fmt.Errorf("invalid day duration")
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("invalid duration")
+	}
+	return duration, nil
+}
+
+var seoMetaNameValidationPattern = regexp.MustCompile(`^[a-z0-9:_.-]+$`)
+var accentColorValidationPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+var seoVerificationNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var seoReservedMetaNames = map[string]bool{"description": true, "keywords": true, "author": true, "robots": true, "viewport": true}
+var seoVerificationValueValidationPatterns = map[string]*regexp.Regexp{
+	"google":    regexp.MustCompile(`^[A-Za-z0-9_-]{1,43}$`),
+	"bing":      regexp.MustCompile(`^[A-F0-9]{1,32}$`),
+	"yandex":    regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+	"baidu":     regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`),
+	"pinterest": regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+	"facebook":  regexp.MustCompile(`^[a-z0-9]{1,64}$`),
+}
+
+func validateSEO(seo *SEOConfig, defaults SEOConfig) {
+	separator := seo.TitleSeparator
+	if len(separator) > 8 {
+		log.Printf("warning: server.seo.title_separator exceeds 8 characters; using default")
+		seo.TitleSeparator = defaults.TitleSeparator
+	} else {
+		seo.TitleSeparator = separator
+	}
+	if strings.TrimSpace(seo.TitleSeparator) == "" {
+		seo.TitleSeparator = defaults.TitleSeparator
+	}
+	if seo.Canonical != "" {
+		parsed, err := url.Parse(seo.Canonical)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			log.Printf("warning: invalid server.seo.canonical; using request origin")
+			seo.Canonical = ""
+		}
+	}
+	if len(seo.MetaTags) > 20 {
+		log.Printf("warning: server.seo.meta_tags has more than 20 entries; extra entries will be ignored")
+	}
+	for name, value := range seo.MetaTags {
+		if !seoMetaNameValidationPattern.MatchString(name) || seoReservedMetaNames[name] || value == "" {
+			log.Printf("warning: ignoring invalid server.seo.meta_tags entry %q", name)
+			delete(seo.MetaTags, name)
+		}
+	}
+	for key, value := range map[string]string{
+		"google": seo.Verification.Google, "bing": seo.Verification.Bing, "yandex": seo.Verification.Yandex,
+		"baidu": seo.Verification.Baidu, "pinterest": seo.Verification.Pinterest, "facebook": seo.Verification.Facebook,
+	} {
+		if value == "" {
+			continue
+		}
+		pattern := seoVerificationValueValidationPatterns[key]
+		if pattern == nil || !pattern.MatchString(value) {
+			log.Printf("warning: invalid server.seo.verification.%s value; ignoring it", key)
+			switch key {
+			case "google":
+				seo.Verification.Google = ""
+			case "bing":
+				seo.Verification.Bing = ""
+			case "yandex":
+				seo.Verification.Yandex = ""
+			case "baidu":
+				seo.Verification.Baidu = ""
+			case "pinterest":
+				seo.Verification.Pinterest = ""
+			case "facebook":
+				seo.Verification.Facebook = ""
+			}
+		}
+	}
+	validCustom := seo.Verification.Custom[:0]
+	for _, tag := range seo.Verification.Custom {
+		nameValid := tag.Name != "" && seoVerificationNamePattern.MatchString(tag.Name)
+		propertyValid := tag.Property != "" && seoVerificationNamePattern.MatchString(tag.Property)
+		if (nameValid == propertyValid) || tag.Content == "" || len(tag.Content) > 256 {
+			log.Printf("warning: ignoring invalid server.seo.verification.custom entry")
+			continue
+		}
+		validCustom = append(validCustom, tag)
+	}
+	seo.Verification.Custom = validCustom
+	if seo.OpenGraph.Type == "" {
+		seo.OpenGraph.Type = defaults.OpenGraph.Type
+	}
+	if seo.Twitter.Card != "summary" && seo.Twitter.Card != "summary_large_image" {
+		log.Printf("warning: invalid server.seo.twitter.card; using default %q", defaults.Twitter.Card)
+		seo.Twitter.Card = defaults.Twitter.Card
 	}
 }
 
@@ -482,12 +692,28 @@ func validateSchedulerSchedules(tasks *SchedulerTasks, defaults SchedulerTasks) 
 	validate("blocklist_update", &tasks.BlocklistUpdate.Schedule, defaults.BlocklistUpdate.Schedule)
 	validate("cve_update", &tasks.CVEUpdate.Schedule, defaults.CVEUpdate.Schedule)
 	validate("update_check", &tasks.UpdateCheck.Schedule, defaults.UpdateCheck.Schedule)
+	validate("disk_check", &tasks.DiskCheck.Schedule, defaults.DiskCheck.Schedule)
 	validate("token_cleanup", &tasks.TokenCleanup.Schedule, defaults.TokenCleanup.Schedule)
 	validate("log_rotation", &tasks.LogRotation.Schedule, defaults.LogRotation.Schedule)
 	validate("backup", &tasks.Backup.Schedule, defaults.Backup.Schedule)
 	validate("backup_hourly", &tasks.BackupHourly.Schedule, defaults.BackupHourly.Schedule)
 	validate("health_check", &tasks.HealthCheck.Schedule, defaults.HealthCheck.Schedule)
 	validate("tor_health", &tasks.TorHealth.Schedule, defaults.TorHealth.Schedule)
+}
+
+func validateDiskLowConfig(cfg *DiskLowConfig, defaults DiskLowConfig) {
+	if cfg.ThresholdPercent < 1 || cfg.ThresholdPercent > 100 {
+		log.Printf("warning: invalid server.notifications.disk_low.threshold_percent %d, using default %d", cfg.ThresholdPercent, defaults.ThresholdPercent)
+		cfg.ThresholdPercent = defaults.ThresholdPercent
+	}
+	if interval, err := time.ParseDuration(cfg.CheckInterval); err != nil || interval <= 0 {
+		log.Printf("warning: invalid server.notifications.disk_low.check_interval %q, using default %q", cfg.CheckInterval, defaults.CheckInterval)
+		cfg.CheckInterval = defaults.CheckInterval
+	}
+	if repeat, err := time.ParseDuration(cfg.Repeat); err != nil || repeat <= 0 {
+		log.Printf("warning: invalid server.notifications.disk_low.repeat %q, using default %q", cfg.Repeat, defaults.Repeat)
+		cfg.Repeat = defaults.Repeat
+	}
 }
 
 // validateRateLimitBucket replaces an invalid (non-positive) requests/window

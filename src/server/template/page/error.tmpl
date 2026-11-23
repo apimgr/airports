@@ -1,10 +1,12 @@
 {{define "content"}}
-<section class="page-section error-page">
-    <h1 class="error-code">{{.StatusCode}}</h1>
-    <h2 class="error-title">{{.StatusText}}</h2>
-    <p class="error-message">{{.Message}}</p>
-    <p class="error-actions">
-        <a href="{{.BaseURL}}/" class="btn-primary">{{t "nav.home"}}</a>
-    </p>
-</section>
+<div class="container container-sm">
+    <header class="page-header">
+        <h1 class="page-title">{{tf "errors.status_title" "code" .StatusCode}}</h1>
+        <p class="page-lead">{{.Message}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="error-code">
+        <h2 id="error-code">{{tf "errors.status_code" "code" .StatusCode}}</h2>
+        <p><a href="{{.BaseURL}}/" class="btn btn-secondary">{{t "errors.return_home"}}</a></p>
+    </section>
+</div>
 {{end}}

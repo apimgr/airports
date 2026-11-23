@@ -98,7 +98,7 @@ func OriginalTCPPeer(r *http.Request) string {
 }
 
 type trustedProxyCIDRCache struct {
-	config func() *config.Config
+	config func() *config.ApplicationConfig
 	lookup func(string) ([]string, error)
 	now    func() time.Time
 
@@ -108,7 +108,7 @@ type trustedProxyCIDRCache struct {
 	cidrs     []string
 }
 
-func newTrustedProxyCIDRCache(configProvider func() *config.Config) *trustedProxyCIDRCache {
+func newTrustedProxyCIDRCache(configProvider func() *config.ApplicationConfig) *trustedProxyCIDRCache {
 	return &trustedProxyCIDRCache{config: configProvider, lookup: net.LookupHost, now: time.Now}
 }
 
@@ -126,7 +126,7 @@ func (c *trustedProxyCIDRCache) CIDRs() []string {
 	return append([]string(nil), c.cidrs...)
 }
 
-func trustedProxyConfigKey(cfg *config.Config) string {
+func trustedProxyConfigKey(cfg *config.ApplicationConfig) string {
 	if cfg == nil {
 		return ""
 	}
@@ -295,13 +295,13 @@ func normalizeTrustedClientIPHeaders(header http.Header) {
 // be a bare IP, a CIDR, or a DNS name (resolved to its A/AAAA addresses).
 // Invalid or unresolvable entries are logged and skipped rather than
 // causing startup failure.
-func resolveTrustedProxyCIDRs(cfg *config.Config) []string {
+func resolveTrustedProxyCIDRs(cfg *config.ApplicationConfig) []string {
 	return resolveTrustedProxyCIDRsWithLookup(cfg, net.LookupHost)
 }
 
-func resolveTrustedProxyCIDRsWithLookup(cfg *config.Config, lookup func(string) ([]string, error)) []string {
+func resolveTrustedProxyCIDRsWithLookup(cfg *config.ApplicationConfig, lookup func(string) ([]string, error)) []string {
 	if cfg == nil {
-		cfg = &config.Config{}
+		cfg = &config.ApplicationConfig{}
 	}
 	cidrs := make([]string, 0, len(defaultTrustedProxyCIDRs)+len(cfg.Server.TrustedProxies.Additional))
 	cidrs = append(cidrs, defaultTrustedProxyCIDRs...)

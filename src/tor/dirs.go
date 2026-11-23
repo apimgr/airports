@@ -9,9 +9,9 @@ import (
 	"github.com/apimgr/airports/src/path"
 )
 
-// Dirs holds every filesystem path the Tor manager reads from or writes to,
+// TorDirs holds every filesystem path the Tor manager reads from or writes to,
 // resolved once at startup per AI.md PART 31 "Storage Locations".
-type Dirs struct {
+type TorDirs struct {
 	// ConfigDir is {config_dir}/tor/ — holds the generated torrc.
 	ConfigDir string
 	// DataDir is {data_dir}/tor/ — Tor's own runtime data directory.
@@ -30,14 +30,14 @@ type Dirs struct {
 // resolveDirs computes all Tor paths for projectName using the shared
 // paths package, mirroring GetSSLDir's config-dir pattern for the torrc
 // location and GetTorDir for the data-dir location.
-func resolveDirs(projectName string) Dirs {
+func resolveDirs(projectName string) TorDirs {
 	configDir, _, logDir := paths.GetDefaultDirs(projectName)
 	dataDir := paths.GetTorDir(projectName)
 
 	torConfigDir := filepath.Join(configDir, "tor")
 	siteDir := filepath.Join(dataDir, "site")
 
-	return Dirs{
+	return TorDirs{
 		ConfigDir: torConfigDir,
 		DataDir:   dataDir,
 		SiteDir:   siteDir,
@@ -69,7 +69,7 @@ func ensureDir(dir string) error {
 
 // ensureDirs creates and enforces permissions on all three Tor directories
 // (config, data, site). Safe to call on every startup.
-func ensureDirs(d Dirs) error {
+func ensureDirs(d TorDirs) error {
 	for _, dir := range []string{d.ConfigDir, d.DataDir, d.SiteDir} {
 		if err := ensureDir(dir); err != nil {
 			return err

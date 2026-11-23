@@ -17,7 +17,7 @@ const defaultAppName = "airports"
 // AI.md PART 17 "Global Variables (Available in All Templates)". Overlay
 // network addresses require live Tor/I2P manager state, so callers must
 // supply those values as Send overrides when the services are running.
-func GlobalVars(cfg *config.Config) map[string]string {
+func GlobalVars(cfg *config.ApplicationConfig) map[string]string {
 	appName := cfg.Server.Branding.Title
 	if appName == "" {
 		appName = defaultAppName

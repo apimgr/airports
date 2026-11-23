@@ -1,6 +1,7 @@
 package server
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
 )
 
@@ -194,6 +196,35 @@ func TestBlockStore_DownloadedNetset(t *testing.T) {
 	}
 }
 
+func TestBlockStore_DownloadedNetsetSkipsProtectedAndKeepsLastGood(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "firehol_level1.txt")
+	if err := os.WriteFile(path, []byte("1.2.3.0/24\n127.0.0.1\n10.2.0.0/16\n100.64.1.0/24\n"), 0o600); err != nil {
+		t.Fatalf("write netset: %v", err)
+	}
+	bs := NewBlockStore(nil, "198.51.100.0/24")
+	if err := bs.LoadDownloadedNetset(path); err != nil {
+		t.Fatalf("LoadDownloadedNetset: %v", err)
+	}
+	if blocked, _ := bs.IsBlocked("1.2.3.4"); !blocked {
+		t.Fatal("public entry should load")
+	}
+	for _, ip := range []string{"127.0.0.1", "10.2.0.1", "100.64.1.1", "198.51.100.1"} {
+		if blocked, _ := bs.IsBlocked(ip); blocked {
+			t.Errorf("protected IP %s should not load from downloaded list", ip)
+		}
+	}
+	if err := os.WriteFile(path, []byte("127.0.0.1\n10.0.0.0/8\n"), 0o600); err != nil {
+		t.Fatalf("write empty netset: %v", err)
+	}
+	if err := bs.LoadDownloadedNetset(path); err == nil {
+		t.Fatal("all-protected list should be rejected")
+	}
+	if blocked, _ := bs.IsBlocked("1.2.3.4"); !blocked {
+		t.Fatal("rejected update must leave last-good entries active")
+	}
+}
+
 func TestUpdateBlocklist_DownloadFailureFailsOpenWithNoPreviousList(t *testing.T) {
 	old := fireholLevel1URL
 	fireholLevel1URL = "http://127.0.0.1:0/unreachable"
@@ -262,6 +293,26 @@ func TestBlocklistMiddleware_BlocksAndPassesThrough(t *testing.T) {
 	mw.ServeHTTP(rw2, req2)
 	if rw2.Code != http.StatusOK {
 		t.Errorf("non-blocked request status = %d, want %d", rw2.Code, http.StatusOK)
+	}
+}
+
+func TestRespondBlockedHTMLUsesRequestLanguage(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "text/html")
+	req = req.WithContext(i18n.SetLanguage(req.Context(), "fr"))
+	rw := httptest.NewRecorder()
+
+	respondBlocked(rw, req)
+
+	if rw.Code != http.StatusForbidden {
+		t.Fatalf("respondBlocked status = %d, want %d", rw.Code, http.StatusForbidden)
+	}
+	body := rw.Body.String()
+	if !strings.Contains(body, `<html lang="fr" dir="ltr">`) || !strings.Contains(html.UnescapeString(body), i18n.TranslateText("fr", "errors.forbidden")) {
+		t.Fatalf("blocked HTML did not use the request language: %s", body)
+	}
+	if strings.Contains(body, "Access Denied") || strings.Contains(body, "test block") {
+		t.Fatalf("blocked HTML leaked hardcoded text or the block reason: %s", body)
 	}
 }
 

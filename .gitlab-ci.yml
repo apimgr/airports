@@ -1,0 +1,136 @@
+variables:
+  PROJECT_NAME: airports
+  PROJECT_ORG: apimgr
+  BUILD_IMAGE: casjaysdev/go:latest
+  CGO_ENABLED: "0"
+  GIT_DEPTH: "0"
+
+stages:
+  - build
+  - test
+  - security
+  - release
+
+build:
+  stage: build
+  image: $BUILD_IMAGE
+  parallel:
+    matrix:
+      - GOOS: [linux, darwin, windows, freebsd]
+        GOARCH: [amd64, arm64]
+  script:
+    - if [ -n "$CI_COMMIT_TAG" ]; then VERSION="${CI_COMMIT_TAG#v}"; elif [ "$CI_COMMIT_BRANCH" = beta ]; then VERSION="$(date -u +%Y%m%d%H%M%S)-beta"; else VERSION="${CI_COMMIT_SHA:0:7}"; fi
+    - COMMIT_ID="${CI_COMMIT_SHA:0:7}"
+    - BUILD_EPOCH="$(date -u +%s)"
+    - BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")"
+    - OFFICIAL_SITE="${OFFICIAL_SITE:-}"
+    - LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
+    - EXT=""; if [ "$GOOS" = windows ]; then EXT=".exe"; fi
+    - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-${GOOS}-${GOARCH}${EXT}" ./src
+    - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-cli-${GOOS}-${GOARCH}${EXT}" ./src/client
+  artifacts:
+    paths:
+      - airports-*
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+test:
+  stage: test
+  image: $BUILD_IMAGE
+  script:
+    - go test -coverprofile=coverage.out ./...
+  artifacts:
+    paths:
+      - coverage.out
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+lint:
+  stage: test
+  image: $BUILD_IMAGE
+  script:
+    - go vet ./...
+    - staticcheck ./...
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+secret-scan:
+  stage: security
+  image: trufflesecurity/trufflehog:latest
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] && [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+        trufflehog git file://. --since-commit "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --branch "$CI_COMMIT_SHA" --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail
+      elif [ -n "$CI_COMMIT_BEFORE_SHA" ] && [ "$CI_COMMIT_BEFORE_SHA" != "0000000000000000000000000000000000000000" ] && [ "$CI_PIPELINE_SOURCE" = "push" ]; then
+        trufflehog git file://. --since-commit "$CI_COMMIT_BEFORE_SHA" --branch "$CI_COMMIT_SHA" --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt --fail
+      else
+        trufflehog git file://. --results=verified --exclude-paths=.github/trufflehog-exclude.txt --fail
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+vuln-scan:
+  stage: security
+  image: $BUILD_IMAGE
+  script:
+    - govulncheck ./...
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+release:
+  stage: release
+  image: $BUILD_IMAGE
+  script:
+    - test -n "$CI_COMMIT_TAG"
+    - mkdir -p binaries
+    - cp airports-* binaries/
+    - printf '%s\n' "${CI_COMMIT_TAG#v}" > binaries/version.txt
+    - printf 'Airports %s release\n\nIncludes cross-platform server and CLI binaries, source archive, CycloneDX SBOM, and checksums.\n' "$CI_COMMIT_TAG" > binaries/release-notes.txt
+    - tar --exclude='.git' --exclude='binaries' -czf "binaries/airports-${CI_COMMIT_TAG#v}-source.tar.gz" .
+    - cd binaries
+    - FILES="airports-* version.txt release-notes.txt"
+    - sha256sum $FILES > sha256.txt
+    - sha512sum $FILES > sha512.txt
+  artifacts:
+    paths:
+      - binaries/
+    expire_in: 1 week
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Airports $CI_COMMIT_TAG"
+    description: "Airports $CI_COMMIT_TAG release. Includes cross-platform server and CLI binaries, source archive, CycloneDX SBOM, and checksums."
+    assets:
+      links:
+        - name: "Airports $CI_COMMIT_TAG release bundle"
+          url: "$CI_PROJECT_URL/-/jobs/$CI_JOB_ID/artifacts/download?file_type=archive"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/
+
+sbom:
+  stage: security
+  image: $BUILD_IMAGE
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - cyclonedx-gomod mod -json -output "airports-${VERSION}-sbom.cdx.json"
+  artifacts:
+    paths:
+      - airports-*-sbom.cdx.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+/

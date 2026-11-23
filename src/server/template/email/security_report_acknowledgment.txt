@@ -1,0 +1,10 @@
+Subject: Security report received
+---
+We received your security report.
+
+Tracking ID: {tracking_id}
+Check the triage status using this private link:
+{status_url}
+
+The link contains a one-shot token. Keep it private. This message contains no
+vulnerability details.

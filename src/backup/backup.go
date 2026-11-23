@@ -20,13 +20,13 @@ import (
 	"strings"
 	"time"
 
-	dbmetrics "github.com/apimgr/airports/src/db"
+	"github.com/apimgr/airports/src/db"
 	paths "github.com/apimgr/airports/src/path"
 	_ "modernc.org/sqlite"
 )
 
-// ErrEncryptionRequired is returned by Create when server.compliance.enabled
-// is true but no encryption password was supplied, per AI.md PART 21
+// ErrEncryptionRequired is returned by Create when a compliance standard is
+// enabled but no encryption password was supplied, per AI.md PART 21
 // "Compliance Mode Enforcement".
 var ErrEncryptionRequired = errors.New("backup: compliance mode requires an encryption password to be set (server.backup.encryption_password)")
 
@@ -34,23 +34,15 @@ var ErrEncryptionRequired = errors.New("backup: compliance mode requires an encr
 // fails, per AI.md PART 21 "Backup Creation Flow" step 2.
 var ErrDiskFull = errors.New("backup: insufficient free space or disk usage above threshold")
 
-// containerMagic identifies the custom on-disk container format used by
-// this package. A backup file is NOT a bare tar.gz — it is a small
-// plaintext header (magic + manifest length + manifest JSON) followed by
-// the archive payload (a plain tar.gz when unencrypted, or an
-// EncryptArchive blob when encrypted). The manifest is always stored in
-// plaintext so callers can inspect "encrypted"/"app_version" before a
-// password is available, per the spec's requirement that encrypted-ness be
-// knowable ahead of the password prompt. This is a deliberate deviation
-// from "backup file IS a raw tar.gz" in exchange for a verifiable manifest
-// and checksum without a circular-hash problem; the extension
-// (.tar.gz / .tar.gz.enc) still communicates encrypted-ness to operators.
+// containerMagic identifies the legacy format accepted by readContainer.
+// New backups use a tar.gz archive with manifest.json inside it.
 var containerMagic = [4]byte{'A', 'B', 'K', 'P'}
 
-// CreateOptions configures Create.
-type CreateOptions struct {
+// BackupArchiveOptions configures Create.
+type BackupArchiveOptions struct {
 	ConfigDir          string
 	DataDir            string
+	DatabaseSnapshot   func(context.Context, string) error
 	IncludeSSL         bool
 	IncludeData        bool
 	EncryptionPassword string
@@ -70,7 +62,7 @@ const diskThresholdPercent = 90
 // "Backup Creation Flow" / "How Encryption Works": the tar.gz is built
 // entirely in memory, optionally AES-256-GCM/Argon2id encrypted, and only
 // then written to disk atomically (tmp file + rename).
-func Create(destPath string, opts CreateOptions) error {
+func CreateBackupArchive(destPath string, opts BackupArchiveOptions) error {
 	if opts.ComplianceEnabled && opts.EncryptionPassword == "" {
 		return ErrEncryptionRequired
 	}
@@ -84,7 +76,10 @@ func Create(destPath string, opts CreateOptions) error {
 		return fmt.Errorf("backup: build archive: %w", err)
 	}
 
-	checksum := sha256.Sum256(archiveBytes)
+	checksum, err := archiveContentsChecksum(archiveBytes)
+	if err != nil {
+		return fmt.Errorf("backup: checksum archive contents: %w", err)
+	}
 
 	manifest := &Manifest{
 		Version:    ManifestVersion,
@@ -93,24 +88,30 @@ func Create(destPath string, opts CreateOptions) error {
 		AppVersion: opts.AppVersion,
 		Contents:   contents,
 		Encrypted:  opts.EncryptionPassword != "",
-		Checksum:   "sha256:" + hex.EncodeToString(checksum[:]),
+		Checksum:   checksum,
 	}
 	if manifest.CreatedBy == "" {
 		manifest.CreatedBy = "operator"
 	}
 
-	payload := archiveBytes
 	if opts.EncryptionPassword != "" {
 		manifest.EncryptionMethod = "AES-256-GCM"
-		payload, err = EncryptArchive(opts.EncryptionPassword, archiveBytes)
-		if err != nil {
-			return fmt.Errorf("backup: encrypt archive: %w", err)
-		}
 	}
 
 	manifestJSON, err := manifest.Marshal()
 	if err != nil {
 		return err
+	}
+	archiveBytes, err = appendManifest(archiveBytes, manifestJSON)
+	if err != nil {
+		return fmt.Errorf("backup: include manifest: %w", err)
+	}
+	payload := archiveBytes
+	if opts.EncryptionPassword != "" {
+		payload, err = EncryptArchive(opts.EncryptionPassword, archiveBytes)
+		if err != nil {
+			return fmt.Errorf("backup: encrypt archive: %w", err)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
@@ -118,9 +119,9 @@ func Create(destPath string, opts CreateOptions) error {
 	}
 
 	tmpPath := destPath + ".tmp"
-	if err := writeContainer(tmpPath, manifestJSON, payload); err != nil {
+	if err := os.WriteFile(tmpPath, payload, 0o600); err != nil {
 		_ = os.Remove(tmpPath)
-		return err
+		return fmt.Errorf("backup: write archive: %w", err)
 	}
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Remove(tmpPath)
@@ -130,7 +131,7 @@ func Create(destPath string, opts CreateOptions) error {
 	return nil
 }
 
-// writeContainer writes the magic+manifest+payload container format to path.
+// writeContainer writes a legacy container for backward-compatibility tests.
 func writeContainer(path string, manifestJSON, payload []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -155,8 +156,7 @@ func writeContainer(path string, manifestJSON, payload []byte) error {
 	return nil
 }
 
-// readContainer reads the container format back into its manifest and raw
-// payload (plaintext tar.gz if unencrypted, EncryptArchive blob otherwise).
+// readContainer reads a legacy container or an unencrypted tar.gz archive.
 func readContainer(path string) (*Manifest, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -166,7 +166,11 @@ func readContainer(path string) (*Manifest, []byte, error) {
 		return nil, nil, fmt.Errorf("backup: file too small to be a valid backup")
 	}
 	if [4]byte{data[0], data[1], data[2], data[3]} != containerMagic {
-		return nil, nil, fmt.Errorf("backup: not a recognized backup file (bad magic)")
+		manifest, err := manifestFromArchive(data)
+		if err != nil {
+			return nil, nil, err
+		}
+		return manifest, data, nil
 	}
 	manifestLen := binary.BigEndian.Uint32(data[4:8])
 	if int(8+manifestLen) > len(data) {
@@ -182,10 +186,155 @@ func readContainer(path string) (*Manifest, []byte, error) {
 	return manifest, payload, nil
 }
 
+func manifestFromArchive(archive []byte) (*Manifest, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, fmt.Errorf("backup: open tar.gz: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("backup: read archive: %w", err)
+		}
+		if h.Name == "manifest.json" {
+			data, err := io.ReadAll(io.LimitReader(tr, 1<<20))
+			if err != nil {
+				return nil, fmt.Errorf("backup: read manifest: %w", err)
+			}
+			return UnmarshalManifest(data)
+		}
+	}
+	return nil, fmt.Errorf("backup: manifest.json is missing from archive")
+}
+
+func appendManifest(archive, manifest []byte) ([]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = gz.Close() }()
+	var out bytes.Buffer
+	zw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(zw)
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.Name == "manifest.json" {
+			return nil, fmt.Errorf("manifest.json already exists in archive")
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			return nil, err
+		}
+		if _, err := io.Copy(tw, tr); err != nil {
+			return nil, err
+		}
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(manifest)), Typeflag: tar.TypeReg, ModTime: time.Now().UTC()}); err != nil {
+		return nil, err
+	}
+	if _, err := tw.Write(manifest); err != nil {
+		return nil, err
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func archiveContentsChecksum(archive []byte) (string, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	hash := sha256.New()
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if header.Name == "manifest.json" {
+			continue
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\x00%q\x00", header.Name, header.Typeflag, header.Size, header.Mode, header.Linkname)
+		if _, err := io.Copy(hash, tr); err != nil {
+			return "", err
+		}
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func checksumForArchive(archive []byte) (string, error) {
+	if _, err := manifestFromArchive(archive); err != nil {
+		return checksumOf(archive), nil
+	}
+	return archiveContentsChecksum(archive)
+}
+
+func decodeBackup(path, password string) (*Manifest, []byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("backup: read backup file: %w", err)
+	}
+	legacy := len(data) >= 4 && [4]byte{data[0], data[1], data[2], data[3]} == containerMagic
+	if legacy {
+		manifest, payload, err := readContainer(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		if manifest.Encrypted {
+			if password == "" {
+				return nil, nil, fmt.Errorf("backup: encrypted backup requires a password")
+			}
+			payload, err = DecryptArchive(password, payload)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		return manifest, payload, nil
+	}
+	encrypted := strings.HasSuffix(strings.ToLower(path), ".enc")
+	if encrypted {
+		if password == "" {
+			return nil, nil, fmt.Errorf("backup: encrypted backup requires a password")
+		}
+		data, err = DecryptArchive(password, data)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	manifest, err := manifestFromArchive(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	if manifest.Encrypted != encrypted {
+		return nil, nil, fmt.Errorf("backup: manifest encryption status does not match filename")
+	}
+	return manifest, data, nil
+}
+
 // buildTarGz walks ConfigDir/DataDir per AI.md PART 21 "Backup Contents" and
 // returns the gzip-compressed tar bytes plus the top-level contents list
 // used in the manifest.
-func buildTarGz(opts CreateOptions) ([]byte, []string, error) {
+func buildTarGz(opts BackupArchiveOptions) ([]byte, []string, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -223,6 +372,12 @@ func buildTarGz(opts CreateOptions) ([]byte, []string, error) {
 			if err != nil {
 				return err
 			}
+			if tarPrefix == "data" && (rel == filepath.Join("cache", "branding") || strings.HasPrefix(rel, filepath.Join("cache", "branding")+string(filepath.Separator))) {
+				if fi.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			name := tarPrefix
 			if rel != "." {
 				name = filepath.Join(tarPrefix, rel)
@@ -240,8 +395,33 @@ func buildTarGz(opts CreateOptions) ([]byte, []string, error) {
 	}
 
 	dbPath := findServerDB(opts.DataDir, opts.ConfigDir)
-	if dbPath != "" {
-		if err := addFile(dbPath, "data/db/sqlite/server.db"); err != nil {
+	if dbPath != "" || opts.DatabaseSnapshot != nil {
+		tempRoot := filepath.Join(os.TempDir(), paths.OrgName)
+		if err := os.MkdirAll(tempRoot, 0o700); err != nil {
+			return nil, nil, fmt.Errorf("create snapshot temp root: %w", err)
+		}
+		snapshotDir, err := os.MkdirTemp(tempRoot, "airports-")
+		if err != nil {
+			return nil, nil, fmt.Errorf("create snapshot temp directory: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(snapshotDir) }()
+		snapshotPath := filepath.Join(snapshotDir, "server.db")
+		if opts.DatabaseSnapshot != nil {
+			if err := opts.DatabaseSnapshot(context.Background(), snapshotPath); err != nil {
+				return nil, nil, fmt.Errorf("create database backup snapshot: %w", err)
+			}
+		} else {
+			store, err := db.OpenSQLite(dbPath, 4)
+			if err != nil {
+				return nil, nil, fmt.Errorf("open database for backup snapshot: %w", err)
+			}
+			snapshotErr := store.Snapshot(context.Background(), snapshotPath)
+			closeErr := store.Close()
+			if snapshotErr != nil || closeErr != nil {
+				return nil, nil, errors.Join(snapshotErr, closeErr)
+			}
+		}
+		if err := addFile(snapshotPath, "data/db/sqlite/server.db"); err != nil {
 			return nil, nil, err
 		}
 		addEntry("server.db")
@@ -252,6 +432,29 @@ func buildTarGz(opts CreateOptions) ([]byte, []string, error) {
 	}
 	if info, statErr := os.Stat(filepath.Join(opts.ConfigDir, "template")); statErr == nil && info.IsDir() {
 		addEntry("template/")
+	}
+
+	for _, directory := range []struct {
+		name  string
+		label string
+	}{
+		{name: "yaml.d", label: "yaml.d/"},
+		{name: "assets", label: "assets/"},
+		{name: "security", label: "security/"},
+	} {
+		path := filepath.Join(opts.ConfigDir, directory.name)
+		if err := addDir(path, filepath.Join("config", directory.name)); err != nil {
+			return nil, nil, err
+		}
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			addEntry(directory.label)
+		}
+	}
+	if err := addFile(filepath.Join(opts.ConfigDir, "secrets.yml"), "config/secrets.yml"); err != nil {
+		return nil, nil, err
+	}
+	if _, err := os.Stat(filepath.Join(opts.ConfigDir, "secrets.yml")); err == nil {
+		addEntry("secrets.yml")
 	}
 
 	if err := addDir(filepath.Join(opts.ConfigDir, "theme"), "config/theme"); err != nil {
@@ -345,24 +548,14 @@ func Verify(path string, password string) error {
 		return fmt.Errorf("verify: size > 0: backup file is empty")
 	}
 
-	manifest, payload, err := readContainer(path)
+	manifest, plaintext, err := decodeBackup(path, password)
 	if err != nil {
 		return fmt.Errorf("verify: manifest readable: %w", err)
 	}
-
-	plaintext := payload
-	if manifest.Encrypted {
-		if password == "" {
-			return fmt.Errorf("verify: decrypt test: password required for encrypted backup")
-		}
-		plaintext, err = DecryptArchive(password, payload)
-		if err != nil {
-			return fmt.Errorf("verify: decrypt test: %w", err)
-		}
+	want, err := checksumForArchive(plaintext)
+	if err != nil {
+		return fmt.Errorf("verify: checksum valid: %w", err)
 	}
-
-	sum := sha256.Sum256(plaintext)
-	want := "sha256:" + hex.EncodeToString(sum[:])
 	if !strings.EqualFold(want, manifest.Checksum) {
 		return fmt.Errorf("verify: checksum valid: mismatch (want %s, got %s)", manifest.Checksum, want)
 	}
@@ -451,6 +644,9 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 		if destPath != cleanRoot && !strings.HasPrefix(destPath, cleanRoot+string(os.PathSeparator)) {
 			return "", fmt.Errorf("refusing to extract entry outside target directory: %q", header.Name)
 		}
+		if err := rejectSymlinkComponents(cleanRoot, destPath); err != nil {
+			return "", fmt.Errorf("refusing to extract through a symlink for %q: %w", header.Name, err)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -490,6 +686,42 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 	return dbPath, nil
 }
 
+func rejectSymlinkComponents(root, target string) error {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	target, err = filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("target is outside extraction root")
+	}
+	current := root
+	paths := []string{current}
+	if relative != "." {
+		for _, component := range strings.Split(relative, string(os.PathSeparator)) {
+			current = filepath.Join(current, component)
+			paths = append(paths, current)
+		}
+	}
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symlink", path)
+		}
+	}
+	return nil
+}
+
 // verifySQLiteIntegrity opens the extracted server.db read-only and runs
 // PRAGMA integrity_check, per AI.md PART 21 "Database integrity" check.
 // integrity_check scans the entire database file, so it is bounded by the
@@ -514,7 +746,7 @@ func verifySQLiteIntegrity(dbPath string) error {
 	if err == nil {
 		rows = 1
 	}
-	dbmetrics.LogQuery(query, 0, started, rows, err)
+	db.LogQuery(query, 0, started, rows, err)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("run integrity_check: timed out: %w", err)

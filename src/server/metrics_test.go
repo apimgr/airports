@@ -18,6 +18,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+func TestContactBlockedMetricUsesReasonLabel(t *testing.T) {
+	m := newMetrics(config.MetricsConfig{}, buildInfo{}, time.Now(), "")
+	m.recordContactBlocked("markup")
+	if got := testutil.ToFloat64(m.contactBlockedTotal.WithLabelValues("markup")); got != 1 {
+		t.Fatalf("blocked metric = %v, want 1", got)
+	}
+}
+
 // TestMetricsAuthMiddleware covers mandatory per-service bearer auth.
 func TestMetricsAuthMiddleware(t *testing.T) {
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +37,7 @@ func TestMetricsAuthMiddleware(t *testing.T) {
 		token                string
 		allowUnauthenticated bool
 		authHeader           string
-		tokenHeader          string
+		alternateHeader      string
 		queryToken           string
 		wantStatus           int
 	}{
@@ -40,14 +48,14 @@ func TestMetricsAuthMiddleware(t *testing.T) {
 		{name: "token configured, wrong token rejected", token: "secret123", authHeader: "Bearer wrongtoken", wantStatus: http.StatusUnauthorized},
 		{name: "token configured, non-bearer scheme rejected", token: "secret123", authHeader: "Basic secret123", wantStatus: http.StatusUnauthorized},
 		{name: "token configured, correct token allowed", token: "secret123", authHeader: "Bearer secret123", wantStatus: http.StatusOK},
-		{name: "API key header allowed", token: "secret123", tokenHeader: "X-API-Key", wantStatus: http.StatusOK},
-		{name: "API-Key alias allowed", token: "secret123", tokenHeader: "API-Key", wantStatus: http.StatusOK},
-		{name: "auth token header allowed", token: "secret123", tokenHeader: "X-Auth-Token", wantStatus: http.StatusOK},
-		{name: "access token header allowed", token: "secret123", tokenHeader: "X-Access-Token", wantStatus: http.StatusOK},
-		{name: "short token header allowed", token: "secret123", tokenHeader: "X-Token", wantStatus: http.StatusOK},
-		{name: "token header allowed", token: "secret123", tokenHeader: "Token", wantStatus: http.StatusOK},
+		{name: "API key header rejected", token: "secret123", alternateHeader: "X-API-Key", wantStatus: http.StatusUnauthorized},
+		{name: "API-Key alias rejected", token: "secret123", alternateHeader: "API-Key", wantStatus: http.StatusUnauthorized},
+		{name: "auth token header rejected", token: "secret123", alternateHeader: "X-Auth-Token", wantStatus: http.StatusUnauthorized},
+		{name: "access token header rejected", token: "secret123", alternateHeader: "X-Access-Token", wantStatus: http.StatusUnauthorized},
+		{name: "short token header rejected", token: "secret123", alternateHeader: "X-Token", wantStatus: http.StatusUnauthorized},
+		{name: "token header rejected", token: "secret123", alternateHeader: "Token", wantStatus: http.StatusUnauthorized},
 		{name: "query token forbidden", token: "secret123", queryToken: "secret123", wantStatus: http.StatusUnauthorized},
-		{name: "authorization takes priority", token: "secret123", authHeader: "Bearer wrong", tokenHeader: "X-API-Key", wantStatus: http.StatusUnauthorized},
+		{name: "authorization takes priority", token: "secret123", authHeader: "Bearer wrong", alternateHeader: "X-API-Key", wantStatus: http.StatusUnauthorized},
 	}
 
 	for _, tt := range tests {
@@ -59,8 +67,8 @@ func TestMetricsAuthMiddleware(t *testing.T) {
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
-			if tt.tokenHeader != "" {
-				req.Header.Set(tt.tokenHeader, tt.token)
+			if tt.alternateHeader != "" {
+				req.Header.Set(tt.alternateHeader, tt.token)
 			}
 			if tt.queryToken != "" {
 				req = httptest.NewRequest(http.MethodGet, "/metrics?token="+tt.queryToken, nil)
@@ -92,16 +100,9 @@ func TestMetricsAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestAuthMetricsReportNoUserSessions(t *testing.T) {
-	metrics := newMetrics(config.MetricsConfig{}, buildInfo{}, time.Now(), "")
-	if got := testutil.ToFloat64(metrics.authSessionsActive); got != 0 {
-		t.Fatalf("active user sessions = %v, want 0 for the no-login product", got)
-	}
-}
-
 func TestTorMetricsRegisterManagerLifecycleGauges(t *testing.T) {
 	metrics := newMetrics(config.MetricsConfig{}, buildInfo{}, time.Now(), "")
-	manager := torpkg.NewManager("airports-test", 8080, torpkg.Config{
+	manager := torpkg.NewTorManager("airports-test", 8080, torpkg.TorConfig{
 		Binary: filepath.Join(t.TempDir(), "tor-not-installed"),
 	})
 	metrics.setTorManager(manager)
@@ -130,7 +131,7 @@ func TestTorMetricsRegisterManagerLifecycleGauges(t *testing.T) {
 
 func TestTorRequestsMetricCountsOnlyCircuitMetadata(t *testing.T) {
 	metrics := newMetrics(config.MetricsConfig{}, buildInfo{}, time.Now(), "")
-	manager := torpkg.NewManager("airports-test", 8080, torpkg.Config{
+	manager := torpkg.NewTorManager("airports-test", 8080, torpkg.TorConfig{
 		Binary: filepath.Join(t.TempDir(), "tor-not-installed"),
 	})
 	metrics.setTorManager(manager)
@@ -185,9 +186,31 @@ func TestDatabaseMetricsExposeConnectionPoolStats(t *testing.T) {
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping database: %v", err)
 	}
+	if err := ensureOwnerTokenSchema(database); err != nil {
+		t.Fatalf("ensure owner-token schema: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO owners (id) VALUES ('metrics-owner')`); err != nil {
+		t.Fatalf("insert owner: %v", err)
+	}
+	for _, token := range []struct {
+		kind      string
+		name      string
+		expiresAt any
+		revokedAt any
+	}{
+		{kind: "primary", name: "active-primary"},
+		{kind: "linked", name: "active-linked"},
+		{kind: "linked", name: "expired-linked", expiresAt: time.Now().Add(-time.Hour).Unix()},
+		{kind: "linked", name: "revoked-linked", revokedAt: time.Now().Unix()},
+	} {
+		if _, err := database.Exec(`INSERT INTO api_tokens (owner_id, kind, name, token_hash, token_prefix, token_enc, expires_at, revoked_at) VALUES ('metrics-owner', ?, ?, ?, ?, 'encrypted', ?, ?)`, token.kind, token.name, token.name, token.name, token.expiresAt, token.revokedAt); err != nil {
+			t.Fatalf("insert %s owner token: %v", token.name, err)
+		}
+	}
 
 	metrics := newMetrics(config.MetricsConfig{}, buildInfo{}, time.Now(), t.TempDir())
 	metrics.setDatabase(database)
+	dbpkg.ObserveWriteWait(100*time.Millisecond, 2)
 	families, err := metrics.registry.Gather()
 	if err != nil {
 		t.Fatalf("gather metrics: %v", err)
@@ -195,6 +218,9 @@ func TestDatabaseMetricsExposeConnectionPoolStats(t *testing.T) {
 	want := map[string]bool{
 		"airports_db_connections_open":   false,
 		"airports_db_connections_in_use": false,
+		"airports_db_busy_total":         false,
+		"airports_db_write_wait_seconds": false,
+		"airports_owner_tokens_active":   false,
 	}
 	for _, family := range families {
 		if _, ok := want[family.GetName()]; ok {
@@ -206,10 +232,24 @@ func TestDatabaseMetricsExposeConnectionPoolStats(t *testing.T) {
 			t.Errorf("database metric %q was not gathered", name)
 		}
 	}
+	for _, family := range families {
+		if family.GetName() == "airports_owner_tokens_active" {
+			if got := len(family.GetMetric()); got != 2 {
+				t.Fatalf("active owner-token samples = %d, want primary and linked samples", got)
+			}
+			activeByKind := map[string]float64{}
+			for _, metric := range family.GetMetric() {
+				activeByKind[metric.GetLabel()[0].GetValue()] = metric.GetGauge().GetValue()
+			}
+			if activeByKind["primary"] != 1 || activeByKind["linked"] != 1 {
+				t.Errorf("active owner-token gauges = %v, want one active primary and one active linked token", activeByKind)
+			}
+		}
+	}
 }
 
 func TestCacheMetricsExposeMeasuredBackendStats(t *testing.T) {
-	cache, err := cachepkg.New(config.CacheConfig{Type: "memory", Prefix: "metrics:"})
+	cache, err := cachepkg.NewCache(config.CacheConfig{Type: "memory", Prefix: "metrics:"})
 	if err != nil {
 		t.Fatalf("create memory cache: %v", err)
 	}
@@ -333,12 +373,13 @@ func TestGrafanaMetricsDashboardImportShapeAndCoverage(t *testing.T) {
 		}
 	}
 	for _, metric := range []string{
+		"airports_app_info", "airports_app_uptime_seconds", "airports_app_start_timestamp",
 		"airports_http_requests_total", "airports_http_request_duration_seconds_bucket", "airports_http_request_size_bytes_bucket", "airports_http_response_size_bytes_bucket", "airports_http_active_requests",
-		"airports_db_queries_total", "airports_db_query_duration_seconds_bucket", "airports_db_connections_open", "airports_db_connections_in_use", "airports_db_errors_total",
+		"airports_db_queries_total", "airports_db_query_duration_seconds_bucket", "airports_db_connections_open", "airports_db_connections_in_use", "airports_db_errors_total", "airports_db_busy_total", "airports_db_write_wait_seconds_bucket",
 		"airports_cache_hits_total", "airports_cache_misses_total", "airports_cache_evictions_total", "airports_cache_size", "airports_cache_bytes",
 		"airports_scheduler_tasks_total", "airports_scheduler_task_duration_seconds_bucket", "airports_scheduler_tasks_running", "airports_scheduler_last_run_timestamp",
 		"airports_system_cpu_usage_percent", "airports_system_memory_usage_percent", "airports_system_memory_used_bytes", "airports_system_memory_total_bytes", "airports_system_disk_usage_percent", "airports_system_disk_used_bytes", "airports_system_disk_total_bytes",
-		"airports_auth_attempts_total", "airports_auth_sessions_active", "airports_ratelimit_requests_total", "airports_ratelimit_blocked_total",
+		"airports_auth_attempts_total", "airports_owner_tokens_active", "airports_ratelimit_requests_total", "airports_ratelimit_blocked_total",
 		"airports_go_goroutines", "airports_go_mem_alloc_bytes", "airports_go_mem_sys_bytes", "airports_go_gc_runs_total", "airports_go_gc_pause_total_seconds",
 		"airports_tor_enabled", "airports_tor_running", "airports_tor_circuit_established", "airports_tor_requests_total",
 		"airports_search_total", "airports_nearby_total", "airports_lookup_total", "airports_export_total",

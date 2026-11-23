@@ -46,36 +46,38 @@ const (
 	ServiceLaunchd
 	ServiceWindows
 	ServiceBSDRC
+	ServiceS6
 )
 
 // DetectServiceManager detects the system's service manager.
-// Linux priority order: systemd -> OpenRC -> SysVinit -> runit.
+// Linux priority order follows AI.md: systemd -> OpenRC -> runit/s6 -> SysVinit.
 func DetectServiceManager() ServiceType {
-	switch runtime.GOOS {
+	return detectServiceManager(runtime.GOOS, func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}, func(name string) bool {
+		_, err := exec.LookPath(name)
+		return err == nil
+	}, s6ScanDirectory() != "")
+}
+
+func detectServiceManager(goos string, exists func(string) bool, commandAvailable func(string) bool, s6Running bool) ServiceType {
+	switch goos {
 	case "linux":
-		// systemd
-		if _, err := os.Stat("/run/systemd/system"); err == nil {
+		if exists("/run/systemd/system") {
 			return ServiceSystemd
 		}
-		// OpenRC
-		if _, err := exec.LookPath("openrc-run"); err == nil {
+		if exists("/sbin/openrc-run") && exists("/run/openrc") {
 			return ServiceOpenRC
 		}
-		if _, err := os.Stat("/sbin/openrc-run"); err == nil {
-			return ServiceOpenRC
-		}
-		// SysVinit (init.d present with a working registration tool)
-		if _, err := os.Stat("/etc/init.d"); err == nil {
-			if _, err := exec.LookPath("update-rc.d"); err == nil {
-				return ServiceSysVinit
-			}
-			if _, err := exec.LookPath("chkconfig"); err == nil {
-				return ServiceSysVinit
-			}
-		}
-		// runit
-		if _, err := os.Stat("/run/runit"); err == nil {
+		if exists("/etc/runit") || commandAvailable("sv") {
 			return ServiceRunit
+		}
+		if commandAvailable("s6-svc") && s6Running {
+			return ServiceS6
+		}
+		if exists("/etc/init.d") && (commandAvailable("update-rc.d") || commandAvailable("chkconfig")) {
+			return ServiceSysVinit
 		}
 		return ServiceUnknown
 
@@ -93,11 +95,65 @@ func DetectServiceManager() ServiceType {
 	}
 }
 
+func s6ScanDirectory() string {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		if _, statErr := os.Stat("/run/service"); statErr == nil {
+			return "/run/service"
+		}
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		processDir := filepath.Join("/proc", entry.Name())
+		comm, commErr := os.ReadFile(filepath.Join(processDir, "comm"))
+		if commErr == nil && strings.TrimSpace(string(comm)) != "s6-svscan" {
+			continue
+		}
+		cmdline, readErr := os.ReadFile(filepath.Join(processDir, "cmdline"))
+		if readErr != nil || len(cmdline) == 0 {
+			if commErr == nil && strings.TrimSpace(string(comm)) == "s6-svscan" {
+				return "/run/service"
+			}
+			continue
+		}
+		args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+		if len(args) == 0 || filepath.Base(args[0]) != "s6-svscan" {
+			if commErr != nil || strings.TrimSpace(string(comm)) != "s6-svscan" {
+				continue
+			}
+			return "/run/service"
+		}
+		for _, arg := range args[1:] {
+			if filepath.IsAbs(arg) {
+				return filepath.Clean(arg)
+			}
+		}
+		return "/run/service"
+	}
+	return ""
+}
+
+func s6ServicePath() string {
+	scanDir := s6ScanDirectory()
+	if scanDir == "" {
+		scanDir = "/run/service"
+	}
+	return filepath.Join(scanDir, appName)
+}
+
 // Install installs the service for the detected service manager.
-// Install only installs, enables, and starts the service unit/script — the
-// dedicated system user/group and runtime directories are created by the
-// binary itself on normal startup (see EnsureSystemUser).
-func Install() error {
+// Install creates the dedicated system account before installing a service
+// whose init script may set directory ownership during its first start.
+func InstallSystemService() error {
+	if runtime.GOOS != "windows" && IsElevated() {
+		if err := EnsureSystemUser(); err != nil {
+			return fmt.Errorf("failed to create service account: %w", err)
+		}
+	}
+
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -109,6 +165,8 @@ func Install() error {
 		return installSysVinit()
 	case ServiceRunit:
 		return installRunit()
+	case ServiceS6:
+		return installS6()
 	case ServiceLaunchd:
 		return installLaunchd()
 	case ServiceWindows:
@@ -124,7 +182,7 @@ func Install() error {
 // cache, log, and backup directories, the PID file, and the dedicated
 // system user/group — but never the binary itself. It requires an explicit
 // [y/N] confirmation before any destructive action is taken.
-func Uninstall() error {
+func UninstallSystemService() error {
 	if !confirmUninstall() {
 		fmt.Println("Uninstall cancelled.")
 		return nil
@@ -142,6 +200,8 @@ func Uninstall() error {
 		err = uninstallSysVinit()
 	case ServiceRunit:
 		err = uninstallRunit()
+	case ServiceS6:
+		err = uninstallS6()
 	case ServiceLaunchd:
 		err = uninstallLaunchd()
 	case ServiceWindows:
@@ -156,7 +216,7 @@ func Uninstall() error {
 	}
 
 	removeAllData()
-	binPath := GetBinaryPath()
+	binPath := GetSystemServiceBinaryPath()
 	fmt.Println()
 	fmt.Printf("Config, data, cache, log, and backup directories, the PID file, and the %q system user/group have been removed.\n", appName)
 	fmt.Printf("The binary at %s was left in place — remove it manually if no longer needed.\n", binPath)
@@ -203,7 +263,7 @@ func removeAllData() {
 }
 
 // GetBinaryPath returns the path where the binary should be installed
-func GetBinaryPath() string {
+func GetSystemServiceBinaryPath() string {
 	switch runtime.GOOS {
 	case "windows":
 		return fmt.Sprintf(`C:\Program Files\%s\%s\%s.exe`, orgName, appName, appName)
@@ -279,8 +339,8 @@ func nologinShell() string {
 // serviceHomeDir returns the home directory used for the dedicated system
 // account — the config dir by default.
 func serviceHomeDir() string {
-	configDir, _, _ := paths.GetDefaultDirs(appName)
-	return configDir
+	_, dataDir, _ := paths.GetDefaultDirs(appName)
+	return dataDir
 }
 
 // EnsureSystemUser creates the dedicated "airports" system user/group if it
@@ -310,19 +370,11 @@ func EnsureSystemUser() error {
 	}
 
 	homeDir := serviceHomeDir()
-	if err := os.MkdirAll(homeDir, 0700); err != nil {
-		return fmt.Errorf("failed to create home directory %s: %w", homeDir, err)
-	}
-
 	if err := createSystemGroup(id); err != nil {
 		return err
 	}
 	if err := createSystemUser(id, homeDir); err != nil {
 		return err
-	}
-
-	if err := os.Chown(homeDir, id, id); err != nil && !os.IsPermission(err) {
-		return fmt.Errorf("failed to chown home directory %s: %w", homeDir, err)
 	}
 
 	return nil
@@ -422,7 +474,7 @@ func DeleteSystemUser() error {
 
 // installSystemd creates systemd service file
 func installSystemd() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Airports API Server
@@ -435,28 +487,43 @@ Type=simple
 User=root
 Group=root
 ExecStart=%s
-ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=5s
+RestartSec=5
 LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-ReadWritePaths=/var/lib/%s/%s /var/log/%s/%s /etc/%s/%s
+# The process starts elevated for privileged setup and drops privileges after startup.
+# ProtectSystem=true keeps /etc writable for account creation while protecting /usr and /boot.
+ProtectSystem=true
+ProtectHome=yes
+PrivateTmp=yes
+ExecStartPre=+/usr/bin/install -d -m 0755 /etc/%s/%s /var/lib/%s/%s /var/cache/%s/%s /var/log/%s/%s /var/run/%s/%s /mnt/Backups/%s/%s
+ReadWritePaths=-/etc/%s/%s
+ReadWritePaths=-/var/lib/%s/%s
+ReadWritePaths=-/var/cache/%s/%s
+ReadWritePaths=-/var/log/%s/%s
+ReadWritePaths=-/var/run/%s/%s
+ReadWritePaths=-/mnt/Backups/%s/%s
+ReadWritePaths=-/usr/local/bin
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, orgName, appName, orgName, appName, orgName, appName)
+`, binaryPath,
+		orgName, appName, orgName, appName, orgName, appName,
+		orgName, appName, orgName, appName, orgName, appName,
+		orgName, appName, orgName, appName, orgName, appName,
+		orgName, appName, orgName, appName, orgName, appName)
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
 	// Create directories
 	dirs := []string{
 		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
 		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/run/%s/%s", orgName, appName),
+		fmt.Sprintf("/mnt/Backups/%s/%s", orgName, appName),
 		fmt.Sprintf("/etc/%s/%s", orgName, appName),
 	}
 	for _, dir := range dirs {
@@ -527,7 +594,7 @@ func uninstallSystemd() error {
 
 // installOpenRC creates an OpenRC init script
 func installOpenRC() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 	scriptPath := fmt.Sprintf("/etc/init.d/%s", appName)
 
 	scriptContent := fmt.Sprintf(`#!/sbin/openrc-run
@@ -535,9 +602,9 @@ func installOpenRC() error {
 name="%s"
 description="Airports API Server"
 command="%s"
-command_background="yes"
-pidfile="/run/%s.pid"
-output_log="/var/log/%s/%s/output.log"
+command_background=true
+pidfile="/var/run/%s/%s/%s.pid"
+output_log="/var/log/%s/%s/server.log"
 error_log="/var/log/%s/%s/error.log"
 
 depend() {
@@ -546,9 +613,16 @@ depend() {
 }
 
 start_pre() {
-	checkpath -d -m 0755 -o %s:%s /var/lib/%s/%s /var/log/%s/%s /etc/%s/%s
+	checkpath -d -m 0755 /var/run/%s
+	checkpath -d -m 0755 /var/log/%s
+	checkpath -d -m 0755 /var/lib/%s
+	checkpath -d -m 0755 /etc/%s
+	checkpath -d -m 0755 -o %s:%s /var/run/%s/%s
+	checkpath -d -m 0755 -o %s:%s /var/log/%s/%s
+	checkpath -d -m 0755 -o %s:%s /var/lib/%s/%s
+	checkpath -d -m 0755 -o %s:%s /etc/%s/%s
 }
-`, appName, binaryPath, appName, orgName, appName, orgName, appName, appName, appName, orgName, appName, orgName, appName, orgName, appName)
+`, appName, binaryPath, orgName, appName, appName, orgName, appName, orgName, appName, orgName, orgName, orgName, orgName, appName, appName, orgName, appName, appName, appName, orgName, appName, appName, appName, orgName, appName, appName, appName, orgName, appName)
 
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
 		return fmt.Errorf("failed to write OpenRC script: %w", err)
@@ -593,7 +667,7 @@ func uninstallOpenRC() error {
 
 // installSysVinit creates a SysVinit init.d script
 func installSysVinit() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 	scriptPath := fmt.Sprintf("/etc/init.d/%s", appName)
 
 	scriptContent := fmt.Sprintf(`#!/bin/sh
@@ -688,7 +762,7 @@ func uninstallSysVinit() error {
 // installRunit creates runit service
 func installRunit() error {
 	svDir := fmt.Sprintf("/etc/sv/%s", appName)
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 
 	// Create service directory
 	if err := os.MkdirAll(svDir, 0755); err != nil {
@@ -754,13 +828,98 @@ func uninstallRunit() error {
 	return nil
 }
 
+func installS6() error {
+	scanDir := s6ScanDirectory()
+	if scanDir == "" {
+		return fmt.Errorf("could not find the running s6-svscan directory")
+	}
+	svDir := filepath.Join("/etc/s6/sv", appName)
+	if err := os.MkdirAll(filepath.Join(svDir, "log"), 0755); err != nil {
+		return fmt.Errorf("failed to create s6 service directory: %w", err)
+	}
+	runScript := fmt.Sprintf("#!/bin/sh\nexec %s 2>&1\n", shellQuote(GetSystemServiceBinaryPath()))
+	if err := os.WriteFile(filepath.Join(svDir, "run"), []byte(runScript), 0755); err != nil {
+		return fmt.Errorf("failed to write s6 run script: %w", err)
+	}
+	_, _, appLogDir := paths.GetDefaultDirs(appName)
+	if appLogDir == "" {
+		appLogDir = filepath.Join("/var/log", orgName, appName)
+	}
+	logRun := fmt.Sprintf("#!/bin/sh\nexec s6-log n10 s1000000 %s\n", shellQuote(appLogDir))
+	if err := os.WriteFile(filepath.Join(svDir, "log", "run"), []byte(logRun), 0755); err != nil {
+		return fmt.Errorf("failed to write s6 log run script: %w", err)
+	}
+	if err := enableS6(); err != nil {
+		return err
+	}
+	fmt.Printf("s6 service installed at: %s\n", svDir)
+	return nil
+}
+
+func enableS6() error {
+	scanDir := s6ScanDirectory()
+	if scanDir == "" {
+		return fmt.Errorf("could not find the running s6-svscan directory")
+	}
+	svDir := filepath.Join("/etc/s6/sv", appName)
+	linkPath := filepath.Join(scanDir, appName)
+	if err := os.Symlink(svDir, linkPath); err != nil {
+		if !os.IsExist(err) {
+			return fmt.Errorf("failed to enable s6 service: %w", err)
+		}
+		linkedDirectory, resolveErr := filepath.EvalSymlinks(linkPath)
+		if resolveErr != nil || linkedDirectory != svDir {
+			return fmt.Errorf("s6 service path already exists: %s", linkPath)
+		}
+	}
+	if err := exec.Command("s6-svscanctl", "-a", scanDir).Run(); err != nil {
+		return fmt.Errorf("failed to reload s6 scan directory: %w", err)
+	}
+	if err := exec.Command("s6-svc", "-u", linkPath).Run(); err != nil {
+		return fmt.Errorf("failed to start s6 service: %w", err)
+	}
+	return nil
+}
+
+func disableS6() error {
+	scanDir := s6ScanDirectory()
+	if scanDir == "" {
+		scanDir = "/run/service"
+	}
+	linkPath := filepath.Join(scanDir, appName)
+	_ = exec.Command("s6-svc", "-d", linkPath).Run()
+	if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to disable s6 service: %w", err)
+	}
+	if err := exec.Command("s6-svscanctl", "-a", scanDir).Run(); err != nil {
+		return fmt.Errorf("failed to reload s6 scan directory: %w", err)
+	}
+	return nil
+}
+
+func uninstallS6() error {
+	if err := disableS6(); err != nil {
+		return err
+	}
+	svDir := filepath.Join("/etc/s6/sv", appName)
+	if err := os.RemoveAll(svDir); err != nil {
+		return fmt.Errorf("failed to remove s6 service directory: %w", err)
+	}
+	fmt.Println("s6 service uninstalled")
+	return nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 // ---------------------------------------------------------------------
 // launchd (macOS)
 // ---------------------------------------------------------------------
 
 // installLaunchd creates macOS launchd plist
 func installLaunchd() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 	plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -843,7 +1002,7 @@ const windowsVSA = `NT SERVICE\airports`
 // installWindows creates Windows service running under a Virtual Service
 // Account (VSA), never LocalSystem/Administrator/a logged-in user.
 func installWindows() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 
 	// Copy binary
 	binDir := filepath.Dir(binaryPath)
@@ -898,7 +1057,7 @@ func uninstallWindows() error {
 
 // installBSDRC creates BSD rc.d script
 func installBSDRC() error {
-	binaryPath := GetBinaryPath()
+	binaryPath := GetSystemServiceBinaryPath()
 	rcPath := fmt.Sprintf("/usr/local/etc/rc.d/%s", appName)
 
 	rcContent := fmt.Sprintf(`#!/bin/sh
@@ -982,19 +1141,24 @@ func copyBinary(src, dst string) error {
 	return nil
 }
 
-// Start starts the service
-func Start() error {
+// StartSystemService starts the configured system service.
+func StartSystemService() error {
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
 	case ServiceSystemd:
 		return exec.Command("systemctl", "start", appName).Run()
 	case ServiceOpenRC:
-		return exec.Command("rc-service", appName, "start").Run()
+		cmd := exec.Command("rc-service", appName, "start")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
 	case ServiceSysVinit:
 		return exec.Command("service", appName, "start").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "start", appName).Run()
+	case ServiceS6:
+		return exec.Command("s6-svc", "-u", s6ServicePath()).Run()
 	case ServiceLaunchd:
 		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 		return exec.Command("launchctl", "load", plistPath).Run()
@@ -1007,8 +1171,8 @@ func Start() error {
 	}
 }
 
-// Stop stops the service
-func Stop() error {
+// StopSystemService stops the configured system service.
+func StopSystemService() error {
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1020,6 +1184,8 @@ func Stop() error {
 		return exec.Command("service", appName, "stop").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "stop", appName).Run()
+	case ServiceS6:
+		return exec.Command("s6-svc", "-d", s6ServicePath()).Run()
 	case ServiceLaunchd:
 		plistPath := fmt.Sprintf("/Library/LaunchDaemons/io.github.%s.%s.plist", orgName, appName)
 		return exec.Command("launchctl", "unload", plistPath).Run()
@@ -1032,8 +1198,8 @@ func Stop() error {
 	}
 }
 
-// Restart restarts the service
-func Restart() error {
+// RestartSystemService restarts the configured system service.
+func RestartSystemService() error {
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1045,11 +1211,13 @@ func Restart() error {
 		return exec.Command("service", appName, "restart").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "restart", appName).Run()
+	case ServiceS6:
+		return exec.Command("s6-svc", "-r", s6ServicePath()).Run()
 	case ServiceLaunchd:
-		if err := Stop(); err != nil {
+		if err := StopSystemService(); err != nil {
 			return err
 		}
-		return Start()
+		return StartSystemService()
 	case ServiceWindows:
 		if err := exec.Command("sc.exe", "stop", appName).Run(); err != nil {
 			return err
@@ -1062,8 +1230,8 @@ func Restart() error {
 	}
 }
 
-// Reload sends reload signal to the service
-func Reload() error {
+// ReloadSystemService sends a reload signal to the configured system service.
+func ReloadSystemService() error {
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1075,12 +1243,12 @@ func Reload() error {
 		return exec.Command("sv", "hup", appName).Run()
 	default:
 		// For others, restart is the fallback
-		return Restart()
+		return RestartSystemService()
 	}
 }
 
-// Status prints the service status
-func Status() error {
+// PrintSystemServiceStatus prints the configured system service status.
+func PrintSystemServiceStatus() error {
 	serviceType := DetectServiceManager()
 	switch serviceType {
 	case ServiceSystemd:
@@ -1101,6 +1269,11 @@ func Status() error {
 		return cmd.Run()
 	case ServiceRunit:
 		cmd := exec.Command("sv", "status", appName)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceS6:
+		cmd := exec.Command("s6-svstat", s6ServicePath())
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
@@ -1125,7 +1298,7 @@ func Status() error {
 }
 
 // Enable marks the service for boot-time auto-start
-func Enable() error {
+func EnableSystemService() error {
 	serviceType := DetectServiceManager()
 	switch serviceType {
 	case ServiceSystemd:
@@ -1147,6 +1320,8 @@ func Enable() error {
 		return exec.Command("sc.exe", "config", appName, "start=", "auto").Run()
 	case ServiceBSDRC:
 		return fmt.Errorf("add '%s_enable=\"YES\"' to /etc/rc.conf to enable at boot", appName)
+	case ServiceS6:
+		return enableS6()
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
@@ -1155,7 +1330,7 @@ func Enable() error {
 // Disable removes the service from boot-time auto-start. This only stops
 // and disables the service — the service file, data, and system user/group
 // are left intact (unlike Uninstall).
-func Disable() error {
+func DisableSystemService() error {
 	serviceType := DetectServiceManager()
 	switch serviceType {
 	case ServiceSystemd:
@@ -1181,13 +1356,15 @@ func Disable() error {
 		return exec.Command("sc.exe", "config", appName, "start=", "demand").Run()
 	case ServiceBSDRC:
 		return fmt.Errorf("remove '%s_enable=\"YES\"' from /etc/rc.conf to disable at boot", appName)
+	case ServiceS6:
+		return disableS6()
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
 }
 
 // Logs tails recent logs from the service manager
-func Logs() error {
+func PrintRecentSystemServiceLogs() error {
 	serviceType := DetectServiceManager()
 	switch serviceType {
 	case ServiceSystemd:
@@ -1216,6 +1393,15 @@ func Logs() error {
 	case ServiceBSDRC:
 		logPath := fmt.Sprintf("/var/log/%s/%s/server.log", orgName, appName)
 		cmd := exec.Command("tail", "-n", "50", logPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	case ServiceS6:
+		_, _, logDir := paths.GetDefaultDirs(appName)
+		if logDir == "" {
+			logDir = filepath.Join("/var/log", orgName, appName)
+		}
+		cmd := exec.Command("tail", "-n", "50", filepath.Join(logDir, "current"))
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()

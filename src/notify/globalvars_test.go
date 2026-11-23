@@ -7,7 +7,7 @@ import (
 )
 
 func TestGlobalVarsDefaults(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	vars := GlobalVars(cfg)
 
 	if vars["app_name"] != defaultAppName {
@@ -33,7 +33,7 @@ func TestGlobalVarsDefaults(t *testing.T) {
 }
 
 func TestGlobalVarsCustomBrandingAndSSL(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	cfg.Server.Branding.Title = "My Airports"
 	cfg.Server.FQDN = "example.com"
 	cfg.Server.SSL.Enabled = true

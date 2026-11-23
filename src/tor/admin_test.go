@@ -19,7 +19,7 @@ import (
 func TestStatusReportsDisabled(t *testing.T) {
 	m := managerForTest(t, "airports-test", 8080, false)
 
-	st := m.Status()
+	st := m.GetTorRuntimeStatus()
 	if st.Enabled {
 		t.Error("Status().Enabled = true, want false")
 	}
@@ -34,7 +34,7 @@ func TestStatusReportsDisabled(t *testing.T) {
 func TestValidateNotEnabled(t *testing.T) {
 	m := managerForTest(t, "airports-test", 8080, false)
 
-	if err := m.Validate(); !errors.Is(err, ErrNotEnabled) {
+	if err := m.ValidateTorService(); !errors.Is(err, ErrNotEnabled) {
 		t.Errorf("Validate() error = %v, want ErrNotEnabled", err)
 	}
 }
@@ -42,7 +42,7 @@ func TestValidateNotEnabled(t *testing.T) {
 func TestValidateEnabledNotRunningNoKeyFile(t *testing.T) {
 	m := managerForTest(t, "airports-test-novanity", 8080, true)
 
-	if err := m.Validate(); err != nil {
+	if err := m.ValidateTorService(); err != nil {
 		t.Errorf("Validate() error = %v, want nil when no key file exists yet and Tor is not running", err)
 	}
 }
@@ -50,7 +50,7 @@ func TestValidateEnabledNotRunningNoKeyFile(t *testing.T) {
 func TestRestartDisabledIsInert(t *testing.T) {
 	m := managerForTest(t, "airports-test", 8080, false)
 
-	if err := m.Restart(context.Background()); err != nil {
+	if err := m.RestartTorService(context.Background()); err != nil {
 		t.Errorf("Restart() error = %v, want nil (inert no-op when disabled)", err)
 	}
 }

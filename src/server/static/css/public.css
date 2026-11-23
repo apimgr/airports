@@ -3,153 +3,178 @@
    (AI.md PART 16: CSS load order common -> components -> public) */
 
 /* Header */
-/* Header scrolls with the page. AI.md PART 16: nothing is pinned to the
-   viewport except the cookie banner, toast container, and site banner. */
 #main-header {
+  position: relative;
+  z-index: var(--z-raised);
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
-  padding: var(--space-md);
+  padding: var(--space-3) var(--space-4);
 }
 
 .header-container {
-  max-width: 1200px;
+  max-width: 72rem;
   margin: 0 auto;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-.header-left, .header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-@media (max-width: 767px) {
-  .header-container {
-    position: relative;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-  }
-
-  .header-left,
-  .header-right {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-
-  .header-left {
-    justify-content: space-between;
-  }
-
-  .header-right {
-    justify-content: flex-end;
-  }
-
-  .header-center {
-    top: 100%;
-    z-index: 10;
-  }
-
-  .logo {
-    font-size: 1.25rem;
-  }
+  gap: var(--space-4);
 }
 
 .logo {
-  font-size: 1.5rem;
-  font-weight: bold;
+  flex: 0 0 auto;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text);
   text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
 }
 
-.mobile-menu-toggle {
-  display: block;
-  background: none;
-  border: none;
-  color: var(--color-text);
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: var(--space-sm);
-}
-
-.header-center {
-  position: absolute;
-  top: 70px;
-  inset-inline-start: 0;
-  inset-inline-end: 0;
-  background: var(--color-bg-secondary);
-  flex-direction: column;
-  padding: var(--space-md);
+.nav-links {
   display: none;
-  border-top: 1px solid var(--color-border);
-}
-
-.header-center.active {
-  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .nav-link {
-  color: var(--color-muted);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
   text-decoration: none;
-  transition: color var(--transition-fast);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 }
 
-.nav-link:hover {
+.nav-link:hover,
+.nav-link.active {
   color: var(--color-primary);
-  background: var(--color-bg-hover);
+  background: var(--color-bg-secondary);
 }
 
-.lang-selector {
+.nav-checkbox {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.nav-checkbox:focus-visible ~ #main-header .nav-toggle {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  color: var(--color-text);
+  font-size: var(--font-size-xl);
+  cursor: pointer;
+}
+
+.nav-panel {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(280px, 85vw);
+  height: 100dvh;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) env(safe-area-inset-bottom);
+  background: var(--color-bg);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 300ms ease, visibility 0s linear 300ms;
+  z-index: var(--z-drawer);
+}
+
+[dir="rtl"] .nav-panel { transform: translateX(-100%); }
+
+.nav-panel .nav-link {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-}
-
-.lang-selector select {
-  background: var(--color-bg-hover);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: var(--space-xs) var(--space-sm);
   min-height: 44px;
+  padding: var(--space-3) var(--space-4);
 }
 
-.lang-submit {
-  background: var(--color-bg-hover);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: var(--space-xs) var(--space-sm);
-  min-height: 44px;
-  cursor: pointer;
-}
-
-.lang-submit:hover {
-  background: var(--color-border);
-}
-
-.theme-toggle {
-  background: var(--color-bg-hover);
-  border: none;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  cursor: pointer;
+.nav-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--transition-fast);
+  align-self: flex-end;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--color-text);
+  font-size: var(--font-size-2xl);
+  cursor: pointer;
 }
 
-.theme-toggle:hover {
-  background: var(--color-border);
-  transform: rotate(20deg);
+.nav-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  background: var(--overlay-bg);
+  z-index: var(--z-overlay);
+  cursor: pointer;
+}
+
+.nav-checkbox:checked ~ .nav-panel {
+  transform: none;
+  visibility: visible;
+  transition: transform 300ms ease;
+}
+
+.nav-checkbox:checked ~ .nav-overlay { display: block; }
+
+body:has(.nav-checkbox:checked) { overflow: hidden; }
+
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.preferences-link {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.theme-toggle-form { display: flex; margin: 0; }
+
+.theme-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.theme-button:hover { background: var(--color-border); }
+.theme-button svg { width: 1.25rem; height: 1.25rem; }
+.theme-button svg[hidden] { display: none; }
+
+@media (max-width: 767px) {
+  .header-container { flex-wrap: wrap; }
+  .logo { flex: 1 1 auto; }
+  #main-navigation { display: none; }
+  .nav-toggle { order: 2; }
+  .header-actions { order: 3; }
+}
+
+@media (min-width: 768px) {
+  #main-navigation { display: flex; }
+  .nav-toggle, .nav-panel, .nav-overlay, .nav-checkbox { display: none; }
+  html.nav-collapsed .nav-toggle { display: inline-flex; }
+  html.nav-collapsed #main-navigation { display: none; }
+  html.nav-collapsed .nav-panel { display: flex; }
+  html.nav-collapsed .nav-checkbox:checked ~ .nav-overlay { display: block; }
 }
 
 /* Main Content */
@@ -357,22 +382,6 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
-}
-
-/* Page Headers */
-.page-header {
-  margin-bottom: var(--space-xl);
-  text-align: center;
-}
-
-.page-header h1 {
-  font-size: 2.5rem;
-  margin-bottom: var(--space-sm);
-}
-
-.page-header p {
-  color: var(--color-muted);
-  font-size: 1.1rem;
 }
 
 /* Search Container */
@@ -664,24 +673,6 @@
 }
 
 /* Health check page (AI.md PART 13) */
-/* .section-card is healthz.tmpl-only (single page), so it lives here rather
-   than components.css (AI.md PART 16: components.css is for widgets shared
-   across 2+ pages). */
-.section-card {
-  background: var(--color-bg-secondary);
-  padding: var(--space-xl);
-  border-radius: 12px;
-  margin-bottom: var(--space-lg);
-}
-
-.health-header {
-  text-align: center;
-}
-
-.health-header .tagline {
-  color: var(--color-muted);
-}
-
 .status-banner {
   display: flex;
   align-items: center;
@@ -832,18 +823,6 @@
 /* Responsive - mobile-first, base styles above are mobile defaults */
 @media (min-width: 768px) {
   #main-content { width: 90%; padding: var(--space-xl) var(--space-md); }
-
-  .mobile-menu-toggle { display: none; }
-
-  .header-center {
-    position: static;
-    display: flex;
-    flex-direction: row;
-    gap: var(--space-lg);
-    padding: 0;
-    background: none;
-    border-top: none;
-  }
 
   .hero h1 { font-size: 3rem; }
   .search-hero { flex-direction: row; }

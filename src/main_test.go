@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -20,14 +21,15 @@ import (
 	"github.com/apimgr/airports/src/path"
 )
 
-// newMainTestDir creates an isolated temp directory under /tmp/apimgr/ per
-// project testing rules, cleaned up automatically when the test completes.
+// newMainTestDir creates an isolated project-scoped temp directory and removes
+// it when the test completes.
 func newMainTestDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
-		t.Fatalf("MkdirAll /tmp/apimgr: %v", err)
+	base := filepath.Join(os.TempDir(), paths.OrgName)
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", base, err)
 	}
-	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-main-*")
+	dir, err := os.MkdirTemp(base, "airports-main-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
@@ -187,8 +189,8 @@ func TestExtractServiceSchedulerAndTorCommands(t *testing.T) {
 }
 
 func TestRestartRequiredSettings(t *testing.T) {
-	oldConfig := config.DefaultConfig()
-	newConfig := config.DefaultConfig()
+	oldConfig := config.DefaultApplicationConfig()
+	newConfig := config.DefaultApplicationConfig()
 	if got := restartRequiredSettings(oldConfig, newConfig); len(got) != 0 {
 		t.Fatalf("unchanged settings = %v", got)
 	}
@@ -227,7 +229,7 @@ func TestSmallMaintenanceAndDisplayHelpers(t *testing.T) {
 	}
 	done := make(chan struct{})
 	close(done)
-	watchConfigFile(filepath.Join(newMainTestDir(t), "missing.yml"), config.DefaultConfig(), nil, done, nil)
+	watchConfigFile(filepath.Join(newMainTestDir(t), "missing.yml"), config.DefaultApplicationConfig(), nil, done, nil)
 	if _, err := promptBackupPassword("password: "); err != nil {
 		t.Fatalf("non-interactive password prompt: %v", err)
 	}
@@ -249,9 +251,9 @@ func TestSmallMaintenanceAndDisplayHelpers(t *testing.T) {
 func TestLoadUpdateBranchUsesConfigDirectory(t *testing.T) {
 	dir := newMainTestDir(t)
 	t.Setenv("CONFIG_DIR", dir)
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Update.Branch = "beta"
-	if err := config.Save(filepath.Join(dir, "server.yml"), cfg); err != nil {
+	if err := config.SaveApplicationConfig(filepath.Join(dir, "server.yml"), cfg); err != nil {
 		t.Fatalf("save update config: %v", err)
 	}
 	if got := loadUpdateBranch(); got != "beta" {
@@ -327,12 +329,25 @@ func TestMaintenanceSetupAndComplianceReport(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(configDir, "server.yml")); err != nil {
 		t.Fatalf("setup config file: %v", err)
 	}
-	if err := runComplianceReport(configDir, logsDir); err != nil {
-		t.Fatalf("compliance report: %v", err)
+	var reportErr error
+	report := captureStdout(t, func() { reportErr = runComplianceReport(configDir, logsDir) })
+	if reportErr != nil {
+		t.Fatalf("compliance report: %v", reportErr)
 	}
-	cfg := config.DefaultConfig()
+	for _, expected := range []string{
+		"DPO contact: not configured",
+		"CCPA opt-out applicable: false",
+		"Audit logging: enabled=true retention=none",
+		"Audit log integrity: intact (0 entries)",
+		"Security report retention: 365 days",
+	} {
+		if !strings.Contains(report, expected) {
+			t.Errorf("compliance report missing %q in:\n%s", expected, report)
+		}
+	}
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Compliance.GDPR = true
-	if err := config.Save(filepath.Join(configDir, "server.yml"), cfg); err != nil {
+	if err := config.SaveApplicationConfig(filepath.Join(configDir, "server.yml"), cfg); err != nil {
 		t.Fatalf("save compliance config: %v", err)
 	}
 	if err := runComplianceReport(configDir, logsDir); err != nil {
@@ -343,7 +358,7 @@ func TestMaintenanceSetupAndComplianceReport(t *testing.T) {
 func TestSchedulerCLICommands(t *testing.T) {
 	dir := newMainTestDir(t)
 	configDir := filepath.Join(dir, "config")
-	if err := config.Save(filepath.Join(configDir, "server.yml"), config.DefaultConfig()); err != nil {
+	if err := config.SaveApplicationConfig(filepath.Join(configDir, "server.yml"), config.DefaultApplicationConfig()); err != nil {
 		t.Fatalf("save test config: %v", err)
 	}
 	t.Setenv("CONFIG_DIR", configDir)
@@ -569,6 +584,27 @@ func TestParsePortSpec(t *testing.T) {
 	}
 }
 
+func TestJoinListenAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+		port    string
+		want    string
+	}{
+		{name: "bracketed IPv6 wildcard", address: "[::]", port: "64135", want: "[::]:64135"},
+		{name: "unbracketed IPv6 wildcard", address: "::", port: "80", want: "[::]:80"},
+		{name: "IPv4 address", address: "127.0.0.1", port: "8080", want: "127.0.0.1:8080"},
+		{name: "bracketed IPv6 address", address: "[2001:db8::1]", port: "443", want: "[2001:db8::1]:443"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := joinListenAddress(test.address, test.port); got != test.want {
+				t.Errorf("joinListenAddress(%q, %q) = %q, want %q", test.address, test.port, got, test.want)
+			}
+		})
+	}
+}
+
 func TestRedirectHTTPToHTTPS(t *testing.T) {
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -723,7 +759,7 @@ func TestRunDiskPressureCleanupPrunesOnlyExpiredLogsAndOldBackups(t *testing.T) 
 			t.Fatalf("MkdirAll(%q): %v", dir, err)
 		}
 	}
-	logManager := logging.NewManager(logDir, toLoggingConfig(config.DefaultConfig().Server.Logging))
+	logManager := logging.NewLogManager(logDir, toLoggingConfig(config.DefaultApplicationConfig().Server.Logging))
 	activeLog := logManager.Server().Path()
 	if err := os.WriteFile(activeLog, []byte("active"), 0o600); err != nil {
 		t.Fatalf("write active log: %v", err)
@@ -875,9 +911,9 @@ func TestApplyTZEnv(t *testing.T) {
 }
 
 func TestResolveSchedulerLocation(t *testing.T) {
-	t.Run("empty timezone falls back to time.Local", func(t *testing.T) {
-		if got := resolveSchedulerLocation(""); got != time.Local {
-			t.Errorf("resolveSchedulerLocation(\"\") = %v, want time.Local", got)
+	t.Run("empty timezone uses the configured default", func(t *testing.T) {
+		if got := resolveSchedulerLocation(""); got.String() != "America/New_York" {
+			t.Errorf("resolveSchedulerLocation(\"\") = %v, want America/New_York", got)
 		}
 	})
 
@@ -888,9 +924,9 @@ func TestResolveSchedulerLocation(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid timezone falls back to time.Local", func(t *testing.T) {
-		if got := resolveSchedulerLocation("Not/A_Real_Zone"); got != time.Local {
-			t.Errorf("resolveSchedulerLocation() = %v, want time.Local fallback", got)
+	t.Run("invalid timezone falls back to configured default", func(t *testing.T) {
+		if got := resolveSchedulerLocation("Not/A_Real_Zone"); got.String() != "America/New_York" {
+			t.Errorf("resolveSchedulerLocation() = %v, want America/New_York fallback", got)
 		}
 	})
 }
@@ -976,7 +1012,7 @@ func TestServiceFlagParsesCanonicalFlagSubcommands(t *testing.T) {
 // invalid value returns an error deterministically without side effects
 // beyond setting server.Version/Commit/BuildDate package vars.
 func TestRunInvalidColor(t *testing.T) {
-	err := run("", "", "", "", "", "", "", "", "", false, "bogus", "", false, false, false)
+	err := run("", "", "", "", "", "", "", "", "", false, "bogus", "", false, false, false, false)
 	if err == nil {
 		t.Fatal("run() with invalid --color: expected error, got nil")
 	}
@@ -1202,9 +1238,9 @@ func TestRunScheduledUpdateCheckDeferDays(t *testing.T) {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
-		t.Fatalf("config.Load(%q): %v", configPath, err)
+		t.Fatalf("config.LoadApplicationConfig(%q): %v", configPath, err)
 	}
 	cfg.Server.Update.Branch = "stable"
 	cfg.Server.Update.DeferDays = 30
@@ -1228,15 +1264,18 @@ func TestRunScheduledUpdateCheckDevelIgnoresDeferDays(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `[{"tag_name":"devel","prerelease":true,"published_at":%q,"assets":[]}]`, time.Now().UTC().Format(time.RFC3339))
 	}))
 	defer srv.Close()
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Update.Branch = "daily"
 	cfg.Server.Update.DeferDays = 365
 	cfg.Server.Update.AutoInstall = true
 	cfg.Server.Update.LastNotifiedVersion = "devel"
 	client := &http.Client{Transport: redirectingTransport{targetURL: srv.URL}}
 	err := runScheduledUpdateCheckWithClient(cfg, newMainTestDir(t), client)
-	if err == nil || !strings.Contains(err.Error(), "not supported inside a Docker container") {
-		t.Fatalf("runScheduledUpdateCheckWithClient(devel) error = %v, want updater reached despite defer_days", err)
+	if err != nil {
+		t.Fatalf("runScheduledUpdateCheckWithClient(devel) error = %v, want deferred release check to complete", err)
+	}
+	if cfg.Server.Update.LastNotifiedVersion != "devel" {
+		t.Fatalf("LastNotifiedVersion = %q, want devel despite defer_days", cfg.Server.Update.LastNotifiedVersion)
 	}
 }
 
@@ -1255,9 +1294,9 @@ func TestRunScheduledUpdateCheckNotifiesOncePerVersion(t *testing.T) {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
-		t.Fatalf("config.Load(%q): %v", configPath, err)
+		t.Fatalf("config.LoadApplicationConfig(%q): %v", configPath, err)
 	}
 	cfg.Server.Update.Branch = "stable"
 	cfg.Server.Update.DeferDays = 0
@@ -1292,7 +1331,7 @@ func TestSetUpdateBranchValid(t *testing.T) {
 			t.Errorf("setUpdateBranch(%q) = %v, want nil", branch, err)
 		}
 	}
-	cfg, err := config.Load(filepath.Join(dir, "server.yml"))
+	cfg, err := config.LoadApplicationConfig(filepath.Join(dir, "server.yml"))
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
@@ -1320,12 +1359,12 @@ func TestCheckStatusRunning(t *testing.T) {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
-		t.Fatalf("config.Load(%q): %v", configPath, err)
+		t.Fatalf("config.LoadApplicationConfig(%q): %v", configPath, err)
 	}
 
-	// config.Load's DefaultConfig leaves Server.Port empty (the real port is
+	// config.LoadApplicationConfig's DefaultApplicationConfig leaves Server.Port empty (the real port is
 	// normally assigned during server startup, not config load), so bind an
 	// ephemeral listener ourselves and persist that port into the config -
 	// this mirrors what a running server would have done before checkStatus
@@ -1336,8 +1375,8 @@ func TestCheckStatusRunning(t *testing.T) {
 	}
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 	cfg.Server.Port = port
-	if err := config.Save(configPath, cfg); err != nil {
-		t.Fatalf("config.Save(%q): %v", configPath, err)
+	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
+		t.Fatalf("config.SaveApplicationConfig(%q): %v", configPath, err)
 	}
 
 	mux := http.NewServeMux()
@@ -1363,13 +1402,13 @@ func TestCheckStatusUsesEnvironmentPortWhenConfigPortIsEmpty(t *testing.T) {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
-		t.Fatalf("config.Load(%q): %v", configPath, err)
+		t.Fatalf("config.LoadApplicationConfig(%q): %v", configPath, err)
 	}
 	cfg.Server.Port = ""
-	if err := config.Save(configPath, cfg); err != nil {
-		t.Fatalf("config.Save(%q): %v", configPath, err)
+	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
+		t.Fatalf("config.SaveApplicationConfig(%q): %v", configPath, err)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1403,12 +1442,12 @@ func TestCheckStatusUnhealthy(t *testing.T) {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadApplicationConfig(configPath)
 	if err != nil {
-		t.Fatalf("config.Load(%q): %v", configPath, err)
+		t.Fatalf("config.LoadApplicationConfig(%q): %v", configPath, err)
 	}
 
-	// config.Load's DefaultConfig leaves Server.Port empty, so bind an
+	// config.LoadApplicationConfig's DefaultApplicationConfig leaves Server.Port empty, so bind an
 	// ephemeral listener ourselves and persist that port into the config -
 	// see TestCheckStatusRunning for the full rationale.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1417,8 +1456,8 @@ func TestCheckStatusUnhealthy(t *testing.T) {
 	}
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 	cfg.Server.Port = port
-	if err := config.Save(configPath, cfg); err != nil {
-		t.Fatalf("config.Save(%q): %v", configPath, err)
+	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
+		t.Fatalf("config.SaveApplicationConfig(%q): %v", configPath, err)
 	}
 
 	mux := http.NewServeMux()
@@ -1661,18 +1700,24 @@ func TestExtractEmailFlag(t *testing.T) {
 		wantFound   bool
 		wantAction  string
 		wantAddress string
+		wantDryRun  bool
+		wantError   bool
 		wantRemain  []string
 	}{
-		{"no email keyword", []string{"--port", "8080"}, false, "", "", []string{"--port", "8080"}},
-		{"bare email", []string{"email"}, true, "", "", []string{}},
-		{"email test", []string{"email", "test"}, true, "test", "", []string{}},
-		{"email test address", []string{"email", "test", "someone@example.com"}, true, "test", "someone@example.com", []string{}},
-		{"email not first arg is ignored", []string{"--debug", "email", "test"}, false, "", "", []string{"--debug", "email", "test"}},
+		{"no email keyword", []string{"--port", "8080"}, false, "", "", false, false, []string{"--port", "8080"}},
+		{"bare email", []string{"email"}, true, "", "", false, false, []string{}},
+		{"email test", []string{"email", "test"}, true, "test", "", false, false, []string{}},
+		{"email test address", []string{"email", "test", "someone@example.com"}, true, "test", "someone@example.com", false, false, []string{}},
+		{"email test --to", []string{"email", "test", "--to", "someone@example.com"}, true, "test", "someone@example.com", false, false, []string{}},
+		{"email test --to equals", []string{"email", "test", "--to=someone@example.com"}, true, "test", "someone@example.com", false, false, []string{}},
+		{"email dry run", []string{"email", "test", "--dry-run"}, true, "test", "", true, false, []string{}},
+		{"missing email recipient", []string{"email", "test", "--to"}, true, "test", "", false, true, []string{}},
+		{"email not first arg is ignored", []string{"--debug", "email", "test"}, false, "", "", false, false, []string{"--debug", "email", "test"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			found, action, address, remaining := extractEmailFlag(tt.args)
+			found, action, address, dryRun, remaining, parseErr := extractEmailFlag(tt.args)
 			if found != tt.wantFound {
 				t.Errorf("found = %v, want %v", found, tt.wantFound)
 			}
@@ -1681,6 +1726,12 @@ func TestExtractEmailFlag(t *testing.T) {
 			}
 			if address != tt.wantAddress {
 				t.Errorf("address = %q, want %q", address, tt.wantAddress)
+			}
+			if dryRun != tt.wantDryRun {
+				t.Errorf("dryRun = %v, want %v", dryRun, tt.wantDryRun)
+			}
+			if (parseErr != nil) != tt.wantError {
+				t.Errorf("parseErr = %v, want error %v", parseErr, tt.wantError)
 			}
 			if len(remaining) != len(tt.wantRemain) {
 				t.Fatalf("remaining = %v, want %v", remaining, tt.wantRemain)
@@ -1697,13 +1748,13 @@ func TestExtractEmailFlag(t *testing.T) {
 func TestNotifyRecipient(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  *config.Config
+		cfg  *config.ApplicationConfig
 		want string
 	}{
 		{
 			name: "reply_to wins",
-			cfg: func() *config.Config {
-				c := &config.Config{}
+			cfg: func() *config.ApplicationConfig {
+				c := &config.ApplicationConfig{}
 				c.Server.Notifications.Email.ReplyTo = "reply@example.com"
 				c.Server.Notifications.Email.From.Email = "from@example.com"
 				c.Web.Security.Admin = "admin@example.com"
@@ -1713,8 +1764,8 @@ func TestNotifyRecipient(t *testing.T) {
 		},
 		{
 			name: "falls back to from.email",
-			cfg: func() *config.Config {
-				c := &config.Config{}
+			cfg: func() *config.ApplicationConfig {
+				c := &config.ApplicationConfig{}
 				c.Server.Notifications.Email.From.Email = "from@example.com"
 				c.Web.Security.Admin = "admin@example.com"
 				return c
@@ -1723,8 +1774,8 @@ func TestNotifyRecipient(t *testing.T) {
 		},
 		{
 			name: "falls back to web.security.admin",
-			cfg: func() *config.Config {
-				c := &config.Config{}
+			cfg: func() *config.ApplicationConfig {
+				c := &config.ApplicationConfig{}
 				c.Web.Security.Admin = "admin@example.com"
 				return c
 			}(),
@@ -1732,7 +1783,7 @@ func TestNotifyRecipient(t *testing.T) {
 		},
 		{
 			name: "all empty",
-			cfg:  &config.Config{},
+			cfg:  &config.ApplicationConfig{},
 			want: "",
 		},
 	}
@@ -1747,9 +1798,50 @@ func TestNotifyRecipient(t *testing.T) {
 }
 
 func TestHandleEmailCLIUnknownAction(t *testing.T) {
-	if code := handleEmailCLI("bogus", ""); code != 1 {
+	if code := handleEmailCLI("bogus", "", false, nil); code != 1 {
 		t.Errorf("handleEmailCLI(%q) = %d, want 1", "bogus", code)
 	}
+}
+
+func TestHandleEmailCLIDryRun(t *testing.T) {
+	configDir := newMainTestDir(t)
+	t.Setenv("CONFIG_DIR", configDir)
+	output := captureStdout(t, func() {
+		if code := handleEmailCLI("test", "", true, nil); code != 0 {
+			t.Errorf("handleEmailCLI dry-run = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(output, "Template: test") || !strings.Contains(output, "Subject:") {
+		t.Fatalf("dry-run output does not contain rendered test template: %q", output)
+	}
+}
+
+func TestHandleEmailCLIParseError(t *testing.T) {
+	if code := handleEmailCLI("test", "", false, errors.New("missing recipient")); code != 1 {
+		t.Errorf("handleEmailCLI with parse error = %d, want 1", code)
+	}
+}
+
+func TestHandleEmailCLIRequiresRecipientAndSMTP(t *testing.T) {
+	t.Run("recipient required", func(t *testing.T) {
+		t.Setenv("CONFIG_DIR", newMainTestDir(t))
+		if code := handleEmailCLI("test", "", false, nil); code != 1 {
+			t.Errorf("handleEmailCLI without recipient = %d, want 1", code)
+		}
+	})
+
+	t.Run("SMTP required", func(t *testing.T) {
+		configDir := newMainTestDir(t)
+		t.Setenv("CONFIG_DIR", configDir)
+		configPath := filepath.Join(configDir, "server.yml")
+		contents := []byte("server:\n  notifications:\n    email:\n      reply_to: operator@example.com\n")
+		if err := os.WriteFile(configPath, contents, 0600); err != nil {
+			t.Fatalf("write test config: %v", err)
+		}
+		if code := handleEmailCLI("test", "", false, nil); code != 1 {
+			t.Errorf("handleEmailCLI without SMTP = %d, want 1", code)
+		}
+	})
 }
 
 // NOTE: the following main.go functions are intentionally NOT covered by
@@ -1765,10 +1857,8 @@ func TestHandleEmailCLIUnknownAction(t *testing.T) {
 //     fileLocation success paths are covered above)
 //   handleServiceCommand (named-command branches: invoke real service.*
 //     functions that mutate systemd/OpenRC/launchd/Windows service state)
-//   handleEmailCLI (success/recipient-missing/CanSend-false branches: these
-//     call config.Load against the real default config dir and attempt a
-//     live SMTP send; only the pure-validation "unknown action" branch is
-//     exercised here)
+//   handleEmailCLI (live-send branches: these require real SMTP; the dry-run
+//     and pure-validation branches are exercised with an isolated config dir)
 //   checkForUpdate / checkAndUpdate (success path beyond the in-container
 //     short-circuit: uses a live http.Client with no injection point,
 //     downloads and atomically replaces the running binary)

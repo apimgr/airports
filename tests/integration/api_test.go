@@ -9,7 +9,6 @@ import (
 
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/config"
-	"github.com/apimgr/airports/src/geoip"
 	"github.com/apimgr/airports/src/server"
 )
 
@@ -25,23 +24,13 @@ func loadTestAirportsJSON(t *testing.T) []byte {
 }
 
 func setupTestServer(t *testing.T) *httptest.Server {
-	if testing.Short() {
-		t.Skip("integration tests require network: downloads GeoIP databases")
-	}
-
-	airportSvc, err := airports.NewService(loadTestAirportsJSON(t))
+	airportSvc, err := airports.NewAirportDataService(loadTestAirportsJSON(t))
 	if err != nil {
 		t.Fatalf("Failed to create airport service: %v", err)
 	}
 
-	// Use temp directory for GeoIP data in tests
 	tmpDir := t.TempDir()
-	geoipSvc, err := geoip.NewService(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create geoip service: %v", err)
-	}
-
-	srv := server.New(airportSvc, geoipSvc, &config.Config{}, nil, nil, tmpDir, tmpDir, nil)
+	srv := server.NewServer(airportSvc, nil, config.DefaultApplicationConfig(), nil, nil, tmpDir, tmpDir, nil)
 	return httptest.NewServer(srv.Router())
 }
 
@@ -102,8 +91,8 @@ func TestGeoIPEndpoints(t *testing.T) {
 		endpoint   string
 		wantStatus int
 	}{
-		{"Lookup 8.8.8.8", "/api/v1/geoip/8.8.8.8", http.StatusOK},
-		{"Nearby airports by IP", "/api/v1/geoip/airports/nearby?ip=8.8.8.8", http.StatusOK},
+		{"Lookup with unavailable databases", "/api/v1/geoip/8.8.8.8", http.StatusBadRequest},
+		{"Nearby airports with unavailable databases", "/api/v1/geoip/airports/nearby?ip=8.8.8.8", http.StatusBadRequest},
 		{"Invalid IP", "/api/v1/geoip/invalid", http.StatusBadRequest},
 	}
 

@@ -132,8 +132,8 @@ type nvdCVSSMetric struct {
 	BaseSeverity string `json:"baseSeverity"`
 }
 
-// Service downloads and maintains the local NVD CVE cache.
-type Service struct {
+// CVEService downloads and maintains the local NVD CVE cache.
+type CVEService struct {
 	dir        string
 	apiKey     string
 	apiBaseURL string
@@ -142,18 +142,18 @@ type Service struct {
 	sleep      func(time.Duration)
 }
 
-// NewService creates a CVE update service rooted at securityDir/cve.
+// NewCVEService creates a CVE update service rooted at securityDir/cve.
 // The directory is created (0700) eagerly; a failure here is logged and
-// a valid, non-nil Service is still returned so callers never fail
+// a valid, non-nil CVEService is still returned so callers never fail
 // startup over this operator-awareness feature (mirrors the geoip
 // package's fail-open pattern per AI.md PART 18/19).
-func NewService(securityDir, apiKey string) (*Service, error) {
+func NewCVEService(securityDir, apiKey string) (*CVEService, error) {
 	if securityDir == "" {
 		return nil, fmt.Errorf("security directory is required")
 	}
 
 	dir := filepath.Join(securityDir, "cve")
-	s := &Service{
+	s := &CVEService{
 		dir:        dir,
 		apiKey:     apiKey,
 		apiBaseURL: nvdAPIBaseURL,
@@ -173,14 +173,14 @@ func NewService(securityDir, apiKey string) (*Service, error) {
 
 // requestDelay returns the minimum spacing enforced between paginated
 // requests, per NVD's published rate limits.
-func (s *Service) requestDelay() time.Duration {
+func (s *CVEService) requestDelay() time.Duration {
 	if s.apiKey != "" {
 		return withKeyRequestDelay
 	}
 	return noKeyRequestDelay
 }
 
-// Update performs one incremental NVD CVE fetch-and-cache run. On a
+// UpdateCVEFeed performs one incremental NVD CVE fetch-and-cache run. On a
 // fresh cache it bounds the fetch to the last firstRunLookbackDays days
 // of published CVEs; on subsequent runs it fetches only CVEs modified
 // since the last successful watermark (with an overlap margin).
@@ -189,7 +189,7 @@ func (s *Service) requestDelay() time.Duration {
 // backoff; if retries are exhausted the run gives up and returns an
 // error rather than blocking or crashing the caller. Any records
 // successfully fetched before a failure are still persisted.
-func (s *Service) Update() error {
+func (s *CVEService) UpdateCVEFeed() error {
 	if s.dir == "" {
 		return fmt.Errorf("cve service not initialized")
 	}
@@ -258,7 +258,7 @@ func (s *Service) Update() error {
 // dateRangeParams builds the NVD query parameters for this run and
 // returns the "end" boundary that should become the new watermark on
 // success.
-func (s *Service) dateRangeParams(wm watermark, now time.Time) (url.Values, time.Time) {
+func (s *CVEService) dateRangeParams(wm watermark, now time.Time) (url.Values, time.Time) {
 	params := url.Values{}
 
 	if !wm.Initialized {
@@ -285,7 +285,7 @@ func formatNVDDate(t time.Time) string {
 
 // fetchPageWithRetry fetches a single page of results, retrying on
 // transient/rate-limit failures with capped exponential backoff.
-func (s *Service) fetchPageWithRetry(params url.Values, startIndex int) (*nvdAPIResponse, error) {
+func (s *CVEService) fetchPageWithRetry(params url.Values, startIndex int) (*nvdAPIResponse, error) {
 	delay := retryBaseDelay
 	var lastErr error
 
@@ -344,7 +344,7 @@ func isRetryable(err error) bool {
 }
 
 // fetchPage performs a single HTTP request against the NVD API.
-func (s *Service) fetchPage(params url.Values, startIndex int) (*nvdAPIResponse, error) {
+func (s *CVEService) fetchPage(params url.Values, startIndex int) (*nvdAPIResponse, error) {
 	reqParams := url.Values{}
 	for k, v := range params {
 		reqParams[k] = v
@@ -455,7 +455,7 @@ func bestCVSSMetric(cve nvdCVE) (nvdCVSSMetric, bool) {
 
 // loadIndex reads the local CVE index. A missing file is not an error —
 // it just means this is the first run.
-func (s *Service) loadIndex() (map[string]CVERecord, error) {
+func (s *CVEService) loadIndex() (map[string]CVERecord, error) {
 	path := filepath.Join(s.dir, indexFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -476,13 +476,13 @@ func (s *Service) loadIndex() (map[string]CVERecord, error) {
 }
 
 // saveIndex atomically writes the CVE index (write-temp-then-rename).
-func (s *Service) saveIndex(index map[string]CVERecord) error {
+func (s *CVEService) saveIndex(index map[string]CVERecord) error {
 	return atomicWriteJSON(filepath.Join(s.dir, indexFileName), index)
 }
 
 // loadWatermark reads the last-successful-update watermark. A missing
 // file is not an error — it means this service has never run before.
-func (s *Service) loadWatermark() (watermark, error) {
+func (s *CVEService) loadWatermark() (watermark, error) {
 	path := filepath.Join(s.dir, watermarkFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -500,7 +500,7 @@ func (s *Service) loadWatermark() (watermark, error) {
 }
 
 // saveWatermark atomically writes the update watermark.
-func (s *Service) saveWatermark(wm watermark) error {
+func (s *CVEService) saveWatermark(wm watermark) error {
 	return atomicWriteJSON(filepath.Join(s.dir, watermarkFileName), wm)
 }
 

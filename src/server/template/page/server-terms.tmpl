@@ -1,24 +1,56 @@
 {{define "content"}}
-<section class="page-section">
-    <h1>{{t "terms.title"}}</h1>
+<div class="container container-md">
+    {{if operatorContentSet "terms"}}
+    {{operatorHTML "terms"}}
+    {{else}}
+    <header class="page-header">
+        <h1 class="page-title">{{t "terms.title"}}</h1>
+        <p class="page-lead">{{t "terms.service_desc"}}</p>
+    </header>
 
-    <h2>{{t "terms.service_heading"}}</h2>
-    <p>{{t "terms.service_desc"}}</p>
+    <section class="section-card" aria-labelledby="terms-acceptance">
+        <h2 id="terms-acceptance">{{t "terms.acceptance_heading"}}</h2>
+        <p>{{t "terms.acceptance_desc"}}</p>
+    </section>
 
-    <h2>{{t "terms.acceptable_heading"}}</h2>
-    <ul>
-        <li>{{t "terms.rate_limit_pre"}}<code>.json</code>, <code>.csv</code>, <code>.geojson</code>{{t "terms.rate_limit_post"}}</li>
-        <li>{{t "terms.no_attack"}}</li>
-        <li>{{t "terms.attribution"}}</li>
-    </ul>
+    <section class="section-card" aria-labelledby="terms-service">
+        <h2 id="terms-service">{{t "terms.service_heading"}}</h2>
+        <p>{{t "terms.service_desc"}}</p>
+    </section>
 
-    <h2>{{t "terms.warranty_heading"}}</h2>
-    <p>{{t "terms.warranty_pre"}} <strong>as-is</strong>{{t "terms.warranty_post"}}</p>
+    <section class="section-card" aria-labelledby="terms-acceptable">
+        <h2 id="terms-acceptable">{{t "terms.acceptable_heading"}}</h2>
+        <ul>
+            <li>{{tf "terms.rate_limit" "formats" ".json, .csv, .geojson"}}</li>
+            <li>{{t "terms.no_attack"}}</li>
+            <li>{{t "terms.attribution"}}</li>
+        </ul>
+    </section>
 
-    <h2>{{t "terms.liability_heading"}}</h2>
-    <p>{{t "terms.liability_desc"}}</p>
+    <section class="section-card" aria-labelledby="terms-warranty">
+        <h2 id="terms-warranty">{{t "terms.warranty_heading"}}</h2>
+        <p>{{t "terms.warranty"}}</p>
+    </section>
 
-    <h2>{{t "terms.license_heading"}}</h2>
-    <p>{{t "terms.license_pre"}} <a href="https://github.com/apimgr/airports/blob/main/LICENSE.md">LICENSE.md</a>{{t "terms.license_post"}}</p>
-</section>
+    <section class="section-card" aria-labelledby="terms-liability">
+        <h2 id="terms-liability">{{t "terms.liability_heading"}}</h2>
+        <p>{{t "terms.liability_desc"}}</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="terms-license">
+        <h2 id="terms-license">{{t "terms.license_heading"}}</h2>
+        <p><a href="https://github.com/apimgr/airports/blob/main/LICENSE.md">{{t "terms.license"}}</a></p>
+    </section>
+
+    <section class="section-card" aria-labelledby="terms-changes">
+        <h2 id="terms-changes">{{t "terms.changes_heading"}}</h2>
+        <p>{{t "terms.changes_desc"}}</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="terms-governing-law">
+        <h2 id="terms-governing-law">{{t "terms.governing_law_heading"}}</h2>
+        <p>{{t "terms.governing_law_desc"}}</p>
+    </section>
+    {{end}}
+</div>
 {{end}}

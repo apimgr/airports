@@ -1,10 +1,15 @@
 package paths
 
 import (
+	"errors"
+	"fmt"
+	"log"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"unicode"
 )
 
 const (
@@ -45,7 +50,7 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 		return configDir, dataDir, logsDir
 	}
 
-	if isRootOrAdmin() {
+	if startedElevated {
 		// Running with elevated privileges - use system directories with org/name structure
 		switch {
 		case goosFunc() == "windows":
@@ -122,7 +127,56 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 // EnsureDir creates a directory if it doesn't exist.
 // Uses 0700 per AI.md PART 23/31 (config/data/log dirs are owner-only).
 func EnsureDir(path string) error {
-	return os.MkdirAll(path, 0700)
+	permission := os.FileMode(0700)
+	if startedElevated {
+		permission = 0755
+	}
+	_, statErr := os.Stat(path)
+	if err := os.MkdirAll(path, permission); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, permission); err != nil {
+		return err
+	}
+	testFile, err := os.CreateTemp(path, ".airports-write-test-")
+	if err != nil {
+		return fmt.Errorf("directory %s is not writable: %w", path, err)
+	}
+	testName := testFile.Name()
+	if err := testFile.Chmod(0600); err != nil {
+		_ = testFile.Close()
+		_ = os.Remove(testName)
+		return err
+	}
+	if err := testFile.Close(); err != nil {
+		_ = os.Remove(testName)
+		return err
+	}
+	if err := os.Remove(testName); err != nil {
+		return err
+	}
+	if os.IsNotExist(statErr) {
+		log.Printf("Created directory: %s", path)
+	}
+	return nil
+}
+
+// SafeDirPath validates a filesystem path while preserving absolute paths.
+func SafeDirPath(input string) (string, error) {
+	if input == "" {
+		return "", errors.New("empty path")
+	}
+	for _, character := range input {
+		if unicode.IsControl(character) {
+			return "", errors.New("invalid path characters")
+		}
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(input), "/") {
+		if segment == ".." {
+			return "", errors.New("path traversal")
+		}
+	}
+	return filepath.Clean(input), nil
 }
 
 // EnsureDirs creates all required directories
@@ -256,7 +310,7 @@ func GetCacheDir(projectName string) string {
 		return filepath.Join("/data", projectName, "cache")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":
@@ -298,7 +352,7 @@ func GetPIDFile(projectName string) string {
 		return filepath.Join("/data", projectName, projectName+".pid")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":
@@ -421,7 +475,7 @@ func GetSSLDir(projectName string) string {
 		return filepath.Join("/config", projectName, "ssl")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":
@@ -476,7 +530,7 @@ func GetSecurityDir(projectName string) string {
 		return filepath.Join("/data", projectName, "security")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":
@@ -530,7 +584,7 @@ func GetTorDir(projectName string) string {
 		return filepath.Join("/data", projectName, "tor")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":
@@ -584,7 +638,7 @@ func GetSQLiteDBPath(projectName string) string {
 		return filepath.Join("/data", "db", "sqlite")
 	}
 
-	isRoot := isRootOrAdmin()
+	isRoot := startedElevated
 
 	switch {
 	case goosFunc() == "windows":

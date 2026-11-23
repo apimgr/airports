@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="container container-lg docs-ui">
+    <header class="page-header">
+        <h1 class="page-title">{{t "graphql.playground_title"}}</h1>
+        <p>{{t "graphql.playground_description"}}</p>
+    </header>
+    <div id="graphql-container">
+        <div id="graphiql" data-endpoint-url="{{.GraphQLEndpoint}}"></div>
+    </div>
+</div>
+<script src="{{.BaseURL}}/server/docs/graphql/assets/react.production.min.js"></script>
+<script src="{{.BaseURL}}/server/docs/graphql/assets/react-dom.production.min.js"></script>
+<script src="{{.BaseURL}}/server/docs/graphql/assets/graphiql.min.js"></script>
+{{end}}

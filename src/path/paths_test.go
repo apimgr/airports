@@ -123,6 +123,7 @@ func TestGetDefaultDirs_EmptyProjectName(t *testing.T) {
 }
 
 func TestEnsureDir(t *testing.T) {
+	withRootOrAdmin(t, false)
 	scratch := newScratchDir(t)
 	target := filepath.Join(scratch, "nested", "config")
 
@@ -144,6 +145,60 @@ func TestEnsureDir(t *testing.T) {
 	// Idempotency: calling it again on an existing directory must not error.
 	if err := EnsureDir(target); err != nil {
 		t.Errorf("EnsureDir on existing dir: unexpected error: %v", err)
+	}
+}
+
+func TestEnsureDirUsesRootDirectoryMode(t *testing.T) {
+	withRootOrAdmin(t, true)
+	target := filepath.Join(newScratchDir(t), "root-mode")
+	if err := EnsureDir(target); err != nil {
+		t.Fatalf("EnsureDir: %v", err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0755 {
+		t.Fatalf("directory mode = %o, want 0755", got)
+	}
+	if err := os.Chmod(target, 0700); err != nil {
+		t.Fatalf("Chmod to incorrect mode: %v", err)
+	}
+	if err := EnsureDir(target); err != nil {
+		t.Fatalf("EnsureDir existing directory: %v", err)
+	}
+	info, err = os.Stat(target)
+	if err != nil {
+		t.Fatalf("Stat after mode enforcement: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0755 {
+		t.Fatalf("existing directory mode = %o, want enforced 0755", got)
+	}
+}
+
+func TestSafeDirPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "absolute path preserved", input: "/var/lib/airports", want: "/var/lib/airports"},
+		{name: "relative path cleaned", input: "./data//airports", want: "data/airports"},
+		{name: "parent traversal rejected", input: "data/../secrets", wantErr: true},
+		{name: "control character rejected", input: "data/airports\n", wantErr: true},
+		{name: "empty path rejected", input: "", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := SafeDirPath(test.input)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("SafeDirPath(%q) error = %v, wantErr %v", test.input, err, test.wantErr)
+			}
+			if err == nil && got != test.want {
+				t.Errorf("SafeDirPath(%q) = %q, want %q", test.input, got, test.want)
+			}
+		})
 	}
 }
 
@@ -356,6 +411,30 @@ func TestGetSQLiteDBPath(t *testing.T) {
 	want := filepath.Join("/var/lib", OrgName, "airports", "db")
 	if got := GetSQLiteDBPath("airports"); got != want {
 		t.Errorf("GetSQLiteDBPath(%q) = %q, want %q", "airports", got, want)
+	}
+}
+
+func TestSystemPathsKeepStartupPrivilegeAfterDrop(t *testing.T) {
+	withGOOS(t, "linux")
+	withRunningInContainer(t, false)
+	origRootCheck := isRootOrAdminFunc
+	origStartedElevated := startedElevated
+	isRootOrAdminFunc = func() bool { return false }
+	startedElevated = true
+	t.Cleanup(func() {
+		isRootOrAdminFunc = origRootCheck
+		startedElevated = origStartedElevated
+	})
+
+	_, dataDir, _ := GetDefaultDirs("airports")
+	if want := filepath.Join("/var/lib", OrgName, "airports"); dataDir != want {
+		t.Errorf("GetDefaultDirs data directory = %q, want startup system path %q", dataDir, want)
+	}
+	if want := filepath.Join("/var/lib", OrgName, "airports", "db"); GetSQLiteDBPath("airports") != want {
+		t.Errorf("GetSQLiteDBPath = %q, want startup system path %q", GetSQLiteDBPath("airports"), want)
+	}
+	if want := filepath.Join("/var/cache", OrgName, "airports"); GetCacheDir("airports") != want {
+		t.Errorf("GetCacheDir = %q, want startup system path %q", GetCacheDir("airports"), want)
 	}
 }
 

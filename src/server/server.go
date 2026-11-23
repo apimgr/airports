@@ -1,7 +1,7 @@
 package server
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -28,6 +29,7 @@ import (
 	"github.com/apimgr/airports/src/logging"
 	"github.com/apimgr/airports/src/mode"
 	"github.com/apimgr/airports/src/scheduler"
+	swaggerpkg "github.com/apimgr/airports/src/swagger"
 	"github.com/apimgr/airports/src/tor"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -49,38 +51,58 @@ var (
 
 // Server holds application dependencies
 type Server struct {
-	airports    *airports.Service
-	geoip       *geoip.Service
-	config      *config.Config
-	configDir   string
-	configMu    sync.RWMutex // guards config hot-reload
-	proxyCIDRs  *trustedProxyCIDRCache
-	router      *chi.Mux
-	rateLimiter *RateLimiter
-	metrics     *appMetrics
-	scheduler   *scheduler.Scheduler
-	cache       cachepkg.Cache
-	blockStore  *BlockStore
-	allowlist   *AllowlistLookup
-	urlResolver *urlvars.Manager
+	airports       *airports.AirportDataService
+	geoip          *geoip.GeoIPService
+	config         *config.ApplicationConfig
+	configDir      string
+	configMu       sync.RWMutex // guards config hot-reload
+	proxyCIDRs     *trustedProxyCIDRCache
+	router         *chi.Mux
+	rateLimiter    *RateLimiter
+	metrics        *appMetrics
+	scheduler      *scheduler.Scheduler
+	cache          cachepkg.Cache
+	blockStore     *BlockStore
+	allowlist      *AllowlistLookup
+	urlResolver    *urlvars.URLResolverManager
+	brandingAssets *BrandingAssetResolver
 
 	// db, dataDir, and tor back /server/healthz component checks (AI.md
 	// PART 13). db and tor may be nil (e.g. in unit tests that don't wire
 	// them up) — every consumer treats that as a hard "error"/"disabled"
 	// state rather than panicking.
-	db                       *sql.DB
-	dataDir                  string
-	tor                      *tor.Manager
-	i2p                      *i2p.Manager
-	stats                    *statsCollector
-	startTime                time.Time
-	contactCaptchaMu         sync.Mutex
-	contactCaptchaChallenges map[string]contactCaptchaChallenge
-	contactCaptchaRequired   map[string]time.Time
-	cliReleaseCacheMu        sync.Mutex
-	cliReleaseCache          *cliReleaseCache
-	cliReleaseAPIBase        string
-	cliReleaseHTTPClient     *http.Client
+	db                   dbmetrics.Handle
+	dataDir              string
+	tor                  *tor.TorManager
+	i2p                  *i2p.I2PManager
+	stats                *statsCollector
+	startTime            time.Time
+	cliReleaseCacheMu    sync.Mutex
+	cliReleaseCache      *cliReleaseCache
+	cliReleaseAPIBase    string
+	cliReleaseHTTPClient *http.Client
+	securityLog          *logging.LogWriter
+	webhookMu            sync.Mutex
+	webhookQueue         chan webhookDelivery
+	webhookCtx           context.Context
+	webhookCancel        context.CancelFunc
+	webhookWG            sync.WaitGroup
+	webhookStopped       bool
+	accessLog            *logging.LogWriter
+	errorLog             *logging.LogWriter
+	auditLogger          interface {
+		WriteAudit(logging.AuditCategory, string) error
+	}
+}
+
+// SetAuditLogger installs the configured server audit writer for runtime
+// events emitted by server handlers.
+func (s *Server) SetAuditLogger(writer interface {
+	WriteAudit(logging.AuditCategory, string) error
+}) {
+	if s != nil {
+		s.auditLogger = writer
+	}
 }
 
 // ErrorResponse is the canonical error envelope per AI.md PART 14:
@@ -95,18 +117,14 @@ type ErrorResponse struct {
 	Details interface{} `json:"details"`
 }
 
-// New creates a new server instance. db, dataDir, and torMgr feed the
+// NewServer creates a server instance. db, dataDir, and torMgr feed the
 // /server/healthz component checks (AI.md PART 13); db and torMgr may be
 // nil when the caller has no such dependency (e.g. tests).
-func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Config, sched *scheduler.Scheduler, db *sql.DB, dataDir, configDir string, torMgr *tor.Manager, recentLogs ...*logging.RecentLogBuffer) *Server {
+func NewServer(airportSvc *airports.AirportDataService, geoipSvc *geoip.GeoIPService, cfg *config.ApplicationConfig, sched *scheduler.Scheduler, db dbmetrics.Handle, dataDir, configDir string, torMgr *tor.TorManager, recentLogs ...*logging.RecentLogBuffer) *Server {
 	dbmetrics.SetQueryLoggingEnabled(cfg.Server.Debug.LogQueries)
-	i18n.Configure(i18n.Config{
-		Enabled:            cfg.Server.I18n.Enabled,
+	i18n.ConfigureLanguageSupport(i18n.LanguageConfig{
 		DefaultLanguage:    cfg.Server.I18n.DefaultLanguage,
 		AvailableLanguages: cfg.Server.I18n.Supported,
-		FallbackLanguage:   cfg.Server.I18n.FallbackLanguage,
-		CookieName:         cfg.Server.I18n.CookieName,
-		CookieMaxAge:       cfg.Server.I18n.CookieMaxAge,
 	})
 
 	// Initialize templates
@@ -118,42 +136,87 @@ func New(airportSvc *airports.Service, geoipSvc *geoip.Service, cfg *config.Conf
 	// opt-in. Never crash startup on a bad/unreachable cache config — fall
 	// back to memory and log a warning (config file is the source of truth,
 	// but invalid values must degrade gracefully per PART 5).
-	cache, err := cachepkg.NewWithDebug(cfg.Server.Cache, cfg.Server.Debug.LogCache)
+	cache, err := cachepkg.NewCacheWithDebug(cfg.Server.Cache, cfg.Server.Debug.LogCache)
 	if err != nil {
 		log.Printf("Warning: cache backend %q unavailable (%v) — falling back to memory", cfg.Server.Cache.Type, err)
-		cache, err = cachepkg.NewWithDebug(config.CacheConfig{Type: "memory", Prefix: cfg.Server.Cache.Prefix, TTL: cfg.Server.Cache.TTL}, cfg.Server.Debug.LogCache)
+		cache, err = cachepkg.NewCacheWithDebug(config.CacheConfig{Type: "memory", Prefix: cfg.Server.Cache.Prefix, TTL: cfg.Server.Cache.TTL}, cfg.Server.Debug.LogCache)
 		if err != nil {
 			log.Printf("Warning: memory cache fallback failed (%v) — caching disabled", err)
-			cache, _ = cachepkg.NewWithDebug(config.CacheConfig{Type: "none"}, cfg.Server.Debug.LogCache)
+			cache, _ = cachepkg.NewCacheWithDebug(config.CacheConfig{Type: "none"}, cfg.Server.Debug.LogCache)
 		}
 	}
 
-	blockStore := NewBlockStore(cfg.Server.Security.BlockedIPs)
+	blockStore := NewBlockStore(cfg.Server.Security.BlockedIPs, resolveTrustedProxyCIDRs(cfg)...)
+	blocklistPath := filepath.Join(dataDir, "security", "blocklists", "firehol_level1.txt")
+	if err := blockStore.LoadDownloadedNetset(blocklistPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: could not load saved FireHOL blocklist: %v", err)
+	}
 	startTime := time.Now()
 
 	s := &Server{
-		airports:                 airportSvc,
-		geoip:                    geoipSvc,
-		config:                   cfg,
-		configDir:                configDir,
-		rateLimiter:              NewConfiguredRateLimiter(cfg, configDir, blockStore),
-		metrics:                  newMetrics(cfg.Server.Metrics, buildInfo{version: Version, commit: CommitID, buildDate: BuildDate}, startTime, dataDir),
-		scheduler:                sched,
-		cache:                    cache,
-		blockStore:               blockStore,
-		allowlist:                NewAllowlistLookup(cfg.Server.Security.Allowlist),
-		db:                       db,
-		dataDir:                  dataDir,
-		tor:                      torMgr,
-		stats:                    newStatsCollector(),
-		startTime:                startTime,
-		contactCaptchaChallenges: make(map[string]contactCaptchaChallenge),
-		contactCaptchaRequired:   make(map[string]time.Time),
-		cliReleaseAPIBase:        "https://api.github.com",
-		cliReleaseHTTPClient:     &http.Client{Timeout: 12 * time.Second},
+		airports:             airportSvc,
+		geoip:                geoipSvc,
+		config:               cfg,
+		configDir:            configDir,
+		rateLimiter:          NewConfiguredRateLimiter(cfg, configDir, blockStore),
+		metrics:              newMetrics(cfg.Server.Metrics, buildInfo{version: Version, commit: CommitID, buildDate: BuildDate}, startTime, dataDir),
+		scheduler:            sched,
+		cache:                cache,
+		blockStore:           blockStore,
+		allowlist:            NewAllowlistLookup(cfg.Server.Security.Allowlist),
+		db:                   db,
+		dataDir:              dataDir,
+		tor:                  torMgr,
+		stats:                newStatsCollector(),
+		startTime:            startTime,
+		cliReleaseAPIBase:    "https://api.github.com",
+		cliReleaseHTTPClient: &http.Client{Timeout: 12 * time.Second},
 	}
+	if err := RegisterHealthCheck("data_airports", true, func() string {
+		if s.airports == nil || len(s.airports.GetRawData()) == 0 {
+			return "error"
+		}
+		return "ok"
+	}); err != nil {
+		log.Printf("Warning: failed to register airport data health check: %v", err)
+	}
+	if err := RegisterHealthCheck("blocklist_firehol_level1", false, func() string {
+		return blockStore.BlocklistHealthStatus(filepath.Join(dataDir, "security"), 72*time.Hour, time.Now())
+	}); err != nil {
+		log.Printf("Warning: failed to register FireHOL health check: %v", err)
+	}
+	geoIPChecks := []struct {
+		key      string
+		filename string
+	}{
+		{key: "geoip_asn", filename: "iptoasn-asn.mmdb"},
+		{key: "geoip_country", filename: "iptoasn-country.mmdb"},
+		{key: "geoip_city_ipv4", filename: "dbip-city-ipv4.mmdb"},
+		{key: "geoip_city_ipv6", filename: "dbip-city-ipv6.mmdb"},
+	}
+	if cfg.Server.GeoIP.Enabled {
+		for _, dataset := range geoIPChecks {
+			filename := dataset.filename
+			if err := RegisterHealthCheck(dataset.key, false, func() string {
+				return geoipSvc.DatabaseHealthStatus(filename, 7*24*time.Hour, time.Now())
+			}); err != nil {
+				log.Printf("Warning: failed to register GeoIP health check %q: %v", dataset.key, err)
+			}
+		}
+	} else {
+		for _, dataset := range geoIPChecks {
+			RemoveHealthCheck(dataset.key)
+		}
+	}
+	RefreshHealthChecks()
 	s.rateLimiter.debugLogDB = s.debugLogDB
 	s.configureURLResolver(cfg)
+	brandingAssets, assetErr := NewBrandingAssetResolver(configDir, dataDir)
+	if assetErr != nil {
+		log.Printf("Warning: branding image resolver unavailable: %v", assetErr)
+	} else {
+		s.brandingAssets = brandingAssets
+	}
 	useExternalRateLimitCache := cfg.Server.Cache.Type == "redis" || cfg.Server.Cache.Type == "valkey"
 	if err := s.rateLimiter.SetPersistence(db, cache, useExternalRateLimitCache); err != nil {
 		log.Printf("Warning: failed to initialize persistent rate-limit storage (%s); counters will remain process-local", rateLimitStorageErrorKind(err))
@@ -202,10 +265,31 @@ func (s *Server) Cache() cachepkg.Cache {
 // CloseCache releases the cache backend's resources (connections,
 // background goroutines). Safe to call during graceful shutdown.
 func (s *Server) CloseCache() error {
+	if s == nil {
+		return nil
+	}
+	s.webhookMu.Lock()
+	if !s.webhookStopped {
+		s.webhookStopped = true
+		if s.webhookCancel != nil {
+			s.webhookCancel()
+		}
+	}
+	s.webhookMu.Unlock()
+	s.webhookWG.Wait()
 	if s.cache == nil {
 		return nil
 	}
 	return s.cache.Close()
+}
+
+// ShutdownRateLimitCounters stops periodic persistence and flushes pending
+// rate-limit counters after HTTP requests have drained.
+func (s *Server) ShutdownRateLimitCounters() error {
+	if s == nil || s.rateLimiter == nil {
+		return nil
+	}
+	return s.rateLimiter.ShutdownRateLimitCounters()
 }
 
 // Router returns the configured HTTP router
@@ -215,7 +299,7 @@ func (s *Server) Router() http.Handler {
 
 // ReloadConfig swaps in a new configuration atomically. Called on SIGHUP.
 // The router is not rebuilt — settings take effect on the next request.
-func (s *Server) ReloadConfig(cfg *config.Config) {
+func (s *Server) ReloadConfig(cfg *config.ApplicationConfig) {
 	dbmetrics.SetQueryLoggingEnabled(cfg.Server.Debug.LogQueries)
 	s.configMu.Lock()
 	s.config = cfg
@@ -223,18 +307,18 @@ func (s *Server) ReloadConfig(cfg *config.Config) {
 	cachepkg.SetDebugLogging(s.cache, cfg.Server.Debug.LogCache)
 	s.rateLimiter.setDebugLogCache(cfg.Server.Debug.LogCache)
 	if s.i2p != nil {
-		if err := s.i2p.UpdateConfig(cfg.Server.I2P); err != nil {
+		if err := s.i2p.ReloadI2PConfig(cfg.Server.I2P); err != nil {
 			log.Printf("Warning: failed to reload I2P eepsite: %v", err)
 		}
 	}
 	s.configureURLResolver(cfg)
 }
 
-func (s *Server) configureURLResolver(cfg *config.Config) {
+func (s *Server) configureURLResolver(cfg *config.ApplicationConfig) {
 	if cfg == nil {
 		return
 	}
-	options := urlvars.Options{
+	options := urlvars.URLResolverOptions{
 		FQDN: cfg.Server.FQDN, DomainEnv: os.Getenv("DOMAIN"), ListenPort: cfg.Server.Port,
 		OnionAddress: cfg.Server.Tor.OnionAddress, ProjectName: "airports",
 		Development: strings.EqualFold(cfg.Server.Mode, "development"), Detection: cfg.Server.URLDetection,
@@ -244,17 +328,37 @@ func (s *Server) configureURLResolver(cfg *config.Config) {
 		options.I2PAddress = s.i2p.EepsiteAddress()
 	}
 	if s.urlResolver == nil {
-		s.urlResolver = urlvars.NewManager(options)
+		s.urlResolver = urlvars.NewURLResolverManager(options)
 	} else {
 		s.urlResolver.UpdateOptions(options)
 	}
-	urlvars.SetDefaultManager(s.urlResolver)
+	urlvars.SetDefaultURLResolverManager(s.urlResolver)
 }
 
 // SetI2PManager attaches the optional eepsite lifecycle to request handling.
-func (s *Server) SetI2PManager(manager *i2p.Manager) {
+func (s *Server) SetI2PManager(manager *i2p.I2PManager) {
 	s.i2p = manager
 	s.configureURLResolver(s.config)
+}
+
+// SetSecurityLog attaches the configured security log writer after the
+// scheduler dependencies have created the shared logging manager.
+func (s *Server) SetSecurityLog(writer *logging.LogWriter) {
+	s.securityLog = writer
+}
+
+// SetAccessLog installs the configured access-log writer after startup.
+func (s *Server) SetAccessLog(writer *logging.LogWriter) {
+	if s != nil {
+		s.accessLog = writer
+	}
+}
+
+// SetErrorLog installs the configured error-log writer after startup.
+func (s *Server) SetErrorLog(writer *logging.LogWriter) {
+	if s != nil {
+		s.errorLog = writer
+	}
 }
 
 // JSON helpers
@@ -315,7 +419,7 @@ func (s *Server) respondList(w http.ResponseWriter, status int, data interface{}
 // Never pass raw err.Error() here — log internal errors server-side instead.
 func (s *Server) respondError(w http.ResponseWriter, r *http.Request, status int, code, msgKey string, args ...interface{}) {
 	lang := i18n.FromContext(r.Context())
-	s.writeErrorJSON(w, r, status, code, i18n.Tf(lang, msgKey, args...))
+	s.writeErrorJSON(w, r, status, code, i18n.TranslateFormattedText(lang, msgKey, args...))
 }
 
 // writeErrorJSON sends the canonical error response with an already-translated
@@ -376,8 +480,8 @@ func errorCodeForStatus(status int) string {
 	}
 }
 
-// statusMessageKey maps an HTTP status to an errors.* i18n key, or "" when
-// no dedicated key exists (the caller falls back to http.StatusText).
+// statusMessageKey maps an HTTP status to an errors.* translation key when a
+// dedicated message exists.
 func statusMessageKey(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -409,9 +513,9 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	lang := i18n.FromContext(r.Context())
 	code := errorCodeForStatus(status)
 
-	message := http.StatusText(status)
+	message := i18n.TranslateFormattedText(lang, "errors.status_title", "code", status)
 	if key := statusMessageKey(status); key != "" {
-		message = i18n.T(lang, key)
+		message = i18n.TranslateText(lang, key)
 	}
 
 	accept := r.Header.Get("Accept")
@@ -419,11 +523,9 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	case strings.Contains(accept, "application/json"):
 		s.writeErrorJSON(w, r, status, code, message)
 	case strings.Contains(accept, "text/html"):
-		statusText := http.StatusText(status)
 		data := map[string]interface{}{
-			"Title":      statusText,
+			"Title":      i18n.TranslateFormattedText(lang, "errors.status_title", "code", status),
 			"StatusCode": status,
-			"StatusText": statusText,
 			"Message":    message,
 		}
 		// On a pre-write template failure, fall back to a bare (unthemed)
@@ -476,16 +578,9 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	s.respondItem(w, http.StatusOK, info)
 }
 
-// handleRobotsTxt returns robots.txt based on config, per AI.md PART 11
-// "robots.txt". Denied AI crawlers get their own stanza ahead of the wildcard
-// block; bots resolving to allow are covered by "User-agent: *" and get none.
+// handleRobotsTxt returns robots.txt with the shared crawler policy from config.
 func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
 	var sb strings.Builder
-
-	for _, bot := range s.deniedAIBots() {
-		_, _ = fmt.Fprintf(&sb, "User-agent: %s\nDisallow: /\n\n", bot)
-	}
-
 	sb.WriteString("User-agent: *\n")
 	for _, path := range s.config.Web.Robots.Allow {
 		_, _ = fmt.Fprintf(&sb, "Allow: %s\n", path)
@@ -498,27 +593,117 @@ func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
 	s.respondText(w, http.StatusOK, sb.String())
 }
 
-// deniedAIBots returns the sorted list of configured AI crawlers that resolve
-// to deny — either an explicit "deny" value, or no explicit value while
-// web.robots.ai_bots.default is "deny". Explicit entries always win over the
-// default, per AI.md PART 11 "AI Crawler Rules".
-func (s *Server) deniedAIBots() []string {
-	aiBots := s.config.Web.Robots.AIBots
-	denied := make([]string, 0, len(aiBots.Bots))
-	for bot, access := range aiBots.Bots {
-		switch access {
-		case "deny":
-			denied = append(denied, bot)
-		case "allow":
-			// explicitly allowed — covered by the wildcard block
-		default:
-			if aiBots.Default == "deny" {
-				denied = append(denied, bot)
+func (s *Server) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
+	if !s.config.Web.LLMS.Enabled {
+		http.NotFound(w, r)
+		return
+	}
+	title := strings.TrimSpace(s.config.Server.Branding.Title)
+	if title == "" {
+		title = "airports"
+	}
+	description := strings.TrimSpace(s.config.Server.Branding.Description)
+	if description == "" {
+		description = "Global airport reference data API."
+	}
+	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
+	apiURL := baseURL + s.APIBasePath()
+	apiContact := strings.TrimSpace(s.config.Web.APIContact)
+	if apiContact == "" {
+		apiContact = strings.TrimSpace(s.config.Web.Security.Contact)
+	}
+	if strings.Contains(apiContact, "{fqdn}") && strings.TrimSpace(s.config.Server.FQDN) == "" {
+		apiContact = ""
+	}
+	apiContact = strings.ReplaceAll(apiContact, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+	if apiContact == "" {
+		apiContact = s.securityContactEmail(r)
+	}
+	ratePerMinute := 0
+	if bucket := s.config.Server.RateLimit.Read; bucket.Requests > 0 && bucket.Window > 0 {
+		ratePerMinute = bucket.Requests * 60 / bucket.Window
+	}
+	var body strings.Builder
+	fmt.Fprintf(&body, "# %s\n\n> %s\n\n## API\n\nBase URL: %s\nAuthentication: Bearer token (owner token issued on first resource creation, or a linked token created on /server/preferences/tokens)\nRate limit: %d requests/minute\nMCP: %s/mcp (Streamable HTTP; same Bearer token as the API)\n\n", title, description, apiURL, ratePerMinute, baseURL)
+	if s.config.Web.LLMS.IncludeEndpoints {
+		body.WriteString("## Endpoints\n\n")
+		body.WriteString("- GET /server/healthz - Health check\n")
+		body.WriteString("- GET /server/about - Server information\n")
+		body.WriteString("- POST /mcp - MCP server (Streamable HTTP)\n")
+		var endpoints []string
+		_ = chi.Walk(s.router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+			if !strings.HasPrefix(route, s.APIBasePath()+"/") || strings.Contains(route, "/metrics") {
+				return nil
+			}
+			path := strings.TrimPrefix(route, s.APIBasePath())
+			if method != http.MethodGet || path == "/server/contact" {
+				return nil
+			}
+			endpoints = append(endpoints, method+" "+path)
+			return nil
+		})
+		openAPI := swaggerpkg.BuildSpec(Version, s.config.Server.APIVersion, "en")
+		paths, _ := openAPI["paths"].(map[string]interface{})
+		sort.Strings(endpoints)
+		for _, route := range endpoints {
+			parts := strings.SplitN(route, " ", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			path := parts[1]
+			pathItem, _ := paths[path].(map[string]interface{})
+			operation, _ := pathItem[strings.ToLower(parts[0])].(map[string]interface{})
+			description, _ := operation["summary"].(string)
+			if description == "" {
+				description, _ = operation["description"].(string)
+			}
+			if description == "" {
+				description = "Airport API operation"
+			}
+			fmt.Fprintf(&body, "- %s %s - %s\n", parts[0], path, description)
+			if s.config.Web.LLMS.IncludeSchemas {
+				if parameters, ok := operation["parameters"]; ok {
+					if encoded, err := json.Marshal(parameters); err == nil {
+						fmt.Fprintf(&body, "  Parameters: %s\n", encoded)
+					}
+				}
+				if requestBody, ok := operation["requestBody"]; ok {
+					if encoded, err := json.Marshal(requestBody); err == nil {
+						fmt.Fprintf(&body, "  Request schema: %s\n", encoded)
+					}
+				}
+				if responses, ok := operation["responses"]; ok {
+					if encoded, err := json.Marshal(responses); err == nil {
+						fmt.Fprintf(&body, "  Responses: %s\n", encoded)
+					}
+				}
 			}
 		}
+		if s.config.Web.LLMS.IncludeSchemas {
+			if components, ok := openAPI["components"].(map[string]interface{}); ok {
+				if schemas, ok := components["schemas"]; ok {
+					if encoded, err := json.Marshal(schemas); err == nil {
+						fmt.Fprintf(&body, "\n## Schemas\n\n```json\n%s\n```\n", encoded)
+					}
+				}
+			}
+		}
+		body.WriteByte('\n')
 	}
-	sort.Strings(denied)
-	return denied
+	body.WriteString("## Capabilities\n\n- Search and retrieve airport reference data\n- Query airports by geographic area and find nearby locations\n- Export airport records as JSON, CSV, or GeoJSON\n")
+	if s.config.Server.GeoIP.Enabled {
+		body.WriteString("- Look up caller or supplied IP geolocation and nearby airports\n")
+	}
+	body.WriteString("\n## Contact\n\n")
+	fmt.Fprintf(&body, "API issues: %s\nSecurity: %s\n", apiContact, s.securityContactEmail(r))
+	for _, section := range s.config.Web.LLMS.CustomSections {
+		if section = strings.TrimSpace(section); section != "" {
+			body.WriteString("\n")
+			body.WriteString(section)
+			body.WriteString("\n")
+		}
+	}
+	s.respondText(w, http.StatusOK, body.String())
 }
 
 // handleLocaleJSON serves the embedded translation file for {lang} so
@@ -632,9 +817,22 @@ var publicSitemapEntries = []sitemapEntry{
 	{Path: "/server/help", Priority: "0.8", ChangeFreq: "weekly"},
 	{Path: "/server/privacy", Priority: "0.8", ChangeFreq: "weekly"},
 	{Path: "/server/terms", Priority: "0.8", ChangeFreq: "weekly"},
-	{Path: "/server/contact", Priority: "0.8", ChangeFreq: "weekly"},
 	{Path: "/server/docs/swagger", Priority: "0.7", ChangeFreq: "weekly"},
 	{Path: "/server/docs/graphql", Priority: "0.7", ChangeFreq: "weekly"},
+}
+
+func sitemapEntries(allow, deny []string) []sitemapEntry {
+	entries := append([]sitemapEntry(nil), publicSitemapEntries...)
+	for _, page := range helpPageRegistry {
+		entries = append(entries, sitemapEntry{Path: page.Path, Priority: page.Priority, ChangeFreq: page.ChangeFreq})
+	}
+	filtered := entries[:0]
+	for _, entry := range entries {
+		if robotsPathAllowed(entry.Path, allow, deny) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 // handleSitemap returns a dynamically generated sitemap.xml listing every
@@ -644,7 +842,11 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	base := s.publicBaseURL(r)
 	lastmod := time.Now().UTC().Format("2006-01-02")
 
-	entries := publicSitemapEntries
+	s.configMu.RLock()
+	allow := append([]string(nil), s.config.Web.Robots.Allow...)
+	deny := append([]string(nil), s.config.Web.Robots.Deny...)
+	s.configMu.RUnlock()
+	entries := sitemapEntries(allow, deny)
 
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
@@ -666,17 +868,57 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 
 // handleSecurityTxt returns security.txt based on config
 func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
-	contact := s.securityContactEmail(r)
-
-	content := fmt.Sprintf("Expires: %s\n", time.Now().AddDate(1, 0, 0).Format("2006-01-02T15:04:05Z"))
-	if contact != "" {
-		content = "Contact: mailto:" + contact + "\n" + content
+	security := s.config.Web.Security
+	content := ""
+	if !s.isTorRequest(r) {
+		if reportURL := strings.TrimSpace(security.ReportURL); reportURL != "" {
+			content += "Contact: " + strings.NewReplacer("{project_org}", "apimgr", "{project_name}", "airports").Replace(reportURL) + "\n"
+		}
 	}
+	if reportURL := s.securityReportURL(r); reportURL != "" {
+		content += "Contact: " + reportURL + "\n"
+	}
+	contact := strings.TrimSpace(security.Contact)
+	if s.isTorRequest(r) || contact == "" {
+		contact = s.securityContactEmail(r)
+	} else {
+		contact = strings.ReplaceAll(contact, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+	}
+	if contact == "" {
+		contact = s.securityContactEmail(r)
+	}
+	if contact != "" {
+		if !strings.HasPrefix(contact, "mailto:") {
+			contact = "mailto:" + contact
+		}
+		content += "Contact: " + contact + "\n"
+	}
+	content += "Policy: " + strings.TrimSuffix(RequestBaseURL(r), "/") + "/server/security\n"
+	if publicKey, err := s.pgpPublicKey(); err == nil && len(publicKey) > 0 {
+		content += "Encryption: " + strings.TrimSuffix(RequestBaseURL(r), "/") + "/.well-known/pgp-key.asc\n"
+	}
+	content += fmt.Sprintf("Expires: %s\n", securityExpiry(security.Expires, time.Now()))
 	if !s.isTorRequest(r) {
 		content += "Preferred-Languages: en\n"
 	}
 
 	s.respondText(w, http.StatusOK, content)
+}
+
+func (s *Server) handleSecurityPGPKey(w http.ResponseWriter, r *http.Request) {
+	if !s.config.Web.Security.PublishPGPKey || s.configDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	content, err := s.pgpPublicKey()
+	if err != nil || len(content) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pgp-keys")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
 }
 
 func (s *Server) trackingCSPSources(r *http.Request) (string, string) {
@@ -734,6 +976,21 @@ func (s *Server) trackingCSPSources(r *http.Request) (string, string) {
 		addOrigin(&connects, "https://cloudflareinsights.com")
 	}
 	return strings.Join(scripts, " "), strings.Join(connects, " ")
+}
+
+func (s *Server) contactCaptchaCSPSources(r *http.Request) (scripts, frames, connects string) {
+	switch s.contactCaptchaProvider(r) {
+	case "recaptcha":
+		return "https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/",
+			"https://www.google.com/recaptcha/",
+			"https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/"
+	case "hcaptcha":
+		return "https://hcaptcha.com https://*.hcaptcha.com",
+			"https://hcaptcha.com https://*.hcaptcha.com",
+			"https://hcaptcha.com https://*.hcaptcha.com"
+	default:
+		return "", "", ""
+	}
 }
 
 // handleManifest returns the PWA web app manifest.
@@ -937,13 +1194,16 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 				"object-src 'none'; " +
 				"report-to default; " +
 				"report-uri " + cspReportURI
-		if scripts, connects := s.trackingCSPSources(r); scripts != "" || connects != "" {
-			if scripts != "" {
-				csp = strings.Replace(csp, "script-src 'self';", "script-src 'self' "+scripts+";", 1)
-			}
-			if connects != "" {
-				csp = strings.Replace(csp, "connect-src 'self';", "connect-src 'self' "+connects+";", 1)
-			}
+		trackingScripts, trackingConnects := s.trackingCSPSources(r)
+		captchaScripts, captchaFrames, captchaConnects := s.contactCaptchaCSPSources(r)
+		if sources := strings.TrimSpace(strings.Join([]string{trackingScripts, captchaScripts}, " ")); sources != "" {
+			csp = strings.Replace(csp, "script-src 'self';", "script-src 'self' "+sources+";", 1)
+		}
+		if captchaFrames != "" {
+			csp = strings.Replace(csp, "frame-src 'self';", "frame-src 'self' "+captchaFrames+";", 1)
+		}
+		if sources := strings.TrimSpace(strings.Join([]string{trackingConnects, captchaConnects}, " ")); sources != "" {
+			csp = strings.Replace(csp, "connect-src 'self';", "connect-src 'self' "+sources+";", 1)
 		}
 		if !s.isOverlayRequest(r) {
 			csp += " upgrade-insecure-requests;"
@@ -953,7 +1213,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		// direct or via a trusted reverse-proxy that set X-Forwarded-Proto).
 		secureRequest := urlvars.ResolveProto(r, false) == "https"
 		if s.urlResolver != nil {
-			proto, _, _ := s.urlResolver.GetURLVars(r)
+			proto, _, _ := s.urlResolver.GetRequestURLVariables(r)
 			secureRequest = proto == "https"
 		} else if middleware.GetClientIP(r.Context()) != "" {
 			secureRequest = urlvars.ResolveProto(r, true) == "https"

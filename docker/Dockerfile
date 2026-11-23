@@ -58,7 +58,11 @@ RUN apk upgrade --no-cache && \
         curl \
         bash \
         tini \
-        tor
+        tor \
+        i2pd \
+        tzdata \
+        ca-certificates \
+        shadow
 
 # NO directory creation - binary handles ALL setup based on env vars.
 # Docker volume mounts auto-create mount points.
@@ -75,16 +79,6 @@ COPY docker/rootfs/ /
 
 RUN chmod 755 /usr/local/bin/*
 
-# Non-root runtime user. The app binds internal port 80 (privileged, <1024),
-# so grant CAP_NET_BIND_SERVICE on the binary via setcap instead of running
-# as root or doing a root-then-drop dance inside the container.
-# UID/GID are pinned (not auto-assigned) so operators can pre-chown bind-mounted
-# ./volumes/config and ./volumes/data to a known owner before first start.
-RUN addgroup -g 1000 -S airports && adduser -u 1000 -S -G airports airports \
-    && apk add --no-cache libcap \
-    && setcap cap_net_bind_service=+ep /usr/local/bin/airports \
-    && apk del libcap
-
 # MODE is never baked into the image; the binary defaults to production and
 # compose sets MODE explicitly per AI.md PART 26.
 ENV TZ=America/New_York \
@@ -97,8 +91,6 @@ STOPSIGNAL SIGRTMIN+3
 
 HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
     CMD /usr/local/bin/airports --status || exit 1
-
-USER airports
 
 # tini propagates SIGTERM and reaps zombies; entrypoint handles startup
 ENTRYPOINT [ "tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh" ]

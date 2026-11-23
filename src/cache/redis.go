@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +26,8 @@ type redisCache struct {
 	statsMu    sync.Mutex
 	hits       uint64
 	misses     uint64
+	evictions  uint64
+	known      map[string]time.Time
 }
 
 func newRedisCache(cfg config.CacheConfig, prefix string, defaultTTL time.Duration) (*redisCache, error) {
@@ -83,7 +87,7 @@ func newRedisCache(cfg config.CacheConfig, prefix string, defaultTTL time.Durati
 		return nil, fmt.Errorf("cache: connection test failed: %w", err)
 	}
 
-	return &redisCache{client: client, prefix: prefix, defaultTTL: defaultTTL}, nil
+	return &redisCache{client: client, prefix: prefix, defaultTTL: defaultTTL, known: make(map[string]time.Time)}, nil
 }
 
 // normalizeCacheURL rewrites the valkey:// scheme (AI.md PART 12 URL format)
@@ -117,33 +121,151 @@ func (c *redisCache) Get(ctx context.Context, key string) ([]byte, error) {
 	return v, nil
 }
 
-// MetricsStats reports exact cache-key hits and misses observed by this client.
-// go-redis PoolStats.Hits/Misses describe connection reuse, not cache lookups.
-// Redis INFO evicted_keys and DBSIZE are server/database-wide, not scoped to
-// this cache prefix. Scans cost work proportional to the database and the
-// prefix may be shared by other instances; keyspace notifications require
-// server-wide configuration and can lose events across disconnects. These
-// APIs therefore cannot provide bounded, exact ownership-scoped size/bytes/
-// evictions, so those metrics are omitted instead of reporting misleading data.
+// MetricsStats reports observed lookups and live key/byte counts scoped to the
+// configured cache prefix. Redis has no prefix-scoped counters, so this scans
+// only the application's key namespace. Raw keys remain internal and never
+// become metric labels.
 func (c *redisCache) MetricsStats() MetricsStats {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	now := time.Now()
+	seen := make(map[string]time.Time)
+	var items, bytes uint64
+	var cursor uint64
+	complete := true
+	for {
+		keys, next, err := c.client.Scan(ctx, cursor, redisGlobPrefix(c.prefix)+"*", 500).Result()
+		if err != nil {
+			complete = false
+			break
+		}
+		if len(keys) > 0 {
+			pipe := c.client.Pipeline()
+			valueLengths := make([]*redis.IntCmd, len(keys))
+			ttls := make([]*redis.DurationCmd, len(keys))
+			for i, key := range keys {
+				valueLengths[i] = pipe.StrLen(ctx, key)
+				ttls[i] = pipe.PTTL(ctx, key)
+			}
+			_, execErr := pipe.Exec(ctx)
+			if execErr != nil && !errors.Is(execErr, redis.Nil) {
+				complete = false
+				break
+			}
+			for i, key := range keys {
+				if _, duplicate := seen[key]; duplicate {
+					continue
+				}
+				valueLength, valueErr := valueLengths[i].Result()
+				pttl, ttlErr := ttls[i].Result()
+				if pttl == -2*time.Nanosecond || errors.Is(valueErr, redis.Nil) || errors.Is(ttlErr, redis.Nil) {
+					continue
+				}
+				if valueErr != nil || ttlErr != nil {
+					complete = false
+					break
+				}
+				expires := time.Time{}
+				if pttl > 0 {
+					expires = now.Add(pttl)
+				}
+				keyItems, keyBytes := addRedisMetricSample(seen, key, expires, valueLength)
+				items += keyItems
+				bytes += keyBytes
+			}
+			if !complete {
+				break
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	c.recordMetricSnapshot(now, seen, complete)
 	c.statsMu.Lock()
 	defer c.statsMu.Unlock()
-	return MetricsStats{Hits: c.hits, Misses: c.misses, Enabled: true}
+	return MetricsStats{Hits: c.hits, Misses: c.misses, Evictions: c.evictions, Items: items, Bytes: bytes, HasEvictionCount: complete, HasSize: complete, Enabled: true}
 }
 
-func (c *redisCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-	switch {
-	case ttl > 0:
-		return c.client.Set(ctx, c.fullKey(key), value, ttl).Err()
-	case ttl == 0:
-		return c.client.Set(ctx, c.fullKey(key), value, c.defaultTTL).Err()
-	default:
-		return c.client.Set(ctx, c.fullKey(key), value, 0).Err()
+func addRedisMetricSample(seen map[string]time.Time, key string, expires time.Time, valueLength int64) (uint64, uint64) {
+	if _, exists := seen[key]; exists {
+		return 0, 0
+	}
+	seen[key] = expires
+	if valueLength < 0 {
+		valueLength = 0
+	}
+	return 1, uint64(len(key)) + uint64(valueLength)
+}
+
+func redisGlobPrefix(prefix string) string {
+	var escaped strings.Builder
+	escaped.Grow(len(prefix))
+	for _, r := range prefix {
+		if strings.ContainsRune("*?[]\\", r) {
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
+}
+
+func (c *redisCache) recordMetricSnapshot(now time.Time, seen map[string]time.Time, complete bool) {
+	c.statsMu.Lock()
+	defer c.statsMu.Unlock()
+	if !complete {
+		return
+	}
+	for key, expiry := range c.known {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		if expiry.IsZero() || now.Before(expiry) {
+			c.evictions++
+		}
+		delete(c.known, key)
+	}
+	for key, expiry := range seen {
+		c.known[key] = expiry
 	}
 }
 
+func (c *redisCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	var err error
+	switch {
+	case ttl > 0:
+		err = c.client.Set(ctx, c.fullKey(key), value, ttl).Err()
+	case ttl == 0:
+		err = c.client.Set(ctx, c.fullKey(key), value, c.defaultTTL).Err()
+	default:
+		err = c.client.Set(ctx, c.fullKey(key), value, 0).Err()
+	}
+	if err == nil {
+		duration := ttl
+		if duration == 0 {
+			duration = c.defaultTTL
+		}
+		expires := time.Time{}
+		if duration > 0 {
+			expires = time.Now().Add(duration)
+		}
+		c.statsMu.Lock()
+		c.known[c.fullKey(key)] = expires
+		c.statsMu.Unlock()
+	}
+	return err
+}
+
 func (c *redisCache) Delete(ctx context.Context, key string) error {
-	return c.client.Del(ctx, c.fullKey(key)).Err()
+	fullKey := c.fullKey(key)
+	err := c.client.Del(ctx, fullKey).Err()
+	if err == nil {
+		c.statsMu.Lock()
+		delete(c.known, fullKey)
+		c.statsMu.Unlock()
+	}
+	return err
 }
 
 const rateLimitScript = `
@@ -205,6 +327,35 @@ func (c *redisCache) AllowRateLimit(ctx context.Context, identity, class string,
 		return time.UnixMilli(value)
 	}
 	return values[0] == 1, int(values[1]), int(values[2]), oldest(values[3]), oldest(values[4]), nil
+}
+
+// CheckRateLimit reads the live window without adding a request event.
+func (c *redisCache) CheckRateLimit(ctx context.Context, identity, class string, now time.Time, window time.Duration) (int, time.Time, error) {
+	key := c.fullKey("ratelimit:{" + identity + "}:" + class)
+	cutoff := now.Add(-window).UnixMilli() - 1
+	pipe := c.client.Pipeline()
+	trim := pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(cutoff, 10))
+	count := pipe.ZCard(ctx, key)
+	oldest := pipe.ZRangeWithScores(ctx, key, 0, 0)
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if err := trim.Err(); err != nil {
+		return 0, time.Time{}, err
+	}
+	n, err := count.Result()
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	events, err := oldest.Result()
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	if len(events) == 0 {
+		return int(n), time.Time{}, nil
+	}
+	return int(n), time.UnixMilli(int64(events[0].Score)), nil
 }
 
 func (c *redisCache) GetOrSet(ctx context.Context, key string, ttl time.Duration, loader func() ([]byte, error)) ([]byte, error) {

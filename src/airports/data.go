@@ -43,14 +43,14 @@ type AirportIndexes struct {
 	mu        sync.RWMutex
 }
 
-// Service manages airport data and lookups
-type Service struct {
+// AirportDataService manages airport data and lookups
+type AirportDataService struct {
 	data    AirportDatabase
 	indexes *AirportIndexes
 }
 
-// NewService loads and indexes all airport data from embedded JSON
-func NewService(jsonData []byte) (*Service, error) {
+// NewAirportDataService loads and indexes all airport data from embedded JSON
+func NewAirportDataService(jsonData []byte) (*AirportDataService, error) {
 	data, err := LoadAirports(jsonData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load airports: %w", err)
@@ -58,7 +58,7 @@ func NewService(jsonData []byte) (*Service, error) {
 
 	indexes := BuildIndexes(data)
 
-	return &Service{
+	return &AirportDataService{
 		data:    data,
 		indexes: indexes,
 	}, nil
@@ -120,7 +120,7 @@ func BuildIndexes(airports AirportDatabase) *AirportIndexes {
 }
 
 // GetByCode looks up an airport by ICAO or IATA code
-func (s *Service) GetByCode(code string) (*Airport, error) {
+func (s *AirportDataService) GetByCode(code string) (*Airport, error) {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -140,7 +140,7 @@ func (s *Service) GetByCode(code string) (*Airport, error) {
 }
 
 // Search finds airports matching the query across multiple fields
-func (s *Service) Search(query string, limit, offset int) []*Airport {
+func (s *AirportDataService) Search(query string, limit, offset int) []*Airport {
 	airports := s.searchAll(query)
 
 	// Apply pagination
@@ -159,13 +159,13 @@ func (s *Service) Search(query string, limit, offset int) []*Airport {
 // without allocating/copying the full result set the way Search's pagination
 // slice does. Used to populate accurate "total"/"pages" fields in paginated
 // API responses instead of the current page's slice length.
-func (s *Service) SearchCount(query string) int {
+func (s *AirportDataService) SearchCount(query string) int {
 	return len(s.searchAll(query))
 }
 
 // searchAll runs the full (unpaginated) search match + sort shared by Search
 // and SearchCount.
-func (s *Service) searchAll(query string) []*Airport {
+func (s *AirportDataService) searchAll(query string) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -217,7 +217,7 @@ func (s *Service) searchAll(query string) []*Airport {
 }
 
 // GetByCity returns all airports in a city
-func (s *Service) GetByCity(city string) []*Airport {
+func (s *AirportDataService) GetByCity(city string) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -226,7 +226,7 @@ func (s *Service) GetByCity(city string) []*Airport {
 }
 
 // GetByCountry returns all airports in a country
-func (s *Service) GetByCountry(country string) []*Airport {
+func (s *AirportDataService) GetByCountry(country string) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -235,7 +235,7 @@ func (s *Service) GetByCountry(country string) []*Airport {
 }
 
 // GetByState returns all airports in a state
-func (s *Service) GetByState(state string) []*Airport {
+func (s *AirportDataService) GetByState(state string) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -244,7 +244,7 @@ func (s *Service) GetByState(state string) []*Airport {
 }
 
 // GetNearbyWithDistance finds airports within radius and includes distance information
-func (s *Service) GetNearbyWithDistance(lat, lon, radiusKm float64, limit int, units string) []AirportWithDistance {
+func (s *AirportDataService) GetNearbyWithDistance(lat, lon, radiusKm float64, limit int, units string) []AirportWithDistance {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -290,7 +290,7 @@ func (s *Service) GetNearbyWithDistance(lat, lon, radiusKm float64, limit int, u
 }
 
 // GetInBoundingBox finds airports within geographic bounds
-func (s *Service) GetInBoundingBox(minLat, maxLat, minLon, maxLon float64) []*Airport {
+func (s *AirportDataService) GetInBoundingBox(minLat, maxLat, minLon, maxLon float64) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -308,7 +308,7 @@ func (s *Service) GetInBoundingBox(minLat, maxLat, minLon, maxLon float64) []*Ai
 }
 
 // GetAll returns all airports (paginated)
-func (s *Service) GetAll(limit, offset int) []*Airport {
+func (s *AirportDataService) GetAll(limit, offset int) []*Airport {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -336,7 +336,7 @@ func (s *Service) GetAll(limit, offset int) []*Airport {
 }
 
 // GetCountries returns list of all countries with airport counts
-func (s *Service) GetCountries() map[string]int {
+func (s *AirportDataService) GetCountries() map[string]int {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -348,7 +348,7 @@ func (s *Service) GetCountries() map[string]int {
 }
 
 // GetStatesInCountry returns list of states in a country with counts
-func (s *Service) GetStatesInCountry(country string) map[string]int {
+func (s *AirportDataService) GetStatesInCountry(country string) map[string]int {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -368,7 +368,7 @@ func (s *Service) GetStatesInCountry(country string) map[string]int {
 }
 
 // Stats returns database statistics
-func (s *Service) Stats() map[string]interface{} {
+func (s *AirportDataService) Stats() map[string]interface{} {
 	s.indexes.mu.RLock()
 	defer s.indexes.mu.RUnlock()
 
@@ -381,7 +381,7 @@ func (s *Service) Stats() map[string]interface{} {
 }
 
 // GetRawData returns the complete airport database as JSON
-func (s *Service) GetRawData() AirportDatabase {
+func (s *AirportDataService) GetRawData() AirportDatabase {
 	return s.data
 }
 

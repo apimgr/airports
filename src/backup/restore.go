@@ -79,8 +79,8 @@ func (w *VersionMismatchWarning) Error() string {
 	return fmt.Sprintf("backup: version mismatch — backup was created by app_version %q, running version is %q; schema updates will be applied if needed", w.BackupVersion, w.RunningVersion)
 }
 
-// RestoreOptions configures Restore.
-type RestoreOptions struct {
+// BackupRestoreOptions configures Restore.
+type BackupRestoreOptions struct {
 	ConfigDir  string
 	DataDir    string
 	Password   string
@@ -95,7 +95,10 @@ type RestoreOptions struct {
 // before Restore. A non-nil *VersionMismatchWarning returned alongside a
 // nil error indicates a successful restore with a version mismatch that the
 // caller should surface, not a failure.
-func Restore(archivePath string, opts RestoreOptions) error {
+func RestoreBackupArchive(archivePath string, opts BackupRestoreOptions) error {
+	if strings.HasSuffix(strings.ToLower(archivePath), ".enc") && opts.Password == "" {
+		return ErrPasswordRequired
+	}
 	info, err := os.Stat(archivePath)
 	if err != nil {
 		return fmt.Errorf("restore: file exists: %w", err)
@@ -104,20 +107,9 @@ func Restore(archivePath string, opts RestoreOptions) error {
 		return fmt.Errorf("restore: file readable: backup file is empty")
 	}
 
-	manifest, payload, err := readContainer(archivePath)
+	manifest, plaintext, err := decodeBackup(archivePath, opts.Password)
 	if err != nil {
 		return fmt.Errorf("restore: format valid: %w", err)
-	}
-
-	plaintext := payload
-	if manifest.Encrypted {
-		if opts.Password == "" {
-			return ErrPasswordRequired
-		}
-		plaintext, err = DecryptArchive(opts.Password, payload)
-		if err != nil {
-			return fmt.Errorf("restore: decrypt test: %w", err)
-		}
 	}
 
 	if err := verifyChecksum(manifest, plaintext); err != nil {
@@ -143,7 +135,10 @@ func Restore(archivePath string, opts RestoreOptions) error {
 }
 
 func verifyChecksum(manifest *Manifest, plaintext []byte) error {
-	sum := checksumOf(plaintext)
+	sum, err := checksumForArchive(plaintext)
+	if err != nil {
+		return err
+	}
 	if !strings.EqualFold(sum, manifest.Checksum) {
 		return fmt.Errorf("mismatch (want %s, got %s)", manifest.Checksum, sum)
 	}

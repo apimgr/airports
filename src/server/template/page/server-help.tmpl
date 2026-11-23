@@ -1,29 +1,45 @@
 {{define "content"}}
-<section class="page-section">
-    <h1>{{t "help.title"}}</h1>
-    <p>{{t "help.intro"}}</p>
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "help.title"}}</h1>
+        <p class="page-lead">{{t "help.intro"}}</p>
+    </header>
 
-    <h2>{{t "help.quickstart_heading"}}</h2>
-    <pre><code># Get a single airport by ICAO or IATA code
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports/KJFK"
+    <section class="section-card" aria-labelledby="help-quickstart">
+    <h2 id="help-quickstart">{{t "help.quickstart_heading"}}</h2>
+    <div class="code-block"><pre><code># Get a single airport by ICAO or IATA code
+curl -q -LSsf "{{.APIBaseURL}}/airports/KJFK"
 
 # Search by name, city, country, or code
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports/search?q=denver"
+curl -q -LSsf "{{.APIBaseURL}}/airports/search?q=denver"
 
 # Find airports near a coordinate (radius in km, default metric)
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports/nearby?lat=40.64&lon=-73.78&radius=50"
+curl -q -LSsf "{{.APIBaseURL}}/airports/nearby?lat=40.64&lon=-73.78&radius=50"
 
 # Bounding-box query
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports/within?minLat=40&maxLat=42&minLon=-75&maxLon=-73"
+curl -q -LSsf "{{.APIBaseURL}}/airports/within?minLat=40&maxLat=42&minLon=-75&maxLon=-73"
 
 # Bulk dataset (JSON / CSV / GeoJSON)
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports.json"
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports.csv"
-curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports.geojson"</code></pre>
+curl -q -LSsf "{{.APIBaseURL}}/airports.json"
+curl -q -LSsf "{{.APIBaseURL}}/airports.csv"
+curl -q -LSsf "{{.APIBaseURL}}/airports.geojson"</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="# Get a single airport by ICAO or IATA code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/KJFK&quot;&#10;&#10;# Search by name, city, country, or code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/search?q=denver&quot;&#10;&#10;# Find airports near a coordinate (radius in km, default metric)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/nearby?lat=40.64&amp;lon=-73.78&amp;radius=50&quot;&#10;&#10;# Bounding-box query&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/within?minLat=40&amp;maxLat=42&amp;minLon=-75&amp;maxLon=-73&quot;&#10;&#10;# Bulk dataset (JSON / CSV / GeoJSON)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.json&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.csv&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.geojson&quot;" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+    </section>
 
-    <h2>{{t "help.rest_endpoints_heading"}}</h2>
-    <table class="api-table">
-        <thead><tr><th>{{t "help.table_method"}}</th><th>{{t "help.table_path"}}</th><th>{{t "help.table_description"}}</th></tr></thead>
+    <section class="section-card" aria-labelledby="help-airport-features">
+        <h2 id="help-airport-features">{{t "help.features_heading"}}</h2>
+        <p>{{t "help.features_desc"}}</p>
+        <ul>
+            <li><a href="{{.BaseURL}}/airports">{{t "help.feature_browse"}}</a></li>
+            <li><a href="{{.BaseURL}}/airports/search?q=JFK">{{t "help.feature_search"}}</a></li>
+            <li><a href="{{.BaseURL}}/airports/nearby?lat=40.64&amp;lon=-73.78&amp;radius=50">{{t "help.feature_nearby"}}</a></li>
+            <li>{{t "help.feature_maps"}}</li>
+        </ul>
+    </section>
+
+    <section class="section-card" aria-labelledby="help-endpoints">
+    <h2 id="help-endpoints">{{t "help.rest_endpoints_heading"}}</h2>
+    <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th scope="col">{{t "help.table_method"}}</th><th scope="col">{{t "help.table_path"}}</th><th scope="col">{{t "help.table_description"}}</th></tr></thead>
         <tbody>
             <tr><td>GET</td><td>{{.APIBase}}/airports</td><td>{{t "help.ep_list_desc"}}</td></tr>
             <tr><td>GET</td><td>{{.APIBase}}/airports.json|.csv|.geojson</td><td>{{t "help.ep_export_desc"}}</td></tr>
@@ -41,23 +57,52 @@ curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports.geojson"</code></pre>
             <tr><td>GET</td><td>{{.APIBase}}/server/swagger</td><td>{{t "help.ep_swagger_desc"}}</td></tr>
             <tr><td>POST</td><td>{{.APIBase}}/server/graphql</td><td>{{t "help.ep_graphql_desc"}}</td></tr>
         </tbody>
-    </table>
+    </table></div>
+    </section>
 
-    <h2>{{t "help.aliases_heading"}}</h2>
+    <section class="section-card" aria-labelledby="help-aliases">
+    <h2 id="help-aliases">{{t "help.aliases_heading"}}</h2>
     <p>{{t "help.aliases_desc"}}</p>
     <ul>
         <li><code>{{.BaseURL}}/api/healthz</code> &rarr; <code>{{.APIBase}}/server/healthz</code></li>
         <li><code>{{.BaseURL}}/api/swagger</code> &rarr; <code>{{.APIBase}}/server/swagger</code></li>
         <li><code>{{.BaseURL}}/api/graphql</code> &rarr; <code>{{.APIBase}}/server/graphql</code></li>
     </ul>
+    </section>
 
-    <h2>{{t "help.interactive_docs_heading"}}</h2>
+    <section class="section-card" aria-labelledby="help-docs">
+    <h2 id="help-docs">{{t "help.interactive_docs_heading"}}</h2>
     <ul>
         <li><a href="{{.BaseURL}}/server/docs/swagger">Swagger UI</a> — {{t "help.swagger_desc"}}</li>
         <li><a href="{{.BaseURL}}/server/docs/graphql">GraphiQL</a> — {{t "help.graphiql_desc"}}</li>
+        <li><a href="{{.BaseURL}}/server/help/mcp">MCP server</a> — {{t "help.mcp_desc"}}</li>
     </ul>
+    </section>
 
-    <h2>{{t "help.faq_heading"}}</h2>
+    {{if and .TorEnabled .TorRunning .OnionAddress}}
+    <section id="tor-access" class="section-card" aria-labelledby="tor-access-heading">
+        <h2 id="tor-access-heading">{{t "help.tor_access"}}</h2>
+        <p>{{t "help.tor_intro"}}</p>
+        <h3>{{t "help.onion_address"}}</h3>
+        <div class="code-block"><pre><code>{{.OnionAddress}}</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.OnionAddress}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+        <h3>{{t "help.how_to_connect"}}</h3>
+        <p>{{t "help.tor_connect_help"}}</p>
+    </section>
+    {{end}}
+
+    {{if and .I2PEnabled .I2PRunning .I2PAddress}}
+    <section id="i2p-access" class="section-card" aria-labelledby="i2p-access-heading">
+        <h2 id="i2p-access-heading">{{t "help.i2p_access"}}</h2>
+        <p>{{t "help.i2p_intro"}}</p>
+        <h3>{{t "help.i2p_address"}}</h3>
+        <div class="code-block"><pre><code>{{.I2PAddress}}</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.I2PAddress}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+        <h3>{{t "help.how_to_connect"}}</h3>
+        <p>{{t "help.i2p_connect_help"}}</p>
+    </section>
+    {{end}}
+
+    <section class="section-card" aria-labelledby="help-faq">
+    <h2 id="help-faq">{{t "help.faq_heading"}}</h2>
     <dl>
         <dt>{{t "help.faq_q1"}}</dt>
         <dd>{{t "help.faq_a1"}}</dd>
@@ -65,8 +110,40 @@ curl -q -LSsf "https://YOUR_SERVER{{.APIBase}}/airports.geojson"</code></pre>
         <dd>{{t "help.faq_a2"}}</dd>
         <dt>{{t "help.faq_q3"}}</dt>
         <dd>{{t "help.faq_a3"}}</dd>
-        <dt>{{t "help.faq_q4_pre"}} <code>radius</code> {{t "help.faq_q4_post"}}</dt>
-        <dd>{{t "help.faq_a4_pre"}} <code>units=imperial</code> {{t "help.faq_a4_post"}}</dd>
+        <dt>{{t "help.faq_q4"}}</dt>
+        <dd>{{tf "help.faq_a4" "parameter" "units=imperial"}}</dd>
     </dl>
-</section>
+    </section>
+
+    <section class="section-card" aria-labelledby="help-troubleshooting">
+        <h2 id="help-troubleshooting">{{t "help.troubleshooting_title"}}</h2>
+        <h3>429</h3>
+        <p>{{t "help.troubleshooting_rate_limit"}}</p>
+        <h3>{{t "help.troubleshooting_nearby_title"}}</h3>
+        <p>{{t "help.troubleshooting_nearby"}}</p>
+        <h3>{{t "help.troubleshooting_map_title"}}</h3>
+        <p>{{t "help.troubleshooting_map"}}</p>
+    </section>
+
+    {{if .HelpContent}}
+    <section class="section-card" aria-labelledby="help-project-content">
+        <h2 id="help-project-content">{{t "help.project_content_heading"}}</h2>
+        {{.HelpContent | markdownToHTML}}
+    </section>
+    {{end}}
+
+    <section class="section-card" aria-labelledby="more-help">
+        <h2 id="more-help">{{t "help.more_help"}}</h2>
+        <ul class="hub-list">
+            {{range .HelpPages}}
+            <li class="hub-item">
+                <a class="hub-link" href="{{$.BaseURL}}{{.Path}}">
+                    <span class="hub-title">{{.Title}}</span>
+                    <span class="hub-desc">{{.Description}}</span>
+                </a>
+            </li>
+            {{end}}
+        </ul>
+    </section>
+</div>
 {{end}}

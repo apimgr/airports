@@ -1,30 +1,39 @@
 {{define "footer"}}
 <div class="footer-container">
-    <div class="footer-section">
-        <h3>Airports API</h3>
-        <p>{{t "footer.tagline"}}</p>
-    </div>
-    <div class="footer-section">
-        <h3>{{t "footer.resources"}}</h3>
+    {{if operatorContentSet "footer"}}
+    {{operatorHTML "footer"}}
+    {{else}}
+    <section class="footer-section" aria-labelledby="footer-brand">
+        <h2 id="footer-brand">{{.BrandTitle}}</h2>
+        <p>{{if .BrandTagline}}{{.BrandTagline}}{{else}}{{t "footer.tagline"}}{{end}}</p>
+    </section>
+    {{end}}
+    <section class="footer-section" aria-labelledby="footer-resources">
+        <h2 id="footer-resources">{{t "footer.resources"}}</h2>
         <a href="{{.APIBase}}/airports.json">{{t "footer.download_database"}}</a>
         <a href="{{.BaseURL}}/server/healthz">{{t "footer.health_check"}}</a>
-        <a href="{{.BaseURL}}/server/docs/swagger">Swagger UI</a>
-        <a href="{{.BaseURL}}/server/docs/graphql">GraphiQL</a>
-        <a href="https://github.com/apimgr/airports">GitHub</a>
-    </div>
-    <div class="footer-section">
-        <h3>{{t "nav.about"}}</h3>
+        <a href="{{.BaseURL}}/server/docs/swagger">{{t "footer.swagger"}}</a>
+        <a href="{{.BaseURL}}/server/docs/graphql">{{t "footer.graphiql"}}</a>
+    </section>
+    <section class="footer-section" aria-labelledby="footer-information">
+        <h2 id="footer-information">{{t "footer.information"}}</h2>
         <a href="{{.BaseURL}}/server/about">{{t "nav.about"}}</a>
         <a href="{{.BaseURL}}/server/help">{{t "nav.help"}}</a>
         <a href="{{.BaseURL}}/server/privacy">{{t "nav.privacy"}}</a>
+        <a href="{{.BaseURL}}/server/dpo">{{t "footer.dpo"}}</a>
         <a href="{{.BaseURL}}/server/terms">{{t "nav.terms"}}</a>
-        <a href="{{.BaseURL}}/server/contact">{{t "nav.contact"}}</a>
-    </div>
-    <div class="footer-section">
-        <h3>{{t "footer.data_sources"}}</h3>
+        <a href="{{.BaseURL}}/server/security">{{t "footer.security"}}</a>
+    </section>
+    <section class="footer-section" aria-labelledby="footer-preferences">
+        <h2 id="footer-preferences">{{t "footer.preferences"}}</h2>
+        <a href="{{.BaseURL}}/server/preferences">{{t "footer.preferences"}}</a>
+        <a href="{{.BaseURL}}/server/preferences#language">{{range .AvailableLanguages}}{{if eq .Code $.Lang}}{{.NativeName}}{{end}}{{end}}</a>
+    </section>
+    <section class="footer-section" aria-labelledby="footer-data-sources">
+        <h2 id="footer-data-sources">{{t "footer.data_sources"}}</h2>
         <p>{{t "footer.source_airports"}}</p>
         <p>{{t "footer.source_geoip"}}</p>
-    </div>
+    </section>
 </div>
 <div class="footer-bottom">
     <p>{{tf "footer.copyright" "year" .CurrentYear}}</p>

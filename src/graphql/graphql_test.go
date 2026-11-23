@@ -14,7 +14,7 @@ import (
 )
 
 // fakeAirportSource is a minimal in-memory AirportSource used to exercise
-// the resolvers without depending on the real airports.Service.
+// the resolvers without depending on the real airports.AirportDataService.
 type fakeAirportSource struct {
 	byCode    map[string]*airports.Airport
 	nearby    []airports.AirportWithDistance
@@ -63,7 +63,7 @@ func (f *fakeAirportSource) Stats() map[string]interface{} {
 }
 
 // fakeGeoIPSource is a minimal in-memory GeoIPSource used to exercise the
-// `geoip` resolver without depending on the real geoip.Service (and its
+// `geoip` resolver without depending on the real geoip.GeoIPService (and its
 // MaxMind database files).
 type fakeGeoIPSource struct {
 	byIP map[string]*geoip.GeoLocation

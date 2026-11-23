@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apimgr/airports/src/i2p"
 )
 
 func TestFormatUptime(t *testing.T) {
@@ -27,6 +29,37 @@ func TestFormatUptime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := formatUptime(tt.d); got != tt.want {
 				t.Errorf("formatUptime(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestI2PFeatureHealthStateContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     string
+		enabled   bool
+		running   bool
+		hostname  string
+		provider  i2p.I2PProvider
+		want      I2PInfo
+		wantCheck string
+	}{
+		{name: "disabled", state: "disabled", provider: i2p.I2PProviderNone, want: I2PInfo{Status: "disabled", State: "disabled", Provider: "none"}},
+		{name: "no provider", state: "no_provider", enabled: true, provider: i2p.I2PProviderNone, want: I2PInfo{Status: "disabled", State: "no_provider", Provider: "none"}},
+		{name: "starting", state: "starting", enabled: true, provider: i2p.I2PProviderI2PD, want: I2PInfo{Enabled: true, Status: "starting", State: "starting", Provider: "i2pd"}, wantCheck: "ok"},
+		{name: "building", state: "building", enabled: true, provider: i2p.I2PProviderSAM, want: I2PInfo{Enabled: true, Status: "starting", State: "building", Provider: "sam"}, wantCheck: "ok"},
+		{name: "running", state: "running", enabled: true, running: true, hostname: "site.b32.i2p", provider: i2p.I2PProviderI2PD, want: I2PInfo{Enabled: true, Running: true, Status: "healthy", State: "running", Hostname: "site.b32.i2p", Provider: "i2pd"}, wantCheck: "ok"},
+		{name: "error", state: "error", enabled: true, provider: i2p.I2PProviderI2PD, want: I2PInfo{Enabled: true, Status: "unavailable", State: "error", Provider: "i2pd"}, wantCheck: "degraded"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mapI2PFeatureInfo(tt.state, tt.enabled, tt.running, tt.hostname, tt.provider)
+			if got != tt.want {
+				t.Errorf("mapI2PFeatureInfo() = %+v, want %+v", got, tt.want)
+			}
+			if got := checkI2PStatus(tt.state); got != tt.wantCheck {
+				t.Errorf("checkI2PStatus(%q) = %q, want %q", tt.state, got, tt.wantCheck)
 			}
 		})
 	}
@@ -59,13 +92,14 @@ func TestStatusWithRuntimeState(t *testing.T) {
 		{name: "healthy", want: "healthy"},
 		{name: "restart required", state: HealthRuntimeState{PendingRestart: true}, want: "restart_required"},
 		{name: "unhealthy outranks restart", state: HealthRuntimeState{PendingRestart: true}, want: "unhealthy", checks: ChecksInfo{Database: "error", Cache: "ok", Disk: "ok", Scheduler: "ok"}},
+		{name: "degraded outranks restart", state: HealthRuntimeState{PendingRestart: true}, want: "degraded", checks: ChecksInfo{Database: "ok", Cache: "error", Disk: "ok", Scheduler: "ok"}},
 		{name: "maintenance", state: HealthRuntimeState{Maintenance: &MaintenanceHealthInfo{}}, want: "maintenance"},
 		{name: "shutdown outranks maintenance", state: HealthRuntimeState{ShuttingDown: true, Maintenance: &MaintenanceHealthInfo{}}, want: "shutting_down"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			inputChecks := tt.checks
-			if inputChecks == (ChecksInfo{}) {
+			if inputChecks.Database == "" && inputChecks.Cache == "" && inputChecks.Disk == "" && inputChecks.Scheduler == "" && inputChecks.Tor == "" && inputChecks.I2P == "" && inputChecks.Datasets == nil {
 				inputChecks = checks
 			}
 			if got := statusWithRuntimeState(inputChecks, tt.state); got != tt.want {
@@ -139,7 +173,7 @@ func TestCheckTorNil(t *testing.T) {
 }
 
 func TestTorFeatureInfoNil(t *testing.T) {
-	info := torFeatureInfo(nil)
+	info := torFeatureInfo(nil, "")
 	if info.Enabled {
 		t.Errorf("torFeatureInfo(nil).Enabled = true, want false")
 	}
@@ -154,6 +188,39 @@ func TestTorFeatureInfoNil(t *testing.T) {
 	}
 }
 
+func TestCollectHealthProbesBoundsAndDeduplicatesStalledChecks(t *testing.T) {
+	slot := make(chan struct{}, 1)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	var calls int
+	probes := []healthProbe{
+		{
+			name: "tor", fallback: "degraded", slot: slot,
+			check: func() string {
+				calls++
+				close(started)
+				<-release
+				return "ok"
+			},
+		},
+		{
+			name: "database", fallback: "error", slot: make(chan struct{}, 1),
+			check: func() string { return "ok" },
+		},
+	}
+
+	first := collectHealthProbes(probes, 25*time.Millisecond)
+	<-started
+	if first["tor"] != "degraded" || first["database"] != "ok" {
+		t.Fatalf("first probe results = %v, want bounded Tor degradation and healthy database", first)
+	}
+	second := collectHealthProbes(probes, time.Second)
+	if second["tor"] != "degraded" || calls != 1 {
+		t.Fatalf("stalled probe was duplicated: results=%v calls=%d", second, calls)
+	}
+}
+
 func TestOverallStatus(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -162,10 +229,13 @@ func TestOverallStatus(t *testing.T) {
 	}{
 		{"all ok", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok"}, "healthy"},
 		{"database error is unhealthy", ChecksInfo{Database: "error", Cache: "ok", Disk: "ok", Scheduler: "ok"}, "unhealthy"},
-		{"cache error is unhealthy", ChecksInfo{Database: "ok", Cache: "error", Disk: "ok", Scheduler: "ok"}, "unhealthy"},
-		{"scheduler error is unhealthy", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "error"}, "unhealthy"},
-		{"disk error alone is degraded", ChecksInfo{Database: "ok", Cache: "ok", Disk: "error", Scheduler: "ok"}, "degraded"},
+		{"cache error is degraded", ChecksInfo{Database: "ok", Cache: "error", Disk: "ok", Scheduler: "ok"}, "degraded"},
+		{"scheduler error is degraded", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "error"}, "degraded"},
+		{"disk error is unhealthy", ChecksInfo{Database: "ok", Cache: "ok", Disk: "error", Scheduler: "ok"}, "unhealthy"},
+		{"critical dataset error is unhealthy", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Datasets: []DatasetHealthCheck{{Key: "data_airports", Status: "error", Critical: true}}}, "unhealthy"},
+		{"noncritical dataset error is degraded", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Datasets: []DatasetHealthCheck{{Key: "geoip_country", Status: "error"}}}, "degraded"},
 		{"tor error alone is degraded", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", Tor: "error"}, "degraded"},
+		{"I2P unavailable alone is degraded", ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok", I2P: "degraded"}, "degraded"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -208,7 +278,7 @@ func TestBuildHealthResponseNilDependencies(t *testing.T) {
 	if resp.Features.Tor.Status != "disabled" {
 		t.Errorf("Features.Tor.Status = %q, want %q", resp.Features.Tor.Status, "disabled")
 	}
-	if resp.Features.I2P.Enabled || resp.Features.I2P.Running || resp.Features.I2P.Status != "disabled" || resp.Features.I2P.Provider != "none" {
+	if resp.Features.I2P.Enabled || resp.Features.I2P.Running || resp.Features.I2P.Status != "disabled" || resp.Features.I2P.State != "disabled" || resp.Features.I2P.Provider != "none" {
 		t.Errorf("Features.I2P = %+v, want disabled feature with no provider", resp.Features.I2P)
 	}
 	if resp.Status != "unhealthy" {
@@ -240,7 +310,7 @@ func TestHealthResponseTextFormat(t *testing.T) {
 		Timestamp: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 		Features: FeaturesInfo{
 			Tor:   TorInfo{Status: "disabled"},
-			I2P:   I2PInfo{Status: "disabled", Provider: "none"},
+			I2P:   I2PInfo{Status: "disabled", State: "disabled", Provider: "none"},
 			GeoIP: true,
 		},
 		Checks: ChecksInfo{Database: "ok", Cache: "ok", Disk: "ok", Scheduler: "ok"},
@@ -279,11 +349,11 @@ func TestHealthResponseTextFormat(t *testing.T) {
 	// The spec's example places "# 6. Checks" immediately after
 	// "features.geoip" with no blank line, unlike every other section
 	// boundary — verify that quirk is reproduced verbatim.
-	want := "features.geoip: true\n# 6. Checks\n"
+	want := "features.geoip: enabled\n# 6. Checks\n"
 	if !strings.Contains(text, want) {
 		t.Errorf("expected no blank line between features.geoip and # 6. Checks, got:\n%s", text)
 	}
-	if !strings.Contains(text, "features.i2p.provider: none\n") {
+	if !strings.Contains(text, "features.i2p: disabled provider=none state=disabled\n") {
 		t.Errorf("missing disabled I2P feature details:\n%s", text)
 	}
 

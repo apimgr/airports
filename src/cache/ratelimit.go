@@ -10,3 +10,8 @@ import (
 type RateLimitStore interface {
 	AllowRateLimit(ctx context.Context, identity, class string, now time.Time, classWindow, globalWindow time.Duration, classLimit, globalLimit int) (allowed bool, classCount, globalCount int, classOldest, globalOldest time.Time, err error)
 }
+
+// RateLimitStatusStore reads a bucket without consuming an attempt.
+type RateLimitStatusStore interface {
+	CheckRateLimit(ctx context.Context, identity, class string, now time.Time, window time.Duration) (count int, oldest time.Time, err error)
+}

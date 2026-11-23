@@ -12,12 +12,12 @@ import (
 )
 
 func TestAuthorizeMaintenanceModeChange(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.User = "airports"
 	cfg.Server.Token = "operator-token"
 	tests := []struct {
 		name        string
-		cfg         *config.Config
+		cfg         *config.ApplicationConfig
 		root        bool
 		username    string
 		token       string
@@ -41,7 +41,7 @@ func TestAuthorizeMaintenanceModeChange(t *testing.T) {
 }
 
 func TestIsConfiguredServiceUserDefaultsToProjectName(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	if !isConfiguredServiceUser(cfg, ProjectName) {
 		t.Fatalf("isConfiguredServiceUser() = false, want true for default service account %q", ProjectName)
 	}

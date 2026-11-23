@@ -122,7 +122,7 @@ func (s *Server) handleDebugCache(w http.ResponseWriter, r *http.Request) {
 // handleDebugConfig returns the current configuration with sensitive
 // values (DNS API keys, RFC2136 TSIG secrets) redacted.
 func (s *Server) handleDebugConfig(w http.ResponseWriter, r *http.Request) {
-	s.respondItem(w, http.StatusOK, config.Sanitized())
+	s.respondItem(w, http.StatusOK, config.GetSanitizedApplicationConfig())
 }
 
 // handleDebugRoutes returns all registered routes.
@@ -176,7 +176,7 @@ func (s *Server) handleDebugGoroutines(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDebugData returns airport data service statistics. This project
-// has no separate DB layer — airports.Service holds the in-memory
+// has no separate DB layer — airports.AirportDataService holds the in-memory
 // dataset, so its Stats() is the debug data source.
 func (s *Server) handleDebugData(w http.ResponseWriter, r *http.Request) {
 	if s.airports == nil {

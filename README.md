@@ -217,7 +217,9 @@ available tools.
 
 Owner token management is available at `/server/preferences/tokens`; its
 versioned API mirror supports primary and linked token management. Token
-values are returned only by issuance, reveal, and rotation actions.
+values are returned only by issuance, reveal, and rotation actions. Browser
+reveals display one token for one page load; reloading masks it again. The API
+mirror returns issued values in its JSON response.
 
 ### Quick examples
 

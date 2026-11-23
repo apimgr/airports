@@ -42,9 +42,9 @@ func TestBuildIndexesSkipsEmptyFields(t *testing.T) {
 }
 
 func TestGetByCodeNotFound(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	if _, err := svc.GetByCode("ZZZZ"); err == nil {
 		t.Error("expected error for unknown code, got nil")
@@ -52,9 +52,9 @@ func TestGetByCodeNotFound(t *testing.T) {
 }
 
 func TestSearchEmptyQuery(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	if results := svc.Search("", 10, 0); results != nil {
 		t.Errorf("expected nil for empty query, got %d results", len(results))
@@ -65,9 +65,9 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 
 func TestSearchPaginationEdges(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 
 	// offset beyond total results must return an empty (non-nil) slice.
@@ -88,9 +88,9 @@ func TestSearchPaginationEdges(t *testing.T) {
 }
 
 func TestGetByCity(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	results := svc.GetByCity("New York")
 	if len(results) == 0 {
@@ -106,9 +106,9 @@ func TestGetByCity(t *testing.T) {
 }
 
 func TestGetByCountry(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	results := svc.GetByCountry("US")
 	if len(results) == 0 {
@@ -123,9 +123,9 @@ func TestGetByCountry(t *testing.T) {
 }
 
 func TestGetByState(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	results := svc.GetByState("NY")
 	if len(results) == 0 {
@@ -137,9 +137,9 @@ func TestGetByState(t *testing.T) {
 }
 
 func TestGetNearbyWithDistance(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 
 	metric := svc.GetNearbyWithDistance(40.6398, -73.7789, 50, 10, UnitMetric)
@@ -167,9 +167,9 @@ func TestGetNearbyWithDistance(t *testing.T) {
 }
 
 func TestGetAll(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	all := svc.GetAll(1000, 0)
 	if len(all) == 0 {
@@ -191,9 +191,9 @@ func TestGetAll(t *testing.T) {
 }
 
 func TestGetCountries(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	countries := svc.GetCountries()
 	if len(countries) == 0 {
@@ -206,9 +206,9 @@ func TestGetCountries(t *testing.T) {
 }
 
 func TestGetStatesInCountry(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	states := svc.GetStatesInCountry("US")
 	if len(states) == 0 {
@@ -231,9 +231,9 @@ func TestGetStatesInCountry(t *testing.T) {
 }
 
 func TestGetRawData(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatalf("NewAirportDataService: %v", err)
 	}
 	raw := svc.GetRawData()
 	if len(raw) == 0 {

@@ -396,14 +396,14 @@ func TestGetLogLevel(t *testing.T) {
 	if err := SetAppMode("development"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if got := getLogLevel(); got != "debug" {
+	if got := GetLogLevel(); got != "debug" {
 		t.Errorf("getLogLevel() in development = %q, want debug", got)
 	}
 
 	if err := SetAppMode("production"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	if got := getLogLevel(); got != "info" {
+	if got := GetLogLevel(); got != "info" {
 		t.Errorf("getLogLevel() in production = %q, want info", got)
 	}
 }

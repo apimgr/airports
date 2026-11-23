@@ -1,121 +1,99 @@
 package geoip
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestNewService(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires network: downloads GeoIP databases")
+func TestDownloadVerifiedFile(t *testing.T) {
+	content := []byte("verified GeoIP fixture")
+	sum := sha256.Sum256(content)
+	checksum := hex.EncodeToString(sum[:])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/database":
+			_, _ = w.Write(content)
+		case "/checksum":
+			_, _ = fmt.Fprintln(w, checksum+"  fixture.mmdb")
+		case "/bad-checksum":
+			_, _ = fmt.Fprintln(w, strings.Repeat("0", sha256.Size*2))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "fixture.mmdb")
+	if err := downloadVerifiedFile(dest, server.URL+"/database", server.URL+"/checksum"); err != nil {
+		t.Fatalf("valid database download failed: %v", err)
 	}
-	tmpDir := t.TempDir()
-	svc, err := NewService(tmpDir)
+	got, err := os.ReadFile(dest)
 	if err != nil {
-		t.Fatalf("Failed to create GeoIP service: %v", err)
+		t.Fatalf("read installed database: %v", err)
 	}
-	defer func() { _ = svc.Close() }()
-
-	if svc.cityIPv4DB == nil && svc.cityIPv6DB == nil {
-		t.Error("City database (v4/v6) not loaded")
+	if string(got) != string(content) {
+		t.Fatalf("installed database = %q, want %q", got, content)
 	}
 
-	if svc.countryDB == nil {
-		t.Error("Country database not loaded")
+	if err := downloadVerifiedFile(dest, server.URL+"/database", server.URL+"/bad-checksum"); err == nil {
+		t.Fatal("checksum mismatch was accepted")
 	}
-
-	if svc.asnDB == nil {
-		t.Error("ASN database not loaded")
+	got, err = os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("existing verified database was lost after failed download: %v", err)
 	}
+	if string(got) != string(content) {
+		t.Fatalf("existing database changed after checksum failure: %q", got)
+	}
+}
 
-	// Verify files were downloaded (service stores split IPv4/IPv6 files)
+func TestNewGeoIPService(t *testing.T) {
+	tmpDir := t.TempDir()
 	geoipDir := filepath.Join(tmpDir, "geoip")
-	ipv4Path := filepath.Join(geoipDir, "dbip-city-ipv4.mmdb")
-	ipv6Path := filepath.Join(geoipDir, "dbip-city-ipv6.mmdb")
-	_, errIPv4 := os.Stat(ipv4Path)
-	_, errIPv6 := os.Stat(ipv6Path)
-	if errIPv4 != nil && errIPv6 != nil {
-		t.Error("City database file (ipv4 or ipv6) not found")
+	if err := os.MkdirAll(geoipDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"dbip-city-ipv4.mmdb", "dbip-city-ipv6.mmdb", "iptoasn-country.mmdb", "iptoasn-asn.mmdb"} {
+		if err := os.WriteFile(filepath.Join(geoipDir, name), []byte("invalid database"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc, err := NewGeoIPService(tmpDir)
+	if err != nil || svc == nil {
+		t.Fatalf("NewGeoIPService must return a non-nil service when stored databases cannot be loaded: svc=%v err=%v", svc, err)
+	}
+	if svc.IsGeoIPAvailable() {
+		t.Fatal("service with invalid local databases must be unavailable")
 	}
 }
 
 func TestLookup(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires network: downloads GeoIP databases")
-	}
-	tmpDir := t.TempDir()
-	svc, err := NewService(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create GeoIP service: %v", err)
-	}
-	defer func() { _ = svc.Close() }()
-
-	tests := []struct {
-		name    string
-		ip      string
-		wantErr bool
-	}{
-		{"Google DNS", "8.8.8.8", false},
-		{"Cloudflare DNS", "1.1.1.1", false},
-		{"Private IP", "192.168.1.1", false},
-		{"Localhost", "127.0.0.1", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip)
-			location, err := svc.Lookup(ip)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Lookup() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if err == nil {
-				if location.IP != tt.ip {
-					t.Errorf("Expected IP %s, got %s", tt.ip, location.IP)
-				}
-
-				t.Logf("%s: Country=%s (%s), City=%s, Lat=%.4f, Lon=%.4f",
-					tt.name, location.CountryName, location.Country,
-					location.City, location.Latitude, location.Longitude)
-			}
-		})
+	svc := &GeoIPService{}
+	if _, err := svc.Lookup(net.ParseIP("8.8.8.8")); err == nil {
+		t.Fatal("Lookup must report unavailable databases")
 	}
 }
 
 func TestLookupString(t *testing.T) {
-	if testing.Short() {
-		t.Skip("requires network: downloads GeoIP databases")
+	svc := &GeoIPService{}
+	if _, err := svc.LookupString("8.8.8.8"); err == nil {
+		t.Fatal("LookupString must report unavailable databases")
 	}
-	tmpDir := t.TempDir()
-	svc, err := NewService(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create GeoIP service: %v", err)
-	}
-	defer func() { _ = svc.Close() }()
-
-	location, err := svc.LookupString("8.8.8.8")
-	if err != nil {
-		t.Fatalf("Failed to lookup 8.8.8.8: %v", err)
-	}
-
-	// The free ip-location-db may return empty country for well-known IPs;
-	// we accept either a correct result (US) or an empty result (graceful degradation).
-	if location.Country != "" && location.Country != "US" {
-		t.Errorf("Expected country US or empty for 8.8.8.8, got %s", location.Country)
-	}
-
-	t.Logf("8.8.8.8 located in %q (%q)", location.CountryName, location.Country)
 }
 
-func TestNewServiceFailOpen(t *testing.T) {
+func TestNewGeoIPServiceFailOpen(t *testing.T) {
 	// Per AI.md PART 19, GeoIP is a risk signal only — a database download
 	// failure must never be fatal. Point the download URLs at an address
-	// that cannot resolve/connect and confirm NewService still succeeds
-	// with a non-nil, degraded (unavailable) Service.
+	// that cannot resolve/connect and confirm NewGeoIPService still succeeds
+	// with a non-nil, degraded (unavailable) GeoIPService.
 	origCityIPv4URL, origCityIPv6URL, origCountryURL, origASNURL := cityIPv4URL, cityIPv6URL, countryURL, asnURL
 	defer func() {
 		cityIPv4URL, cityIPv6URL, countryURL, asnURL = origCityIPv4URL, origCityIPv6URL, origCountryURL, origASNURL
@@ -125,17 +103,17 @@ func TestNewServiceFailOpen(t *testing.T) {
 	cityIPv4URL, cityIPv6URL, countryURL, asnURL = unreachable, unreachable, unreachable, unreachable
 
 	tmpDir := t.TempDir()
-	svc, err := NewService(tmpDir)
+	svc, err := NewGeoIPService(tmpDir)
 	if err != nil {
-		t.Fatalf("NewService must fail open (nil error) on download failure, got: %v", err)
+		t.Fatalf("NewGeoIPService must fail open (nil error) on download failure, got: %v", err)
 	}
 	if svc == nil {
-		t.Fatal("NewService must return a non-nil Service even when downloads fail")
+		t.Fatal("NewGeoIPService must return a non-nil GeoIPService even when downloads fail")
 	}
 	defer func() { _ = svc.Close() }()
 
 	if svc.IsGeoIPAvailable() {
-		t.Error("Service.IsGeoIPAvailable() must be false when databases failed to download")
+		t.Error("GeoIPService.IsGeoIPAvailable() must be false when databases failed to download")
 	}
 
 	if _, err := svc.Lookup(net.ParseIP("8.8.8.8")); err == nil {
@@ -162,7 +140,7 @@ func BenchmarkLookup(b *testing.B) {
 		b.Skip("requires network: downloads GeoIP databases")
 	}
 	tmpDir := b.TempDir()
-	svc, err := NewService(tmpDir)
+	svc, err := NewGeoIPService(tmpDir)
 	if err != nil {
 		b.Fatal(err)
 	}

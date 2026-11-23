@@ -1,6 +1,12 @@
 // UI Helper Functions
 const API_BASE = document.documentElement.getAttribute('data-api-base');
 const BASE_URL = document.documentElement.getAttribute('data-base-url') || '';
+const CLIENT_TRANSLATIONS = JSON.parse(document.documentElement.getAttribute('data-client-translations') || '{}');
+
+function translate(key) {
+    return CLIENT_TRANSLATIONS[key] || key;
+}
+
 function appPath(path) {
     return BASE_URL + path;
 }
@@ -14,43 +20,61 @@ function escapeHtml(value) {
     return div.innerHTML;
 }
 
-// Theme is server-rendered (AI.md PART 16: the server reads the "theme"
-// cookie and renders theme-light/theme-dark/theme-auto on <html> with no
-// init JS and no FOUC). This function only updates the *current* page for
-// instant feedback and persists the choice in the server-readable cookie
-// so the next navigation/render picks it up.
-function applyTheme(theme) {
-    const html = document.documentElement;
-    html.classList.remove('theme-dark', 'theme-light', 'theme-auto');
-    html.classList.add('theme-' + theme);
-    if (html.getAttribute('data-preferences-enabled') === 'true') {
-        document.cookie = 'theme=' + theme + '; path=/; max-age=31536000; SameSite=Lax';
-    }
-
-    const icon = document.querySelector('.theme-icon');
-    if (icon) {
-        icon.textContent = theme === 'dark' ? '🌙' : '☀️';
-    }
-}
-
-function toggleTheme() {
-    const isLight = document.documentElement.classList.contains('theme-light');
-    applyTheme(isLight ? 'dark' : 'light');
-}
-
 function toggleMobileMenu() {
-    const nav = document.getElementById('main-nav');
-    nav.classList.toggle('active');
+    const checkbox = document.getElementById('nav-toggle');
+    if (checkbox) checkbox.checked = !checkbox.checked;
 }
 
-// Sync the theme-toggle icon with the class the server already rendered
-// on <html> (no class mutation here — that would risk a flash).
-document.addEventListener('DOMContentLoaded', () => {
-    const icon = document.querySelector('.theme-icon');
-    if (icon) {
-        icon.textContent = document.documentElement.classList.contains('theme-light') ? '☀️' : '🌙';
+function initNavigation() {
+    const checkbox = document.getElementById('nav-toggle');
+    const panel = document.getElementById('nav-panel');
+    const toggle = document.querySelector('.nav-toggle');
+    const desktopNav = document.getElementById('main-navigation');
+    if (!checkbox || !panel || !toggle || !desktopNav) return;
+
+    function updateMenuState(focusPanel) {
+        const open = checkbox.checked;
+        panel.inert = !open;
+        toggle.setAttribute('aria-expanded', String(open));
+        if (focusPanel && open) panel.querySelector('a')?.focus();
     }
-});
+
+    function updateResponsiveMenu() {
+        const collapsed = window.innerWidth >= 768 && desktopNav.scrollWidth > desktopNav.clientWidth;
+        document.documentElement.classList.toggle('nav-collapsed', collapsed);
+        if (!collapsed && window.innerWidth >= 768) checkbox.checked = false;
+        updateMenuState(false);
+    }
+
+    panel.inert = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    checkbox.addEventListener('change', function() { updateMenuState(true); });
+    window.addEventListener('resize', updateResponsiveMenu);
+    document.addEventListener('keydown', function(event) {
+        if (!checkbox.checked) return;
+        if (event.key === 'Escape') {
+            checkbox.checked = false;
+            updateMenuState(false);
+            toggle.focus();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        const focusable = Array.from(panel.querySelectorAll('a[href], button:not([disabled]), [tabindex="0"]'));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    });
+    updateResponsiveMenu();
+}
+
+initNavigation();
 
 // Toast Notifications (AI.md PART 16 "Toast/Notification Requirements": max 5
 // stacked, success/info 3s, warning 5s, error never auto-dismisses, click or
@@ -77,7 +101,7 @@ function showToast(message, type) {
 
     const close = document.createElement('button');
     close.className = 'toast-close';
-    close.setAttribute('aria-label', 'Dismiss');
+    close.setAttribute('aria-label', translate('ui.toast_dismiss'));
     close.innerHTML = '&times;';
 
     toast.append(icon, msg, close);
@@ -136,6 +160,13 @@ function showToast(message, type) {
     }
 }
 
+document.addEventListener('DOMContentLoaded', function() {
+    const notice = document.getElementById('owner-token-notice');
+    if (!notice) return;
+    showToast(notice.textContent.trim(), 'success');
+    notice.hidden = true;
+});
+
 // Modal Functions
 // Uses the native <dialog> element (AI.md PART 16 "Modals"): showModal()
 // provides the focus trap and ::backdrop automatically, and the close
@@ -148,8 +179,8 @@ function showModal(title, content) {
     container.innerHTML =
         '<dialog id="app-modal" class="modal" aria-labelledby="app-modal-title">' +
         '<div class="modal-header">' +
-        '<h2 id="app-modal-title">' + title + '</h2>' +
-        '<form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>' +
+        '<h2 id="app-modal-title">' + escapeHtml(title) + '</h2>' +
+        '<form method="dialog"><button class="modal-close" aria-label="' + escapeHtml(translate('ui.close')) + '">×</button></form>' +
         '</div>' +
         '<div class="modal-body">' + content + '</div>' +
         '</dialog>';
@@ -192,12 +223,12 @@ function apiGet(endpoint) {
         .then(function(response) { return response.json(); })
         .then(function(data) {
             if (data.ok === false) {
-                throw new Error((data.error && data.error.message) || data.message || 'API request failed');
+                throw new Error((data.error && data.error.message) || data.message || translate('ui.api_request_failed'));
             }
             return data.data !== undefined ? data.data : data;
         })
         .catch(function(error) {
-            showToast(error.message, 'error');
+            showToast(error instanceof TypeError ? translate('ui.api_request_failed') : error.message, 'error');
             throw error;
         });
 }
@@ -253,7 +284,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const graphiqlEl = document.getElementById('graphiql');
     if (graphiqlEl && typeof GraphiQL !== 'undefined') {
         const fetcher = GraphiQL.createFetcher({ url: graphiqlEl.getAttribute('data-endpoint-url') });
-        const defaultQuery = '# Welcome to the Airports GraphQL API\n# Press the Play button to run a query\n\n' +
+        const defaultQuery = '# ' + translate('graphql.editor_welcome') + '\n# ' + translate('graphql.editor_run_hint') + '\n\n' +
             'query GetAirport {\n  airport(code: "KJFK") {\n    icao\n    iata\n    name\n    city\n    country\n    coordinates { lat lon }\n  }\n}\n\n' +
             'query SearchNearby {\n  nearby(lat: 40.6398, lon: -73.7789, radius: 50) {\n    icao\n    name\n    distance\n  }\n}\n';
         ReactDOM.createRoot(graphiqlEl)
@@ -296,7 +327,7 @@ function quickSearch(event) {
                     document.getElementById('quick-results').innerHTML = html;
                 } else {
                     document.getElementById('quick-results').innerHTML =
-                        '<div class="no-results">No airports found</div>';
+                        '<div class="no-results">' + escapeHtml(translate('ui.search_no_results')) + '</div>';
                 }
             });
     }, 300);
@@ -309,12 +340,12 @@ function detectLocation() {
             if (data.ok !== false && data.data) {
                 const loc = data.data.location;
                 const nearbyHref = appPath('/airports/nearby?lat=' + loc.latitude + '&lon=' + loc.longitude);
-                showModal('Your Location',
-                    '<p><strong>IP:</strong> ' + loc.ip + '</p>' +
-                    '<p><strong>Location:</strong> ' + (loc.city || 'Unknown') + ', ' + (loc.country_name || loc.country) + '</p>' +
-                    '<p><strong>Coordinates:</strong> ' + loc.latitude.toFixed(4) + ', ' + loc.longitude.toFixed(4) + '</p>' +
-                    '<p><strong>Nearby Airports:</strong> ' + data.data.nearby_airports.length + '</p>' +
-                    '<button data-action="navigate" data-href="' + nearbyHref + '">View Nearby Airports</button>'
+                showModal(translate('geoip.your_location'),
+                    '<p><strong>' + escapeHtml(translate('geoip.ip_label')) + ':</strong> ' + escapeHtml(loc.ip) + '</p>' +
+                    '<p><strong>' + escapeHtml(translate('ui.location')) + ':</strong> ' + escapeHtml(loc.city || translate('ui.unknown')) + ', ' + escapeHtml(loc.country_name || loc.country) + '</p>' +
+                    '<p><strong>' + escapeHtml(translate('geoip.latitude_label')) + ' / ' + escapeHtml(translate('geoip.longitude_label')) + ':</strong> ' + escapeHtml(loc.latitude.toFixed(4)) + ', ' + escapeHtml(loc.longitude.toFixed(4)) + '</p>' +
+                    '<p><strong>' + escapeHtml(translate('geoip.nearby_heading')) + ':</strong> ' + escapeHtml(data.data.nearby_airports.length) + '</p>' +
+                    '<button data-action="navigate" data-href="' + escapeHtml(nearbyHref) + '">' + escapeHtml(translate('ui.view_nearby_airports')) + '</button>'
                 );
             }
         });
@@ -350,20 +381,18 @@ function copyJSON() {
     const jsonEl = document.getElementById('json-data');
     if (!jsonEl) return;
     navigator.clipboard.writeText(jsonEl.textContent).then(function() {
-        showToast('JSON copied to clipboard!', 'success');
+        showToast(translate('ui.copy_json_success'), 'success');
     });
 }
 
 // copyValue copies the element's data-copy attribute to the clipboard and
 // swaps the trigger button's label to a translated "Copied!" state for
-// visual feedback, falling back to the untranslated attribute value if the
-// server did not render data-copied-text (i18n keys come from the template,
-// never hardcoded here).
+// visual feedback, using the active locale if the template omits its label.
 function copyValue(target) {
     const value = target.getAttribute('data-copy');
     if (!value) return;
     navigator.clipboard.writeText(value).then(function() {
-        const copiedText = target.getAttribute('data-copied-text') || 'Copied!';
+        const copiedText = target.getAttribute('data-copied-text') || translate('common.copied');
         const original = target.textContent;
         target.textContent = copiedText;
         target.disabled = true;
@@ -388,7 +417,7 @@ function findNearbyAirports() {
     const limit  = document.getElementById('limit') && document.getElementById('limit').value;
 
     if (!lat || !lon) {
-        showToast('Please enter both latitude and longitude', 'error');
+        showToast(translate('ui.coordinates_required'), 'error');
         return;
     }
 
@@ -400,20 +429,20 @@ function findNearbyAirports() {
 
 function useMyLocation() {
     if (!navigator.geolocation) {
-        showToast('Geolocation is not supported by your browser', 'error');
+        showToast(translate('ui.geolocation_unsupported'), 'error');
         return;
     }
 
-    showToast('Getting your location...', 'info');
+    showToast(translate('ui.geolocation_loading'), 'info');
 
     navigator.geolocation.getCurrentPosition(
         function(position) {
             document.getElementById('latitude').value = position.coords.latitude.toFixed(4);
             document.getElementById('longitude').value = position.coords.longitude.toFixed(4);
-            showToast('Location detected!', 'success');
+            showToast(translate('ui.geolocation_detected'), 'success');
         },
         function(error) {
-            showToast('Unable to get your location: ' + error.message, 'error');
+            showToast(translate('ui.geolocation_failed'), 'error');
         }
     );
 }
@@ -437,20 +466,20 @@ function lookupIP(event) {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.ok === false) {
-                document.getElementById('error-message').textContent = data.message || 'Lookup failed';
+                document.getElementById('error-message').textContent = data.message || translate('ui.lookup_failed');
                 errBox.classList.remove('hidden');
                 return;
             }
             const loc = document.getElementById('location-data');
             loc.innerHTML =
                 '<dl>' +
-                '<dt>IP</dt><dd>' + escapeHtml(data.ip || ip) + '</dd>' +
-                '<dt>Country</dt><dd>' + (data.country_name || '-') + ' (' + (data.country_code || '-') + ')</dd>' +
-                '<dt>City</dt><dd>' + (data.city || '-') + '</dd>' +
-                '<dt>Latitude</dt><dd>' + (data.lat || '-') + '</dd>' +
-                '<dt>Longitude</dt><dd>' + (data.lon || '-') + '</dd>' +
-                '<dt>ASN</dt><dd>' + (data.asn || '-') + '</dd>' +
-                '<dt>ISP</dt><dd>' + (data.isp || '-') + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.ip_label')) + '</dt><dd>' + escapeHtml(data.ip || ip) + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.country_label')) + '</dt><dd>' + escapeHtml(data.country_name || '-') + ' (' + escapeHtml(data.country_code || '-') + ')</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.city_label')) + '</dt><dd>' + escapeHtml(data.city || '-') + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.latitude_label')) + '</dt><dd>' + escapeHtml(data.lat || '-') + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.longitude_label')) + '</dt><dd>' + escapeHtml(data.lon || '-') + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.asn_label')) + '</dt><dd>' + escapeHtml(data.asn || '-') + '</dd>' +
+                '<dt>' + escapeHtml(translate('geoip.isp_label')) + '</dt><dd>' + escapeHtml(data.isp || '-') + '</dd>' +
                 '</dl>';
             result.classList.remove('hidden');
 
@@ -461,7 +490,7 @@ function lookupIP(event) {
                         const airports = nearby.data || [];
                         const nearbyEl = document.getElementById('nearby-data');
                         if (!airports.length) {
-                            nearbyEl.textContent = 'No airports found nearby.';
+                            nearbyEl.textContent = translate('ui.no_airports_nearby');
                             return;
                         }
                         nearbyEl.innerHTML = airports.slice(0, 10).map(function(a) {
@@ -473,12 +502,12 @@ function lookupIP(event) {
                         }).join('');
                     })
                     .catch(function() {
-                        document.getElementById('nearby-data').textContent = 'Could not load nearby airports.';
+                        document.getElementById('nearby-data').textContent = translate('ui.nearby_load_failed');
                     });
             }
         })
         .catch(function(err) {
-            document.getElementById('error-message').textContent = 'Request failed: ' + err.message;
+            document.getElementById('error-message').textContent = translate('ui.request_failed');
             errBox.classList.remove('hidden');
         });
 }
@@ -491,9 +520,6 @@ function dispatchAction(action, target) {
     switch (action) {
         case 'toggle-mobile-menu':
             toggleMobileMenu();
-            break;
-        case 'toggle-theme':
-            toggleTheme();
             break;
         case 'perform-search':
             performSearch();
@@ -528,9 +554,17 @@ function dispatchAction(action, target) {
         case 'close-modal':
             closeModal();
             break;
+        case 'cookie-preferences':
+            showCookiePreferences();
+            break;
         default:
             break;
     }
+}
+
+function showCookiePreferences() {
+    const dialog = document.getElementById('cookie-preferences-modal');
+    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
 }
 
 document.addEventListener('click', function(e) {
@@ -649,7 +683,7 @@ function initAirportMaps() {
                 const button = document.createElement('button');
                 button.type = 'button'; button.className = 'map-marker';
                 button.textContent = String(point.code || '•');
-                button.setAttribute('aria-label', String(point.name || point.code || 'Airport'));
+                button.setAttribute('aria-label', String(point.name || point.code || translate('ui.airport_label')));
                 const screenX = pos.x - center.x + width / 2, screenY = pos.y - center.y + height / 2;
                 button.style.left = screenX + 'px'; button.style.top = screenY + 'px';
                 button.addEventListener('click', function() {
@@ -683,7 +717,7 @@ function initAirportMaps() {
             section.hidden = true;
             const fallback = document.createElement('p');
             fallback.className = 'map-error';
-            fallback.textContent = section.getAttribute('data-map-error') || 'Map tiles could not be loaded. Use the OpenStreetMap links below.';
+            fallback.textContent = section.getAttribute('data-map-error') || translate('airport.map_unavailable');
             section.parentNode.insertBefore(fallback, section.nextSibling);
         }
         function setZoom(next, anchorX, anchorY) {

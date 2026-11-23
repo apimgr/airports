@@ -81,7 +81,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("completions-ok", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "completions", "bash", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "completions", "bash", "airports-cli", commands, flags)
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}
@@ -92,7 +92,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("completions-unsupported-shell", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "completions", "tcsh", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "completions", "tcsh", "airports-cli", commands, flags)
 		if code != 1 {
 			t.Errorf("code = %d, want 1", code)
 		}
@@ -103,7 +103,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("init-ok", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "init", "zsh", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "init", "zsh", "airports-cli", commands, flags)
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}
@@ -114,7 +114,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("init-unsupported-shell", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "init", "tcsh", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "init", "tcsh", "airports-cli", commands, flags)
 		if code != 1 {
 			t.Errorf("code = %d, want 1", code)
 		}
@@ -125,7 +125,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("help", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "help", "", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "help", "", "airports-cli", commands, flags)
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}
@@ -136,7 +136,7 @@ func TestHandle(t *testing.T) {
 
 	t.Run("unknown-subcommand", func(t *testing.T) {
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "frobnicate", "", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "frobnicate", "", "airports-cli", commands, flags)
 		if code != 1 {
 			t.Errorf("code = %d, want 1", code)
 		}
@@ -148,7 +148,7 @@ func TestHandle(t *testing.T) {
 	t.Run("empty-shell-auto-detects", func(t *testing.T) {
 		t.Setenv("SHELL", "/bin/bash")
 		var out, errOut bytes.Buffer
-		code := Handle(&out, &errOut, "completions", "", "airports-cli", commands, flags)
+		code := HandleShellCompletion(&out, &errOut, "completions", "", "airports-cli", commands, flags)
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -76,7 +77,7 @@ func TestRestore_RoundTrip(t *testing.T) {
 	destDir := testTempDir(t)
 	archive := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
 
-	if err := Create(archive, CreateOptions{
+	if err := CreateBackupArchive(archive, BackupArchiveOptions{
 		ConfigDir:  configDir,
 		DataDir:    dataDir,
 		AppVersion: "1.2.3",
@@ -88,7 +89,7 @@ func TestRestore_RoundTrip(t *testing.T) {
 	restoreConfig := filepath.Join(restoreRoot, "config")
 	restoreData := filepath.Join(restoreRoot, "data")
 
-	err := Restore(archive, RestoreOptions{
+	err := RestoreBackupArchive(archive, BackupRestoreOptions{
 		ConfigDir:  restoreConfig,
 		DataDir:    restoreData,
 		AppVersion: "1.2.3",
@@ -110,7 +111,7 @@ func TestRestore_VersionMismatchWarning(t *testing.T) {
 	destDir := testTempDir(t)
 	archive := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
 
-	if err := Create(archive, CreateOptions{
+	if err := CreateBackupArchive(archive, BackupArchiveOptions{
 		ConfigDir:  configDir,
 		DataDir:    dataDir,
 		AppVersion: "1.0.0",
@@ -119,7 +120,7 @@ func TestRestore_VersionMismatchWarning(t *testing.T) {
 	}
 
 	restoreRoot := testTempDir(t)
-	err := Restore(archive, RestoreOptions{
+	err := RestoreBackupArchive(archive, BackupRestoreOptions{
 		ConfigDir:  filepath.Join(restoreRoot, "config"),
 		DataDir:    filepath.Join(restoreRoot, "data"),
 		AppVersion: "2.0.0",
@@ -147,7 +148,7 @@ func TestRestore_EncryptedRequiresPassword(t *testing.T) {
 	destDir := testTempDir(t)
 	archive := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz.enc")
 
-	if err := Create(archive, CreateOptions{
+	if err := CreateBackupArchive(archive, BackupArchiveOptions{
 		ConfigDir:          configDir,
 		DataDir:            dataDir,
 		EncryptionPassword: "correct-password",
@@ -156,7 +157,7 @@ func TestRestore_EncryptedRequiresPassword(t *testing.T) {
 	}
 
 	restoreRoot := testTempDir(t)
-	err := Restore(archive, RestoreOptions{
+	err := RestoreBackupArchive(archive, BackupRestoreOptions{
 		ConfigDir: filepath.Join(restoreRoot, "config"),
 		DataDir:   filepath.Join(restoreRoot, "data"),
 	})
@@ -166,7 +167,7 @@ func TestRestore_EncryptedRequiresPassword(t *testing.T) {
 }
 
 // buildMaliciousContainer hand-crafts a container whose tar payload contains
-// a path-traversal entry, bypassing Create() entirely so the zip-slip guard
+// a path-traversal entry, bypassing CreateBackupArchive() entirely so the zip-slip guard
 // in extractTarGzTo/extractRestoreArchive is what has to catch it.
 func buildMaliciousContainer(t *testing.T, path string) {
 	t.Helper()
@@ -232,7 +233,7 @@ func TestRestore_RejectsZipSlip(t *testing.T) {
 	restoreConfig := filepath.Join(restoreRoot, "config")
 	restoreData := filepath.Join(restoreRoot, "data")
 
-	err := Restore(archive, RestoreOptions{
+	err := RestoreBackupArchive(archive, BackupRestoreOptions{
 		ConfigDir: restoreConfig,
 		DataDir:   restoreData,
 	})
@@ -242,5 +243,50 @@ func TestRestore_RejectsZipSlip(t *testing.T) {
 
 	if _, statErr := os.Stat("/etc/passwd-pwned"); statErr == nil {
 		t.Fatalf("zip-slip entry escaped the target directory")
+	}
+}
+
+func TestExtractTarGzRejectsSymlinkedDestinationAncestor(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	dataDir := filepath.Join(root, "data")
+	outsideDir := filepath.Join(root, "outside")
+	for _, dir := range []string{configDir, dataDir, outsideDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(configDir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	content := []byte("must not escape")
+	if err := tw.WriteHeader(&tar.Header{Name: "config/linked/secret.txt", Mode: 0o600, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := extractTarGzTo(archive.Bytes(), func(name string) (string, string, bool) {
+		if strings.HasPrefix(name, "config/") {
+			return filepath.Join(configDir, strings.TrimPrefix(name, "config/")), configDir, true
+		}
+		return "", "", false
+	})
+	if err == nil {
+		t.Fatal("extraction through a symlinked ancestor succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "secret.txt")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat error = %v", err)
 	}
 }

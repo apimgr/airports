@@ -46,6 +46,9 @@ func (s *Server) debugMiddleware(next http.Handler) http.Handler {
 			wrapped.bodyLimit = debugBodyLogLimit(debugConfig.MaxBodyLogSize)
 		}
 		next.ServeHTTP(wrapped, r)
+		if shouldSuppressHealthAccessLog(r.URL.Path, wrapped.status) {
+			return
+		}
 		s.debugLog(r, wrapped.status, time.Since(started), wrapped.size)
 		if len(body) > 0 {
 			attrs := []any{"request_body", sanitizeDebugBody(body, r.Header.Get("Content-Type"))}

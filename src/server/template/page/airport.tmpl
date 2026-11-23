@@ -3,7 +3,7 @@
 <div class="airport-detail" data-lat="{{.Airport.Lat}}" data-lon="{{.Airport.Lon}}">
     <div class="airport-detail-header">
         <div>
-            <h1>{{.Airport.ICAO}}{{if .Airport.IATA}} / {{.Airport.IATA}}{{end}}</h1>
+            <h1 class="page-title">{{.Airport.ICAO}}{{if .Airport.IATA}} / {{.Airport.IATA}}{{end}}</h1>
             <h2>{{.Airport.Name}}</h2>
         </div>
         <span class="country-badge-large">{{.Airport.Country}}</span>
@@ -81,7 +81,7 @@
 </div>
 {{else}}
 <div class="error-page">
-    <h1>❌ {{t "airport.not_found_title"}}</h1>
+    <h1 class="page-title">❌ {{t "airport.not_found_title"}}</h1>
     <p>{{tf "airport.not_found_body" "code" .Code}}</p>
     <button data-action="navigate" data-href="{{.BaseURL}}/airports/search">{{t "airport.search_airports_button"}}</button>
 </div>

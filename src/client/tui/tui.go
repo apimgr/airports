@@ -2,14 +2,17 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/common/terminal"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -19,7 +22,7 @@ import (
 
 const actionTimeout = 30 * time.Second
 
-type Config struct {
+type TUIConfig struct {
 	ServerURL string
 	Token     string
 	Language  string
@@ -27,7 +30,7 @@ type Config struct {
 	UseColor  bool
 }
 
-type Request struct {
+type TUIAPIRequest struct {
 	Operation string
 	Query     string
 	Code      string
@@ -41,7 +44,7 @@ type Request struct {
 
 type Actions struct {
 	TestConnection func(context.Context, string, string) (string, error)
-	Execute        func(context.Context, string, string, Request) (string, error)
+	Execute        func(context.Context, string, string, TUIAPIRequest) (string, error)
 }
 
 type page int
@@ -67,7 +70,7 @@ const (
 )
 
 type model struct {
-	config      Config
+	config      TUIConfig
 	actions     Actions
 	page        page
 	operation   operation
@@ -79,6 +82,7 @@ type model struct {
 	height      int
 	layout      LayoutConfig
 	styles      themeStyles
+	symbols     tuiSymbols
 	status      string
 	statusError bool
 	result      string
@@ -90,6 +94,12 @@ type actionResult struct {
 	body  string
 	err   error
 	setup bool
+}
+
+type tuiSymbols struct {
+	selected string
+	bullet   string
+	upDown   string
 }
 
 var menuItems = []struct {
@@ -109,9 +119,13 @@ var menuItems = []struct {
 // Run starts the interactive client and returns any configuration changes
 // made by the setup screen. The caller supplies network operations so the TUI
 // reuses the same authenticated, localized HTTP client as command mode.
-func Run(config Config, actions Actions) (Config, error) {
+func RunInteractiveTerminalClient(config TUIConfig, actions Actions) (TUIConfig, error) {
 	m := newModel(config, actions)
-	program := tea.NewProgram(m, tea.WithAltScreen())
+	options := []tea.ProgramOption{}
+	if !screenReaderMode() {
+		options = append(options, tea.WithAltScreen())
+	}
+	program := tea.NewProgram(m, options...)
 	final, err := program.Run()
 	if err != nil {
 		return config, err
@@ -122,7 +136,7 @@ func Run(config Config, actions Actions) (Config, error) {
 	return config, errors.New("TUI exited without returning its model")
 }
 
-func newModel(config Config, actions Actions) model {
+func newModel(config TUIConfig, actions Actions) model {
 	if config.Theme != "light" {
 		config.Theme = "dark"
 	}
@@ -135,16 +149,17 @@ func newModel(config Config, actions Actions) model {
 		page:     pageMenu,
 		width:    width,
 		height:   height,
-		layout:   GetLayoutConfig(terminalSizeMode(width, height)),
+		layout:   GetTerminalLayoutConfig(terminalSizeMode(width, height)),
 		styles:   stylesForTheme(config.Theme, config.UseColor),
+		symbols:  terminalSymbols(),
 		viewport: viewportModel,
 	}
 	if strings.TrimSpace(config.ServerURL) == "" {
 		m.page = pageSetup
 		m.operation = opSetup
-		m.inputs = []textinput.Model{newInput("Server URL", ""), newPasswordInput("API token", "")}
+		m.inputs = []textinput.Model{newInput(m.tr("server_url", "Server URL"), ""), newPasswordInput(m.tr("token", "API token"), "")}
 		m.inputs[0].Focus()
-		m.status = "No server configured. Enter a server URL to begin."
+		m.status = m.tr("no_server_setup", "No server configured. Enter a server URL to begin.")
 	}
 	return m
 }
@@ -155,7 +170,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.layout = GetLayoutConfig(terminalSizeMode(msg.Width, msg.Height))
+		m.layout = GetTerminalLayoutConfig(terminalSizeMode(msg.Width, msg.Height))
 		m.resizeInputs()
 		m.resizeViewport()
 		return m, nil
@@ -163,22 +178,28 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.setup {
 			if msg.err != nil {
-				m.setError("Connection failed: " + msg.err.Error())
+				m.setError(m.tr("connection_failed", "Connection failed") + ": " + msg.err.Error())
 				return m, nil
 			}
 			m.config.ServerURL = strings.TrimRight(m.inputs[0].Value(), "/")
 			m.config.Token = m.inputs[1].Value()
-			m.setStatus("Connected. Configuration will be saved when you exit. "+msg.body, false)
+			m.setStatus(m.tr("connected", "Connected. Configuration will be saved when you exit.")+" "+msg.body, false)
 			m.page = pageMenu
 			m.inputs = nil
 			return m, nil
 		}
-		m.page = pageResult
-		m.result = msg.body
 		if msg.err != nil {
-			m.setError("Request failed: " + msg.err.Error())
+			if len(m.inputs) > 0 {
+				m.page = pageInput
+			} else {
+				m.page = pageResult
+			}
+			m.result = ""
+			m.setError(m.tr("request_failed", "Request failed") + ": " + msg.err.Error())
 		} else {
-			m.setStatus(msg.title+" completed", false)
+			m.page = pageResult
+			m.result = prettyJSON(msg.body)
+			m.setStatus(msg.title+" "+m.tr("completed", "completed"), false)
 		}
 		m.viewport.SetContent(m.result)
 		m.resizeViewport()
@@ -304,23 +325,23 @@ func (m model) chooseMenuItem(index int) (tea.Model, tea.Cmd) {
 	switch item.operation {
 	case opSetup:
 		m.page = pageSetup
-		m.inputs = []textinput.Model{newInput("Server URL", m.config.ServerURL), newPasswordInput("API token", m.config.Token)}
+		m.inputs = []textinput.Model{newInput(m.tr("server_url", "Server URL"), m.config.ServerURL), newPasswordInput(m.tr("token", "API token"), m.config.Token)}
 		m.focusInput(0)
 		return m, nil
 	case opSearch:
 		m.page = pageInput
-		m.inputs = []textinput.Model{newInput("Search query", "")}
+		m.inputs = []textinput.Model{newInput(m.tr("search_query", "Search query"), "")}
 	case opGet:
 		m.page = pageInput
-		m.inputs = []textinput.Model{newInput("ICAO or IATA code", "")}
+		m.inputs = []textinput.Model{newInput(m.tr("airport_code", "ICAO or IATA code"), "")}
 	case opNearby:
 		m.page = pageInput
-		m.inputs = []textinput.Model{newInput("Latitude (-90 to 90)", ""), newInput("Longitude (-180 to 180)", ""), newInput("Result limit", "10")}
+		m.inputs = []textinput.Model{newInput(m.tr("latitude", "Latitude (-90 to 90)"), ""), newInput(m.tr("longitude", "Longitude (-180 to 180)"), ""), newInput(m.tr("result_limit", "Result limit"), "10")}
 	case opAPI:
 		m.page = pageInput
-		m.inputs = []textinput.Model{newInput("Method (GET, POST, PUT, PATCH, DELETE)", "GET"), newInput("API path (for example /airports)", ""), newInput("Query string (optional)", ""), newInput("JSON body (optional)", "")}
+		m.inputs = []textinput.Model{newInput(m.tr("method", "Method (GET, POST, PUT, PATCH, DELETE)"), "GET"), newInput(m.tr("api_path", "API path (for example /airports)"), ""), newInput(m.tr("query_string", "Query string (optional)"), ""), newInput(m.tr("json_body", "JSON body (optional)"), "")}
 	case opHealth, opVersion:
-		return m.executeRequest(Request{Operation: operationName(item.operation)})
+		return m.executeRequest(TUIAPIRequest{Operation: operationName(item.operation)})
 	}
 	m.focusInput(0)
 	m.resizeInputs()
@@ -330,15 +351,15 @@ func (m model) chooseMenuItem(index int) (tea.Model, tea.Cmd) {
 func (m model) submitSetup() (tea.Model, tea.Cmd) {
 	serverURL, err := validateServerURL(m.inputs[0].Value())
 	if err != nil {
-		m.setError(err.Error())
+		m.setError(m.tr("err_server_url", err.Error()))
 		return m, nil
 	}
 	if m.actions.TestConnection == nil {
-		m.setError("Server connection testing is not configured.")
+		m.setError(m.tr("err_connection_unavailable", "Server connection testing is not configured."))
 		return m, nil
 	}
 	m.loading = true
-	m.status = "Testing server connection…"
+	m.status = m.tr("testing_connection", "Testing server connection...")
 	token := m.inputs[1].Value()
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
@@ -349,22 +370,22 @@ func (m model) submitSetup() (tea.Model, tea.Cmd) {
 }
 
 func (m model) submitRequest() (tea.Model, tea.Cmd) {
-	request := Request{Operation: operationName(m.operation)}
+	request := TUIAPIRequest{Operation: operationName(m.operation)}
 	switch m.operation {
 	case opSearch:
 		request.Query = strings.TrimSpace(m.inputs[0].Value())
 		if request.Query == "" {
-			m.setError("Enter a search query.")
+			m.setError(m.tr("err_search_query", "Enter a search query."))
 			return m, nil
 		}
 		if len([]rune(request.Query)) > 200 {
-			m.setError("Search query must be 200 characters or fewer.")
+			m.setError(m.tr("err_search_length", "Search query must be 200 characters or fewer."))
 			return m, nil
 		}
 	case opGet:
 		request.Code = strings.ToUpper(strings.TrimSpace(m.inputs[0].Value()))
 		if !validAirportCode(request.Code) {
-			m.setError("Enter a 3 or 4 character airport code using letters or digits.")
+			m.setError(m.tr("err_airport_code", "Enter a 3 or 4 character airport code using letters or digits."))
 			return m, nil
 		}
 	case opNearby:
@@ -372,13 +393,13 @@ func (m model) submitRequest() (tea.Model, tea.Cmd) {
 		request.Longitude = strings.TrimSpace(m.inputs[1].Value())
 		request.Limit = strings.TrimSpace(m.inputs[2].Value())
 		if !validCoordinate(request.Latitude, -90, 90) || !validCoordinate(request.Longitude, -180, 180) {
-			m.setError("Enter a valid latitude and longitude.")
+			m.setError(m.tr("err_coordinates", "Enter a valid latitude and longitude."))
 			return m, nil
 		}
 		if request.Limit != "" {
 			limit, err := strconv.Atoi(request.Limit)
 			if err != nil || limit < 1 || limit > 1000 {
-				m.setError("Result limit must be between 1 and 1000.")
+				m.setError(m.tr("err_result_limit", "Result limit must be between 1 and 1000."))
 				return m, nil
 			}
 		}
@@ -390,39 +411,39 @@ func (m model) submitRequest() (tea.Model, tea.Cmd) {
 		switch request.Method {
 		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
 		default:
-			m.setError("Choose a supported HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS.")
+			m.setError(m.tr("err_http_method", "Choose a supported HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS."))
 			return m, nil
 		}
 		if !strings.HasPrefix(request.Path, "/") || strings.ContainsAny(request.Path, "\r\n#") {
-			m.setError("API path must start with / and cannot contain a fragment.")
+			m.setError(m.tr("err_api_path", "API path must start with / and cannot contain a fragment."))
 			return m, nil
 		}
 		if strings.ContainsAny(request.Query, "\r\n#?") {
-			m.setError("Enter a query string without a leading ? or fragment.")
+			m.setError(m.tr("err_query_string", "Enter a query string without a leading ? or fragment."))
 			return m, nil
 		}
 		if request.Body != "" && !json.Valid([]byte(request.Body)) {
-			m.setError("Request body must be valid JSON.")
+			m.setError(m.tr("err_json_body", "Request body must be valid JSON."))
 			return m, nil
 		}
 	}
 	return m.executeRequest(request)
 }
 
-func (m model) executeRequest(request Request) (tea.Model, tea.Cmd) {
+func (m model) executeRequest(request TUIAPIRequest) (tea.Model, tea.Cmd) {
 	if strings.TrimSpace(m.config.ServerURL) == "" {
 		m.page = pageSetup
-		m.inputs = []textinput.Model{newInput("Server URL", ""), newPasswordInput("API token", "")}
+		m.inputs = []textinput.Model{newInput(m.tr("server_url", "Server URL"), ""), newPasswordInput(m.tr("token", "API token"), "")}
 		m.focusInput(0)
-		m.status = "Configure a server before making requests."
+		m.status = m.tr("configure_server", "Configure a server before making requests.")
 		return m, nil
 	}
 	if m.actions.Execute == nil {
-		m.setError("Client operations are not configured.")
+		m.setError(m.tr("err_client_unavailable", "Client operations are not configured."))
 		return m, nil
 	}
 	m.loading = true
-	m.status = "Request in progress…"
+	m.status = m.tr("request_in_progress", "Request in progress...")
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
 		defer cancel()
@@ -503,8 +524,11 @@ func (m *model) resizeViewport() {
 }
 
 func (m model) View() string {
+	if m.width <= 0 || m.height <= 0 {
+		return m.tr("title", "Airports API")
+	}
 	if m.width < 20 || m.height < 8 {
-		return "Resize terminal to at least 20 columns by 8 rows."
+		return m.viewMicro()
 	}
 	var content string
 	switch m.page {
@@ -522,12 +546,12 @@ func (m model) View() string {
 	if m.layout.ShowBorders {
 		content = lipgloss.NewStyle().Border(m.styles.border).BorderForeground(m.styles.borderColor).Padding(0, 1).Width(max(12, m.width-4)).Render(content)
 	}
-	footer := "↑/↓ navigate • Enter select • ? help • q quit"
+	footer := m.tr("footer_menu", m.symbols.upDown+" navigate "+m.symbols.bullet+" Enter select "+m.symbols.bullet+" ? help "+m.symbols.bullet+" q quit")
 	if m.page != pageMenu {
-		footer = "Tab move between fields • Enter submit • Esc back • ? help • q quit"
+		footer = m.tr("footer_form", "Tab move between fields "+m.symbols.bullet+" Enter submit "+m.symbols.bullet+" Esc back "+m.symbols.bullet+" ? help "+m.symbols.bullet+" q quit")
 	}
 	if m.page == pageHelp {
-		footer = "Esc or ? close help • q quit"
+		footer = m.tr("footer_help", "Esc or ? close help "+m.symbols.bullet+" q quit")
 	}
 	if m.status != "" {
 		status := truncate(m.status, max(10, m.width-6))
@@ -546,41 +570,87 @@ func (m model) View() string {
 
 func (m model) viewMenu() string {
 	var lines []string
-	lines = append(lines, m.styles.heading.Render("Airports API"))
-	server := "No server configured"
+	lines = append(lines, m.styles.heading.Render(m.tr("title", "Airports API")))
+	server := m.tr("no_server", "No server configured")
 	if m.config.ServerURL != "" {
-		server = "Server: " + truncateMiddle(m.config.ServerURL, max(12, m.width-24))
+		server = m.tr("server", "Server") + ": " + truncateMiddle(m.config.ServerURL, max(12, m.width-24))
 	}
 	lines = append(lines, m.styles.muted.Render(server), "")
 	if m.filter != "" {
-		lines = append(lines, m.styles.muted.Render("Filter: "+m.filter), "")
+		lines = append(lines, m.styles.muted.Render(m.tr("filter", "Filter")+": "+m.filter), "")
 	} else if m.width >= 60 {
-		lines = append(lines, m.styles.muted.Render("Press / to filter operations"), "")
+		lines = append(lines, m.styles.muted.Render(m.tr("filter_hint", "Press / to filter operations")), "")
 	}
 	indices := m.filteredMenu()
 	if len(indices) == 0 {
-		lines = append(lines, "No operations match this filter.")
+		lines = append(lines, m.tr("no_matches", "No operations match this filter."))
 	}
 	for visibleIndex, index := range indices {
 		item := menuItems[index]
-		label := item.label
+		label := m.menuLabel(item.operation, item.label)
 		if visibleIndex == m.selected {
-			lines = append(lines, m.styles.selected.Render("› "+label))
+			lines = append(lines, m.styles.selected.Render(m.symbols.selected+" "+label))
 		} else {
 			lines = append(lines, "  "+label)
 		}
 		if visibleIndex == m.selected && m.width >= 60 {
-			lines = append(lines, m.styles.muted.Render("    "+truncate(item.description, m.width-12)))
+			lines = append(lines, m.styles.muted.Render("    "+truncate(m.menuDescription(item.operation, item.description), m.width-12)))
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m model) viewMicro() string {
+	if m.width < 1 || m.height < 1 {
+		return m.tr("title", "Airports API")
+	}
+	var lines []string
+	if m.height >= 2 {
+		lines = append(lines, truncate(m.tr("title", "Airports API"), m.width))
+	}
+	indices := m.filteredMenu()
+	for index, itemIndex := range indices {
+		if len(lines) >= m.height-1 {
+			break
+		}
+		prefix := "  "
+		if index == m.selected {
+			prefix = m.symbols.selected + " "
+		}
+		lines = append(lines, truncate(prefix+m.menuLabel(menuItems[itemIndex].operation, menuItems[itemIndex].label), m.width))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, truncate(m.tr("title", "Airports API"), m.width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func terminalSymbols() tuiSymbols {
+	locale := strings.ToLower(strings.TrimSpace(os.Getenv("LC_ALL")))
+	if locale == "" {
+		locale = strings.ToLower(strings.TrimSpace(os.Getenv("LC_CTYPE")))
+	}
+	if locale == "" {
+		locale = strings.ToLower(strings.TrimSpace(os.Getenv("LANG")))
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("TERM")), "dumb") || locale == "c" || locale == "posix" || strings.HasPrefix(locale, "c.") {
+		return tuiSymbols{selected: ">", bullet: "|", upDown: "Up/Down"}
+	}
+	return tuiSymbols{selected: ">", bullet: "•", upDown: "↑/↓"}
+}
+
+func screenReaderMode() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("AIRPORTS_SCREEN_READER")))
+	return value == "1" || value == "true" || value == "yes" || value == "on"
 }
 
 func (m model) filteredMenu() []int {
 	needle := strings.ToLower(strings.TrimSpace(m.filter))
 	indices := make([]int, 0, len(menuItems))
 	for index, item := range menuItems {
-		if needle == "" || strings.Contains(strings.ToLower(item.label+" "+item.description), needle) {
+		label := m.menuLabel(item.operation, item.label)
+		description := m.menuDescription(item.operation, item.description)
+		if needle == "" || strings.Contains(strings.ToLower(label+" "+description), needle) {
 			indices = append(indices, index)
 		}
 	}
@@ -588,12 +658,12 @@ func (m model) filteredMenu() []int {
 }
 
 func (m model) viewSetup() string {
-	lines := []string{m.styles.heading.Render("Connect to an Airports server"), "", "Enter an HTTP or HTTPS URL. The token is optional.", ""}
+	lines := []string{m.styles.heading.Render(m.tr("connect_title", "Connect to an Airports server")), "", m.tr("connect_instructions", "Enter an HTTP or HTTPS URL. The token is optional."), ""}
 	return m.viewInputs(lines)
 }
 
 func (m model) viewInput() string {
-	lines := []string{m.styles.heading.Render(operationLabel(m.operation)), ""}
+	lines := []string{m.styles.heading.Render(m.operationLabel()), ""}
 	return m.viewInputs(lines)
 }
 
@@ -605,24 +675,61 @@ func (m model) viewInputs(lines []string) string {
 }
 
 func (m model) viewResult() string {
-	title := m.styles.heading.Render(operationLabel(m.operation))
+	title := m.styles.heading.Render(m.operationLabel())
 	if m.loading {
-		return title + "\n\nWorking…"
+		return title + "\n\n" + m.tr("working", "Working...")
 	}
 	return title + "\n\n" + m.viewport.View()
 }
 
+func prettyJSON(value string) string {
+	var formatted bytes.Buffer
+	if json.Indent(&formatted, []byte(value), "", "  ") == nil {
+		return formatted.String()
+	}
+	return value
+}
+
 func (m model) viewHelp() string {
-	return m.styles.heading.Render("Keyboard help") + "\n\n" + strings.Join([]string{
-		"↑/↓ or j/k  Move through the menu",
-		"Enter       Open an operation or submit a form",
-		"Tab         Move to the next form field",
-		"Shift+Tab   Move to the previous form field",
-		"Esc         Return to the previous screen",
-		"?           Show or close this help screen",
-		"q / Ctrl+C  Quit",
-		"On results, use ↑/↓, PgUp/PgDn, Home/End to scroll.",
+	return m.styles.heading.Render(m.tr("help_title", "Keyboard help")) + "\n\n" + strings.Join([]string{
+		m.tr("help_menu", m.symbols.upDown+" or j/k  Move through the menu"),
+		m.tr("help_enter", "Enter       Open an operation or submit a form"),
+		m.tr("help_tab", "Tab         Move to the next form field"),
+		m.tr("help_shift_tab", "Shift+Tab   Move to the previous form field"),
+		m.tr("help_escape", "Esc         Return to the previous screen"),
+		m.tr("help_toggle", "?           Show or close this help screen"),
+		m.tr("help_quit", "q / Ctrl+C  Quit"),
+		m.tr("help_scroll", "On results, use "+m.symbols.upDown+", PgUp/PgDn, Home/End to scroll."),
+		m.tr("help_accessibility", "Set AIRPORTS_SCREEN_READER=1 to keep output in the terminal scrollback."),
 	}, "\n")
+}
+
+func (m model) tr(key, fallback string) string {
+	translated := i18n.TranslateText(m.config.Language, "client.tui."+key)
+	if translated == "client.tui."+key || translated == "" {
+		return fallback
+	}
+	return translated
+}
+
+func (m model) menuLabel(op operation, fallback string) string {
+	key := operationName(op)
+	if key == "" {
+		key = "setup"
+	}
+	return m.tr(key, fallback)
+}
+
+func (m model) menuDescription(op operation, fallback string) string {
+	key := operationName(op)
+	if key == "" {
+		key = "setup"
+	}
+	return m.tr(key+"_description", fallback)
+}
+
+func (m model) operationLabel() string {
+	return m.menuLabel(m.operation, operationLabel(m.operation))
 }
 
 func (m *model) setStatus(value string, isError bool) {

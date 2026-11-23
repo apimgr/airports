@@ -2,7 +2,10 @@ package notify
 
 import (
 	"bufio"
+	"bytes"
+	"mime"
 	"net"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -102,8 +105,8 @@ func (s *fakeSMTPServer) handle(conn net.Conn) {
 	}
 }
 
-func testConfigWithSMTP(host string, port int) *config.Config {
-	cfg := &config.Config{}
+func testConfigWithSMTP(host string, port int) *config.ApplicationConfig {
+	cfg := &config.ApplicationConfig{}
 	cfg.Server.FQDN = "example.com"
 	cfg.Server.Notifications.Email.Enabled = true
 	cfg.Server.Notifications.Email.SMTP.Host = host
@@ -115,7 +118,7 @@ func testConfigWithSMTP(host string, port int) *config.Config {
 }
 
 func TestCanSendFalseWhenDisabled(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	cfg.Server.Notifications.Email.Enabled = false
 	cfg.Server.Notifications.Email.SMTP.Host = "127.0.0.1"
 	if CanSend(cfg) {
@@ -124,7 +127,7 @@ func TestCanSendFalseWhenDisabled(t *testing.T) {
 }
 
 func TestCanSendFalseWhenNoHost(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	cfg.Server.Notifications.Email.Enabled = true
 	cfg.Server.Notifications.Email.SMTP.Host = ""
 	if CanSend(cfg) {
@@ -140,7 +143,7 @@ func TestCanSendTrue(t *testing.T) {
 }
 
 func TestSendNoOpWhenCanSendFalse(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	if err := Send(cfg, "", "test", "someone@example.com", nil); err != nil {
 		t.Errorf("Send should be a silent no-op, got error: %v", err)
 	}
@@ -183,20 +186,73 @@ func TestSendDeliversToFakeServer(t *testing.T) {
 		if !strings.Contains(transcript, "recipient@example.com") {
 			t.Errorf("transcript missing recipient: %q", transcript)
 		}
+		if !strings.Contains(transcript, "Subject: [TEST] Test Email - Airports") {
+			t.Errorf("transcript missing [TEST] subject prefix: %q", transcript)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for fake SMTP transcript")
 	}
 }
 
+func TestSendWithReplyToKeepsContactEmailOutOfMessageBody(t *testing.T) {
+	host, port, srv := startFakeSMTPServer(t)
+	cfg := testConfigWithSMTP(host, port)
+	senderEmail := "submitter@example.net"
+	err := SendWithReplyTo(cfg, "", "contact_submission", "abuse@example.com", senderEmail, map[string]string{
+		"sender_name":     "Jane Doe",
+		"contact_subject": "Airport data correction",
+		"contact_message": "Please review this airport record.",
+	})
+	if err != nil {
+		t.Fatalf("SendWithReplyTo: %v", err)
+	}
+
+	select {
+	case transcript := <-srv.received:
+		if !strings.Contains(transcript, `From: "Airports" <no-reply@example.com>`) {
+			t.Errorf("message did not use the configured sender: %q", transcript)
+		}
+		if !strings.Contains(transcript, "Reply-To: <"+senderEmail+">") {
+			t.Errorf("message did not set submitter as Reply-To: %q", transcript)
+		}
+		separator := strings.Index(transcript, "\n\n")
+		if separator < 0 {
+			t.Fatalf("message has no header/body separator: %q", transcript)
+		}
+		if strings.Contains(transcript[separator+2:], senderEmail) {
+			t.Errorf("submitter email appeared in the message body: %q", transcript)
+		}
+		if !strings.Contains(transcript, "Subject: [airports contact] Airport data correction") {
+			t.Errorf("message subject is missing the required contact prefix: %q", transcript)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for fake SMTP transcript")
+	}
+}
+
+func TestTestEmailSubject(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{"Test message", "[TEST] Test message"},
+		{"[TEST] Test message", "[TEST] Test message"},
+	} {
+		if got := TestEmailSubject(test.input); got != test.want {
+			t.Errorf("TestEmailSubject(%q) = %q, want %q", test.input, got, test.want)
+		}
+	}
+}
+
 func TestEventEnabledDefaultsTrue(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	if !eventEnabled(cfg, "backup_complete") {
 		t.Error("eventEnabled should default to true when key absent")
 	}
 }
 
 func TestEventEnabledExplicitFalse(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.ApplicationConfig{}
 	cfg.Server.Notifications.Email.Events = map[string]bool{"backup_complete": false}
 	if eventEnabled(cfg, "backup_complete") {
 		t.Error("eventEnabled should honor explicit false")
@@ -204,15 +260,84 @@ func TestEventEnabledExplicitFalse(t *testing.T) {
 }
 
 func TestBuildMessageOmitsReplyToWhenEmpty(t *testing.T) {
-	msg := buildMessage("Airports", "no-reply@example.com", "to@example.com", "", "Subject line", "Body text")
+	msg, err := buildMessage("Airports", "no-reply@example.com", "to@example.com", "", "Subject line", "Body text", "example.com")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
 	if strings.Contains(string(msg), "Reply-To:") {
 		t.Error("Reply-To header should be omitted when replyTo is empty")
 	}
 }
 
 func TestBuildMessageIncludesReplyToWhenSet(t *testing.T) {
-	msg := buildMessage("Airports", "no-reply@example.com", "to@example.com", "reply@example.com", "Subject line", "Body text")
-	if !strings.Contains(string(msg), "Reply-To: reply@example.com") {
+	msg, err := buildMessage("Airports", "no-reply@example.com", "to@example.com", "reply@example.com", "Subject line", "Body text", "example.com")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	if !strings.Contains(string(msg), "Reply-To: <reply@example.com>") {
 		t.Error("Reply-To header should be present when replyTo is set")
+	}
+}
+
+func TestBuildMessageIncludesRequiredHeadersAndAlternatives(t *testing.T) {
+	message, err := buildMessage("Airports", "no-reply@example.com", "to@example.com", "", "Airport update", "A useful update", "airports.example.com")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	value := string(message)
+	for _, header := range []string{"Date:", "Message-ID: <", "MIME-Version: 1.0", "Auto-Submitted: auto-generated", "Content-Type: multipart/alternative;", "boundary=\""} {
+		if !strings.Contains(value, header) {
+			t.Errorf("message is missing %q: %s", header, value)
+		}
+	}
+	for _, part := range []string{"Content-Type: text/plain; charset=UTF-8", "Content-Type: text/html; charset=UTF-8", "A useful update", "<p>A useful update</p>"} {
+		if !strings.Contains(value, part) {
+			t.Errorf("message is missing part content %q", part)
+		}
+	}
+}
+
+func TestBuildMessageRFC2047HeadersRoundTrip(t *testing.T) {
+	message, err := buildMessage("空港", "no-reply@example.com", "to@example.com", "", "更新通知", "A useful update", "airports.example.com")
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(message))
+	if err != nil {
+		t.Fatalf("parse message: %v", err)
+	}
+	decoder := new(mime.WordDecoder)
+	subject, err := decoder.DecodeHeader(parsed.Header.Get("Subject"))
+	if err != nil {
+		t.Fatalf("decode subject: %v", err)
+	}
+	if subject != "更新通知" {
+		t.Errorf("decoded subject = %q, want 更新通知", subject)
+	}
+	from, err := mail.ParseAddress(parsed.Header.Get("From"))
+	if err != nil {
+		t.Fatalf("parse From: %v", err)
+	}
+	if from.Name != "空港" {
+		t.Errorf("decoded From name = %q, want 空港", from.Name)
+	}
+}
+
+func TestBuildMessageRejectsHeaderInjection(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		fromName string
+		to       string
+		subject  string
+	}{
+		{name: "name", fromName: "Airports\r\nBcc: victim@example.com", to: "to@example.com", subject: "Update"},
+		{name: "recipient", fromName: "Airports", to: "to@example.com\nBcc: victim@example.com", subject: "Update"},
+		{name: "subject", fromName: "Airports", to: "to@example.com", subject: "Update\r\nBcc: victim@example.com"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := buildMessage(test.fromName, "no-reply@example.com", test.to, "", test.subject, "Body", "example.com"); err == nil {
+				t.Fatal("buildMessage accepted header injection")
+			}
+		})
 	}
 }

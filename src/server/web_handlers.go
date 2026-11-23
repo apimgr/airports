@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/apimgr/airports/src/airports"
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -15,6 +16,30 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		"Title": "Home",
 	}
 	s.renderTemplate(w, r, "home", data)
+}
+
+// handleAirportList renders the public, paginated airport directory.
+func (s *Server) handleAirportList(w http.ResponseWriter, r *http.Request) {
+	const limit = 25
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	stats := s.airports.Stats()
+	total, _ := stats["total_airports"].(int)
+	maxPage := (total + limit - 1) / limit
+	if maxPage == 0 {
+		maxPage = 1
+	}
+	if page > maxPage {
+		page = maxPage
+	}
+	items := s.airports.GetAll(limit, (page-1)*limit)
+	s.renderTemplate(w, r, "airport_list", map[string]interface{}{
+		"Title": i18n.TranslateText(i18n.FromContext(r.Context()), "airport_list.title"), "Airports": items, "Page": page, "Limit": limit,
+		"Total": total, "Pages": maxPage, "HasPrevious": page > 1, "HasNext": page < maxPage,
+		"PreviousPage": page - 1, "NextPage": page + 1,
+	})
 }
 
 // handleSearch serves the search page. Reads "q" and "limit" from the query

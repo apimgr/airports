@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" class="{{.ThemeClass}}" data-api-base="{{.APIBase}}" data-base-url="{{.BaseURL}}" data-preferences-enabled="{{.ConsentPreferences}}">
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="{{.ThemeClass}}" data-api-base="{{.APIBase}}" data-base-url="{{.BaseURL}}" data-preferences-enabled="{{.ConsentPreferences}}" data-client-translations="{{clientTranslations}}">
 {{template "head" .}}
 <body>
-    {{template "site-banner" .}}
     <a class="skip-link" href="#main-content">{{t "nav.skip_to_content"}}</a>
+    <a class="skip-link" href="#main-navigation">{{t "nav.skip_to_navigation"}}</a>
+    <input type="checkbox" id="nav-toggle" class="nav-checkbox" hidden aria-label="{{t "nav.open_navigation"}}">
+    {{template "site-banner" .}}
     <header id="main-header">
         {{template "header" .}}
     </header>
@@ -11,6 +13,8 @@
     <main id="main-content">
         {{template "content" .}}
     </main>
+
+    {{template "nav-panel" .}}
 
     <footer id="main-footer">
         {{template "footer" .}}
@@ -20,6 +24,7 @@
     {{template "toast" .}}
 
     {{template "cookie-consent" .}}
+    {{template "cookie-preferences-modal" .}}
 
     {{template "scripts" .}}
 </body>

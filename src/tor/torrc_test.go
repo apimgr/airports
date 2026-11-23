@@ -11,7 +11,7 @@ const testSiteDir = "/tmp/test-data/tor/site"
 const testBackendPort = 64123
 
 func TestGenerateTorrcHiddenServiceOnly(t *testing.T) {
-	cfg := applyDefaults(Config{UseNetwork: false})
+	cfg := applyDefaults(TorConfig{UseNetwork: false})
 
 	content := generateTorrc(cfg, testLogFile, testSiteDir, testBackendPort)
 
@@ -30,7 +30,7 @@ func TestGenerateTorrcHiddenServiceOnly(t *testing.T) {
 }
 
 func TestGenerateTorrcOutboundEnabled(t *testing.T) {
-	cfg := applyDefaults(Config{UseNetwork: true})
+	cfg := applyDefaults(TorConfig{UseNetwork: true})
 
 	content := generateTorrc(cfg, testLogFile, testSiteDir, testBackendPort)
 
@@ -40,12 +40,12 @@ func TestGenerateTorrcOutboundEnabled(t *testing.T) {
 }
 
 func TestGenerateTorrcSafeLoggingToggle(t *testing.T) {
-	on := generateTorrc(applyDefaults(Config{SafeLogging: true}), testLogFile, testSiteDir, testBackendPort)
+	on := generateTorrc(applyDefaults(TorConfig{SafeLogging: true}), testLogFile, testSiteDir, testBackendPort)
 	if !strings.Contains(on, "SafeLogging 1") {
 		t.Error("torrc missing 'SafeLogging 1' when SafeLogging is true")
 	}
 
-	cfg := applyDefaults(Config{})
+	cfg := applyDefaults(TorConfig{})
 	cfg.SafeLogging = false
 	off := generateTorrc(cfg, testLogFile, testSiteDir, testBackendPort)
 	if !strings.Contains(off, "SafeLogging 0") {
@@ -54,7 +54,7 @@ func TestGenerateTorrcSafeLoggingToggle(t *testing.T) {
 }
 
 func TestGenerateTorrcNeverUsesDefaultTorPorts(t *testing.T) {
-	content := generateTorrc(applyDefaults(Config{UseNetwork: true}), testLogFile, testSiteDir, testBackendPort)
+	content := generateTorrc(applyDefaults(TorConfig{UseNetwork: true}), testLogFile, testSiteDir, testBackendPort)
 
 	if strings.Contains(content, "9050") || strings.Contains(content, "9051") {
 		t.Error("torrc must never reference the system Tor default ports 9050/9051")
@@ -62,7 +62,7 @@ func TestGenerateTorrcNeverUsesDefaultTorPorts(t *testing.T) {
 }
 
 func TestGenerateTorrcAccountingOmittedWhenUnlimited(t *testing.T) {
-	cfg := applyDefaults(Config{MaxMonthlyBandwidth: "unlimited"})
+	cfg := applyDefaults(TorConfig{MaxMonthlyBandwidth: "unlimited"})
 
 	content := generateTorrc(cfg, testLogFile, testSiteDir, testBackendPort)
 
@@ -72,7 +72,7 @@ func TestGenerateTorrcAccountingOmittedWhenUnlimited(t *testing.T) {
 }
 
 func TestGenerateTorrcAccountingPresentWhenLimited(t *testing.T) {
-	cfg := applyDefaults(Config{MaxMonthlyBandwidth: "50 GB"})
+	cfg := applyDefaults(TorConfig{MaxMonthlyBandwidth: "50 GB"})
 
 	content := generateTorrc(cfg, testLogFile, testSiteDir, testBackendPort)
 
@@ -82,7 +82,7 @@ func TestGenerateTorrcAccountingPresentWhenLimited(t *testing.T) {
 }
 
 func TestGenerateTorrcIncludesLogFileDirective(t *testing.T) {
-	cfg := applyDefaults(Config{})
+	cfg := applyDefaults(TorConfig{})
 
 	content := generateTorrc(cfg, "/var/log/airports/tor.log", testSiteDir, testBackendPort)
 
@@ -93,7 +93,7 @@ func TestGenerateTorrcIncludesLogFileDirective(t *testing.T) {
 }
 
 func TestGenerateTorrcWiresCircuitAndStreamSettings(t *testing.T) {
-	cfg := applyDefaults(Config{
+	cfg := applyDefaults(TorConfig{
 		MaxCircuits:          64,
 		CircuitTimeout:       90,
 		MaxStreamsPerCircuit: 200,
@@ -116,7 +116,7 @@ func TestGenerateTorrcWiresCircuitAndStreamSettings(t *testing.T) {
 }
 
 func TestGenerateTorrcUsesDedicatedCircuitIDBackend(t *testing.T) {
-	content := generateTorrc(applyDefaults(Config{}), testLogFile, testSiteDir, testBackendPort)
+	content := generateTorrc(applyDefaults(TorConfig{}), testLogFile, testSiteDir, testBackendPort)
 	for _, want := range []string{
 		"HiddenServiceDir " + testSiteDir,
 		"HiddenServiceVersion 3",

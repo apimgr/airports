@@ -1,0 +1,6 @@
+Subject: Encrypted security report
+---
+An encrypted security report is attached. The message contains no report details.
+When the attachment ends in .pgp, decrypt it with the configured project PGP
+private key. When it ends in .aes256, no project PGP key was configured; the
+attachment uses the server AES-256-GCM key.

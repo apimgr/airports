@@ -57,7 +57,7 @@ func TestCreateAndVerify_Unencrypted(t *testing.T) {
 	destDir := testTempDir(t)
 	dest := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
 
-	err := Create(dest, CreateOptions{
+	err := CreateBackupArchive(dest, BackupArchiveOptions{
 		ConfigDir:  configDir,
 		DataDir:    dataDir,
 		AppVersion: "1.2.3",
@@ -72,12 +72,54 @@ func TestCreateAndVerify_Unencrypted(t *testing.T) {
 	}
 }
 
+func TestBackupIncludesDropInsSecretsAssetsAndSecurityKeys(t *testing.T) {
+	configDir, dataDir := newFakeSourceTree(t)
+	for _, item := range []struct {
+		directory string
+		name      string
+	}{
+		{directory: "yaml.d", name: "branding.yml"},
+		{directory: "assets", name: "logo.png"},
+		{directory: "security", name: "pgp.priv.asc.enc"},
+	} {
+		path := filepath.Join(configDir, item.directory)
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, item.name), []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "secrets.yml"), []byte("server: {}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(testTempDir(t), "backup.tar.gz")
+	if err := CreateBackupArchive(destination, BackupArchiveOptions{ConfigDir: configDir, DataDir: dataDir}); err != nil {
+		t.Fatalf("CreateBackupArchive() error = %v", err)
+	}
+	manifest, _, err := readContainer(destination)
+	if err != nil {
+		t.Fatalf("readContainer() error = %v", err)
+	}
+	want := map[string]bool{"yaml.d/": false, "assets/": false, "security/": false, "secrets.yml": false}
+	for _, entry := range manifest.Contents {
+		if _, ok := want[entry]; ok {
+			want[entry] = true
+		}
+	}
+	for entry, found := range want {
+		if !found {
+			t.Errorf("backup manifest is missing %q", entry)
+		}
+	}
+}
+
 func TestCreateAndVerify_Encrypted(t *testing.T) {
 	configDir, dataDir := newFakeSourceTree(t)
 	destDir := testTempDir(t)
 	dest := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz.enc")
 
-	err := Create(dest, CreateOptions{
+	err := CreateBackupArchive(dest, BackupArchiveOptions{
 		ConfigDir:          configDir,
 		DataDir:            dataDir,
 		AppVersion:         "1.2.3",
@@ -103,7 +145,7 @@ func TestCreate_ComplianceRequiresPassword(t *testing.T) {
 	destDir := testTempDir(t)
 	dest := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
 
-	err := Create(dest, CreateOptions{
+	err := CreateBackupArchive(dest, BackupArchiveOptions{
 		ConfigDir:         configDir,
 		DataDir:           dataDir,
 		ComplianceEnabled: true,
@@ -149,7 +191,7 @@ func TestVerify_ChecksumMismatch(t *testing.T) {
 	destDir := testTempDir(t)
 	dest := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
 
-	if err := Create(dest, CreateOptions{ConfigDir: configDir, DataDir: dataDir}); err != nil {
+	if err := CreateBackupArchive(dest, BackupArchiveOptions{ConfigDir: configDir, DataDir: dataDir}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -175,8 +217,7 @@ func TestVerify_ChecksumMismatch(t *testing.T) {
 
 func TestVerify_CorruptDatabase(t *testing.T) {
 	configDir, dataDir := newFakeSourceTree(t)
-	// Overwrite the valid sqlite file with garbage bytes so extraction
-	// succeeds but the integrity check fails.
+	// Corrupt the source so the online snapshot refuses to create an archive.
 	dbPath := filepath.Join(dataDir, "db", "sqlite", "server.db")
 	if err := os.WriteFile(dbPath, []byte("this is not a sqlite database"), 0o644); err != nil {
 		t.Fatalf("corrupt db: %v", err)
@@ -184,12 +225,11 @@ func TestVerify_CorruptDatabase(t *testing.T) {
 
 	destDir := testTempDir(t)
 	dest := filepath.Join(destDir, "airports_backup_2025-01-15.tar.gz")
-	if err := Create(dest, CreateOptions{ConfigDir: configDir, DataDir: dataDir}); err != nil {
-		t.Fatalf("Create: %v", err)
+	if err := CreateBackupArchive(dest, BackupArchiveOptions{ConfigDir: configDir, DataDir: dataDir}); err == nil {
+		t.Fatal("Create accepted a corrupt source database")
 	}
-
-	if err := Verify(dest, ""); err == nil {
-		t.Fatalf("expected database integrity failure")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("corrupt database produced a backup artifact, stat error = %v", err)
 	}
 }
 

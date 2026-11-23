@@ -44,9 +44,10 @@ type Cache interface {
 	Close() error
 }
 
-// MetricsStats contains cache measurements that a backend can report
-// without estimating or querying unrelated cache tenants. Bytes is the
-// backend's documented logical key/value byte count, not heap allocation.
+// MetricsStats contains cache measurements reported by a backend. A backend
+// may expose an observed eviction estimate when exact ownership-scoped
+// eviction data is unavailable. Bytes follows the backend's documented size
+// semantics and excludes Go heap allocation overhead.
 type MetricsStats struct {
 	Hits             uint64
 	Misses           uint64
@@ -67,13 +68,13 @@ type MetricsProvider interface {
 // New constructs the configured Cache backend. Type "none" or an unknown
 // type disables caching entirely by returning a no-op backend so callers
 // never need a nil check.
-func New(cfg config.CacheConfig) (Cache, error) {
+func NewCache(cfg config.CacheConfig) (Cache, error) {
 	return newCache(cfg, false)
 }
 
 // NewWithDebug constructs the configured cache and records debug-gated
 // operations when logCache is enabled.
-func NewWithDebug(cfg config.CacheConfig, logCache bool) (Cache, error) {
+func NewCacheWithDebug(cfg config.CacheConfig, logCache bool) (Cache, error) {
 	return newCache(cfg, logCache)
 }
 

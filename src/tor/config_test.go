@@ -2,8 +2,8 @@ package tor
 
 import "testing"
 
-func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
+func TestDefaultTorConfig(t *testing.T) {
+	cfg := DefaultTorConfig()
 
 	if cfg.OnionAddress != "" || cfg.ContactEmail != "" {
 		t.Errorf("OnionAddress/ContactEmail = %q/%q, want empty defaults", cfg.OnionAddress, cfg.ContactEmail)
@@ -50,7 +50,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestApplyDefaultsFillsZeroValuesOnly(t *testing.T) {
-	partial := Config{
+	partial := TorConfig{
 		MaxCircuits: 8,
 		// everything else left zero-value
 	}
@@ -72,7 +72,7 @@ func TestApplyDefaultsFillsZeroValuesOnly(t *testing.T) {
 }
 
 func TestApplyDefaultsPreservesExplicitValues(t *testing.T) {
-	explicit := Config{
+	explicit := TorConfig{
 		MaxCircuits:          64,
 		CircuitTimeout:       120,
 		BootstrapTimeout:     300,
@@ -92,7 +92,7 @@ func TestApplyDefaultsPreservesExplicitValues(t *testing.T) {
 }
 
 func TestResolveEnabledWhenBinaryFound(t *testing.T) {
-	cfg := Config{}
+	cfg := TorConfig{}
 
 	got := resolveEnabled(cfg, func(string) (string, error) {
 		return "/usr/bin/tor", nil
@@ -104,7 +104,7 @@ func TestResolveEnabledWhenBinaryFound(t *testing.T) {
 }
 
 func TestResolveEnabledWhenBinaryMissing(t *testing.T) {
-	cfg := Config{}
+	cfg := TorConfig{}
 
 	got := resolveEnabled(cfg, func(string) (string, error) {
 		return "", ErrBinaryNotFound

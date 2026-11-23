@@ -62,14 +62,14 @@ type AccessFileConfig struct {
 	LogHealthChecks bool
 }
 
-// Config mirrors the "server.logs" YAML block in AI.md PART 11.
-type Config struct {
+// LogManagerConfig mirrors the "server.logs" YAML block in AI.md PART 11.
+type LogManagerConfig struct {
 	// Level is the global minimum log level: debug, info, warn, error.
 	Level string
 
-	Access   AccessFileConfig
-	Server   FileConfig
-	Error    FileConfig
+	Access AccessFileConfig
+	Server FileConfig
+	Error  FileConfig
 	// App is app.log (or "{project_name}.log") — general application
 	// events (info/warn), logfmt by default. Per AI.md's "Log Files"
 	// table; not itself covered by the main "server.logs" config block
@@ -85,12 +85,12 @@ type Config struct {
 	Debug    FileConfig
 }
 
-// DefaultConfig returns the sane defaults documented in AI.md "Log
+// DefaultLogManagerConfig returns the sane defaults documented in AI.md "Log
 // Rotation": access rotates monthly, audit rotates daily, everything else
 // rotates weekly or at 50MB, and nothing is retained after rotation by
 // default.
-func DefaultConfig() Config {
-	return Config{
+func DefaultLogManagerConfig() LogManagerConfig {
+	return LogManagerConfig{
 		Level: "warn",
 		Access: AccessFileConfig{
 			FileConfig: FileConfig{

@@ -139,7 +139,7 @@ func TestExecuteTUIRequestOperations(t *testing.T) {
 		_, _ = w.Write([]byte(`{"path":"` + r.URL.Path + `","query":"` + r.URL.Query().Encode() + `"}`))
 	}))
 	defer server.Close()
-	for _, operation := range []tui.Request{
+	for _, operation := range []tui.TUIAPIRequest{
 		{Operation: "search", Query: "JFK"},
 		{Operation: "get", Code: "KJFK"},
 		{Operation: "nearby", Latitude: "40", Longitude: "-73", Limit: "5"},
@@ -150,10 +150,10 @@ func TestExecuteTUIRequestOperations(t *testing.T) {
 			t.Errorf("%s request: %v", operation.Operation, err)
 		}
 	}
-	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.Request{Operation: "unknown"}); err == nil {
+	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.TUIAPIRequest{Operation: "unknown"}); err == nil {
 		t.Fatal("unknown operation accepted")
 	}
-	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.Request{Operation: "api", Method: "GET", Path: "/airports", Query: "%zz"}); err == nil {
+	if _, err := executeTUIRequest(context.Background(), server.URL, "", "en", tui.TUIAPIRequest{Operation: "api", Method: "GET", Path: "/airports", Query: "%zz"}); err == nil {
 		t.Fatal("invalid API query accepted")
 	}
 }
@@ -615,6 +615,27 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 	})
 }
 
+func TestCLILimitDefaultPrecedenceAndValidation(t *testing.T) {
+	cfg := &cliConfig{Defaults: cliDefaults{Limit: 35}}
+	t.Setenv("AIRPORTS_LIMIT", "")
+	if got := cliLimitDefault(cfg); got != 35 {
+		t.Fatalf("configured search limit = %d, want 35", got)
+	}
+	t.Setenv("AIRPORTS_LIMIT", "12")
+	if got := cliLimitDefault(cfg); got != 12 {
+		t.Fatalf("environment search limit = %d, want 12", got)
+	}
+	t.Setenv("AIRPORTS_LIMIT", "invalid")
+	if got := cliLimitDefault(cfg); got != 35 {
+		t.Fatalf("invalid environment search limit = %d, want configured 35", got)
+	}
+	cfg.Defaults.Limit = 1001
+	applyCLIDefaults(cfg)
+	if got := cliLimitDefault(cfg); got != 20 {
+		t.Fatalf("invalid configured search limit = %d, want default 20", got)
+	}
+}
+
 func TestLoadCLIConfigCanonicalizesUpdateChannel(t *testing.T) {
 	dir := testTempDir(t)
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -833,15 +854,18 @@ func TestClientGet(t *testing.T) {
 	})
 }
 
-// Covers dispatch: each command's happy path plus argument-validation error
-// paths and the unknown-command default case.
+// Covers dispatch: each command's happy path, argument-validation errors, and bare-query fallback.
 func TestDispatch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.Contains(r.URL.Path, "/airports/search"):
-			if r.URL.Query().Get("q") != "kennedy airport" {
-				t.Errorf("search q = %q, want 'kennedy airport'", r.URL.Query().Get("q"))
+			q := r.URL.Query().Get("q")
+			if q != "kennedy airport" && q != "golang tutorials" && q != "frobnicate" {
+				t.Errorf("search q = %q, want a query from a dispatch case", q)
+			}
+			if r.URL.Query().Get("limit") != "20" {
+				t.Errorf("search limit = %q, want 20", r.URL.Query().Get("limit"))
 			}
 			_, _ = w.Write([]byte(`{"ok":true,"data":[]}`))
 		case strings.Contains(r.URL.Path, "/airports/nearby"):
@@ -858,7 +882,7 @@ func TestDispatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &client{baseURL: srv.URL, apiVersion: "v1", http: srv.Client()}
+	c := &client{baseURL: srv.URL, apiVersion: "v1", limit: 20, http: srv.Client()}
 
 	tests := []struct {
 		name    string
@@ -867,6 +891,7 @@ func TestDispatch(t *testing.T) {
 		wantErr bool
 	}{
 		{"search-ok", "search", []string{"kennedy", "airport"}, false},
+		{"bare-search-terms", "golang", []string{"tutorials"}, false},
 		{"search-missing-query", "search", nil, true},
 		{"get-ok", "get", []string{"kjfk"}, false},
 		{"get-missing-code", "get", nil, true},
@@ -875,7 +900,7 @@ func TestDispatch(t *testing.T) {
 		{"nearby-missing-args", "nearby", []string{"40.7128"}, true},
 		{"health-ok", "health", nil, false},
 		{"version-ok", "version", nil, false},
-		{"unknown-command", "frobnicate", nil, true},
+		{"bare-single-search-term", "frobnicate", nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

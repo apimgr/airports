@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,13 +33,35 @@ func TestMaintenanceRecoveryIntervalsAndWait(t *testing.T) {
 	}
 }
 
+func TestInitializeStartupDatabaseIsRetryable(t *testing.T) {
+	dir := newMainTestDir(t)
+	configDir := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatalf("create config directory: %v", err)
+	}
+	cfg := config.DefaultApplicationConfig()
+	database := openRecoveryTestDB(t, filepath.Join(dir, "startup.db"), false)
+	if err := initializeStartupDatabase(database, cfg, configDir); err != nil {
+		t.Fatalf("initialize startup database: %v", err)
+	}
+	if err := initializeStartupDatabase(database, cfg, configDir); err != nil {
+		t.Fatalf("repeat startup database initialization: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close startup database: %v", err)
+	}
+	if err := initializeStartupDatabase(database, cfg, configDir); err == nil {
+		t.Fatal("startup initialization should report a closed database")
+	}
+}
+
 func TestMaintenanceRecoveryConfigAndLifecycle(t *testing.T) {
 	if (*maintenanceRecovery)(nil).currentConfig() != nil {
 		t.Fatal("nil receiver currentConfig should return nil")
 	}
 	(*maintenanceRecovery)(nil).stop()
 
-	first := config.DefaultConfig()
+	first := config.DefaultApplicationConfig()
 	recovery := &maintenanceRecovery{cfg: first}
 	if recovery.currentConfig() != first {
 		t.Fatal("currentConfig did not return the active config")
@@ -47,7 +70,7 @@ func TestMaintenanceRecoveryConfigAndLifecycle(t *testing.T) {
 	if recovery.currentConfig() != first {
 		t.Fatal("updateConfig(nil) replaced the active config")
 	}
-	second := config.DefaultConfig()
+	second := config.DefaultApplicationConfig()
 	recovery.updateConfig(second)
 	if recovery.currentConfig() != second {
 		t.Fatal("updateConfig did not replace the active config")
@@ -101,7 +124,7 @@ func TestMaintenanceRecoveryProbes(t *testing.T) {
 
 func TestMaintenanceRecoveryDetectionAndRecovery(t *testing.T) {
 	dir := newMainTestDir(t)
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Maintenance.Cleanup.DiskThreshold = 0
 	recovery := &maintenanceRecovery{
 		dataDir:   dir,
@@ -147,7 +170,7 @@ func TestMaintenanceRecoveryDetectionAndRecovery(t *testing.T) {
 
 func TestMaintenanceRecoveryNotificationNoop(t *testing.T) {
 	recovery := &maintenanceRecovery{}
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	recovery.sendNotification(cfg, "maintenance_entered", false, "database_connection", 0)
 	recovery.sendNotification(cfg, "maintenance_entered", true, "database_connection", time.Second)
 }

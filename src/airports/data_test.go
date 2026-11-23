@@ -40,8 +40,8 @@ func TestBuildIndexes(t *testing.T) {
 	t.Logf("Built indexes: %d ICAO, %d countries", len(indexes.ByICAO), len(indexes.ByCountry))
 }
 
-func TestNewService(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+func TestNewAirportDataService(t *testing.T) {
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -52,11 +52,11 @@ func TestNewService(t *testing.T) {
 		t.Error("No airports in service")
 	}
 
-	t.Logf("Service initialized with %d airports", total)
+	t.Logf("AirportDataService initialized with %d airports", total)
 }
 
 func TestGetByCode(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestGetByCode(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestGetInBoundingBox(t *testing.T) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -150,7 +150,7 @@ func BenchmarkLoadAirports(b *testing.B) {
 }
 
 func BenchmarkSearch(b *testing.B) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func BenchmarkSearch(b *testing.B) {
 }
 
 func BenchmarkGetByCode(b *testing.B) {
-	svc, err := NewService(testAirportsJSON)
+	svc, err := NewAirportDataService(testAirportsJSON)
 	if err != nil {
 		b.Fatal(err)
 	}

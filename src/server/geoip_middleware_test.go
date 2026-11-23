@@ -40,7 +40,7 @@ func TestCountryAllowed(t *testing.T) {
 
 // callGeoIPMiddleware wires GeoIPMiddleware in front of a handler that
 // records whether it was reached, then executes a single request.
-func callGeoIPMiddleware(svc *geoip.Service, enabled bool, allow, deny []string, remoteAddr string, allowlisted bool) (reached bool, status int) {
+func callGeoIPMiddleware(svc *geoip.GeoIPService, enabled bool, allow, deny []string, remoteAddr string, allowlisted bool) (reached bool, status int) {
 	mw := GeoIPMiddleware(svc, enabled, allow, deny)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
@@ -60,11 +60,11 @@ func callGeoIPMiddleware(svc *geoip.Service, enabled bool, allow, deny []string,
 // Covers every fail-open path per AI.md PART 19 "Failure mode" — GeoIP
 // must never block a request when it cannot make a definitive decision.
 func TestGeoIPMiddlewareFailsOpen(t *testing.T) {
-	unavailableSvc := &geoip.Service{}
+	unavailableSvc := &geoip.GeoIPService{}
 
 	tests := []struct {
 		name        string
-		svc         *geoip.Service
+		svc         *geoip.GeoIPService
 		enabled     bool
 		allow       []string
 		deny        []string

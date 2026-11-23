@@ -12,12 +12,12 @@ import (
 func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 	tests := []struct {
 		name  string
-		setup func(*config.Config)
+		setup func(*config.ApplicationConfig)
 		want  string
 	}{
 		{
 			name: "abuse recipient wins",
-			setup: func(cfg *config.Config) {
+			setup: func(cfg *config.ApplicationConfig) {
 				cfg.Server.Privacy.Contact.Abuse = "abuse@example.com"
 				cfg.Server.Privacy.Contact.General = "general@example.com"
 				cfg.Server.Notifications.Email.ReplyTo = "admin@example.com"
@@ -26,7 +26,7 @@ func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 		},
 		{
 			name: "general recipient is the abuse fallback",
-			setup: func(cfg *config.Config) {
+			setup: func(cfg *config.ApplicationConfig) {
 				cfg.Server.Privacy.Contact.General = "general@example.com"
 				cfg.Server.Notifications.Email.ReplyTo = "admin@example.com"
 			},
@@ -34,7 +34,7 @@ func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 		},
 		{
 			name: "admin contact is the final fallback",
-			setup: func(cfg *config.Config) {
+			setup: func(cfg *config.ApplicationConfig) {
 				cfg.Server.Notifications.Email.ReplyTo = "notification-reply@example.com"
 				cfg.Server.Notifications.Email.From.Email = "notification-from@example.com"
 				cfg.Web.Security.Admin = "admin@example.com"
@@ -43,7 +43,7 @@ func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 		},
 		{
 			name: "notification sender addresses are not admin contact fallbacks",
-			setup: func(cfg *config.Config) {
+			setup: func(cfg *config.ApplicationConfig) {
 				cfg.Server.Notifications.Email.ReplyTo = "notification-reply@example.com"
 				cfg.Server.Notifications.Email.From.Email = "notification-from@example.com"
 			},
@@ -51,13 +51,13 @@ func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 		},
 		{
 			name:  "empty config has no recipient",
-			setup: func(*config.Config) {},
+			setup: func(*config.ApplicationConfig) {},
 			want:  "",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := config.DefaultConfig()
+			cfg := config.DefaultApplicationConfig()
 			cfg.Server.Privacy.Contact.Abuse = ""
 			cfg.Server.Privacy.Contact.General = ""
 			cfg.Server.Notifications.Email.ReplyTo = ""
@@ -80,7 +80,7 @@ func TestAbuseNotifyRecipientFallbackOrder(t *testing.T) {
 // rate-limit rejections within the flood window, it must be auto-blocked
 // (when auto_block_ip is true) via the shared BlockStore.
 func TestRequestFloodAutoBlock(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier = 3
 	cfg.Server.Security.AbuseDetection.RequestFlood.BlockDuration = "1h"
 	cfg.Server.Security.AbuseDetection.AutoBlockIP = true
@@ -117,7 +117,7 @@ func TestRequestFloodAutoBlock(t *testing.T) {
 // TestRequestFloodRespectsAutoBlockToggle verifies that auto_block_ip=false
 // suppresses the block action even once the flood threshold is crossed.
 func TestRequestFloodRespectsAutoBlockToggle(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier = 2
 	cfg.Server.Security.AbuseDetection.AutoBlockIP = false
 	cfg.Server.Security.AbuseDetection.AutoAlert = false
@@ -146,7 +146,7 @@ func TestRequestFloodRespectsAutoBlockToggle(t *testing.T) {
 // TestRequestFloodWindowReset verifies that rejections separated by more
 // than requestFloodWindow do not accumulate toward the flood threshold.
 func TestRequestFloodWindowReset(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Security.AbuseDetection.RequestFlood.Multiplier = 3
 	cfg.Server.Security.AbuseDetection.AutoBlockIP = true
 	cfg.Server.Security.AbuseDetection.AutoAlert = false

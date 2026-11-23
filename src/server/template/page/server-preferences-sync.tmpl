@@ -1,0 +1,28 @@
+{{define "content"}}
+<div class="container container-md">
+    <header class="page-header">
+        <nav class="breadcrumb" aria-label="{{t "preferences.breadcrumb_label"}}"><a href="{{path "/server/preferences"}}">{{t "owner_tokens.back"}}</a></nav>
+        <h1 class="page-title">{{t "preferences.sync_title"}}</h1>
+        <p class="page-lead">{{t "preferences.sync_description"}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="preferences-sync-export">
+        <h2 id="preferences-sync-export">{{t "preferences.sync_export"}}</h2>
+        <div class="form-group">
+            <label for="preferences-export-url">{{t "preferences.sync_url"}}</label>
+            <div class="code-block"><pre><code id="preferences-export-url" class="copy-value">{{.ExportURL}}</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.ExportURL}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+        </div>
+        <div class="form-group">
+            <label for="preferences-export-code">{{t "preferences.sync_code"}}</label>
+            <div class="code-block"><pre><code id="preferences-export-code" class="copy-value">{{.ExportCode}}</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.ExportCode}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+        </div>
+    </section>
+    <section class="section-card" aria-labelledby="preferences-sync-import">
+        <h2 id="preferences-sync-import">{{t "preferences.sync_import"}}</h2>
+        <form method="post" action="{{path "/server/preferences/sync"}}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <div class="form-group"><label for="preferences-import-code">{{t "preferences.sync_code"}}</label><textarea class="form-input" id="preferences-import-code" name="code" rows="4"></textarea></div>
+            <button class="btn btn-primary" type="submit">{{t "preferences.import"}}</button>
+        </form>
+    </section>
+</div>
+{{end}}

@@ -1,8 +1,8 @@
 package tor
 
-// Config holds all Tor-related settings sourced from the operator's
+// TorConfig holds all Tor-related settings sourced from the operator's
 // server.yml `server.tor` section per AI.md PART 31 "Configuration".
-type Config struct {
+type TorConfig struct {
 	// OnionAddress is the configured v3 .onion hostname used for request
 	// detection and Tor-safe absolute URLs. Empty disables explicit detection.
 	OnionAddress string `yaml:"onion_address" json:"onion_address"`
@@ -61,9 +61,9 @@ type Config struct {
 	VirtualPort int `yaml:"virtual_port" json:"virtual_port"`
 }
 
-// DefaultConfig returns the documented PART 31 defaults.
-func DefaultConfig() Config {
-	return Config{
+// DefaultTorConfig returns the documented PART 31 defaults.
+func DefaultTorConfig() TorConfig {
+	return TorConfig{
 		Binary:                    "",
 		UseNetwork:                false,
 		MaxCircuits:               32,
@@ -83,8 +83,8 @@ func DefaultConfig() Config {
 // applyDefaults fills any zero-value numeric/string fields with the PART 31
 // documented defaults, leaving explicitly-set operator values untouched.
 // This keeps a partially-specified server.yml `tor:` block safe to use.
-func applyDefaults(cfg Config) Config {
-	d := DefaultConfig()
+func applyDefaults(cfg TorConfig) TorConfig {
+	d := DefaultTorConfig()
 
 	if cfg.MaxCircuits <= 0 {
 		cfg.MaxCircuits = d.MaxCircuits
@@ -119,7 +119,7 @@ func applyDefaults(cfg Config) Config {
 
 // resolveEnabled implements the PART 31 auto-enable rule: Tor is enabled
 // whenever a usable tor binary can be located.
-func resolveEnabled(cfg Config, findBinary func(configured string) (string, error)) bool {
+func resolveEnabled(cfg TorConfig, findBinary func(configured string) (string, error)) bool {
 	_, err := findBinary(cfg.Binary)
 	return err == nil
 }

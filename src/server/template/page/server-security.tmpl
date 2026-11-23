@@ -1,15 +1,30 @@
 {{define "content"}}
-<section class="page-section">
-    <h1>Security</h1>
-    <p>We welcome responsible reports of security vulnerabilities affecting the Airports API.</p>
-    <h2>How to report</h2>
-    <p>Use GitHub's private vulnerability reporting for project vulnerabilities. For a deployed instance, use the <a href="{{.BaseURL}}/server/contact">security contact form</a> or email the configured security contact.</p>
-    {{if .SecurityEmail}}<p>Security contact: <a href="mailto:{{.SecurityEmail}}">{{.SecurityEmail}}</a></p>{{end}}
-    <h2>Security information</h2>
-    <ul>
-        <li><a href="{{.BaseURL}}/server/security/policy">Coordinated disclosure policy</a></li>
-        <li><a href="{{.BaseURL}}/server/security/thanks">Researcher acknowledgments</a></li>
-        <li><a href="{{.SecurityTxtURL}}">Machine-readable security.txt</a></li>
-    </ul>
-</section>
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "security.title"}}</h1>
+        <p class="page-lead">{{t "security.lead"}}</p>
+    </header>
+
+    <section class="section-card" aria-labelledby="security-report">
+        <h2 id="security-report">{{t "security.report_heading"}}</h2>
+        <p>{{t "security.repo_report_text"}} {{if .ReportContact}}<a href="{{.ReportContact}}">{{t "security.private_report_link"}}</a>.{{else}}{{t "security.security_email_fallback"}}{{end}}</p>
+        {{if .ReportURL}}<p>{{t "security.instance_report_text"}} <a href="{{.ReportURL}}">{{t "security.report_form_link"}}</a>.</p>{{end}}
+        {{if .SecurityEmail}}<p>{{t "security.email_label"}}: <a href="mailto:{{.SecurityEmail}}">{{.SecurityEmail}}</a></p>{{end}}
+        <p>{{t "security.other_report_text"}} <a href="{{.BaseURL}}/server/contact">{{t "security.other_report_link"}}</a>.</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="security-policy">
+        <h2 id="security-policy">{{t "security.policy_heading"}}</h2>
+        <p><a href="{{.BaseURL}}/server/security/policy">{{t "security.policy_link"}}</a></p>
+    </section>
+
+    <section class="section-card" aria-labelledby="security-information">
+        <h2 id="security-information">{{t "security.information_heading"}}</h2>
+        <ul>
+            <li><a href="{{.BaseURL}}/server/security/thanks">{{t "security.thanks_link"}}</a></li>
+            <li><a href="{{.SecurityTxtURL}}">{{t "security.security_txt_link"}}</a></li>
+            {{if .SecurityKeyAvailable}}<li><a href="{{.BaseURL}}/.well-known/pgp-key.asc">{{t "security.pgp_key_link"}}</a></li>{{end}}
+        </ul>
+    </section>
+</div>
 {{end}}

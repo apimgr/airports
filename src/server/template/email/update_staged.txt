@@ -1,0 +1,14 @@
+Subject: Update Staged - {app_name}
+---
+UPDATE STAGED
+
+From: {app_name} ({fqdn})
+Time: {timestamp}
+
+Version {new_version} is staged and needs a restart before it can be applied.
+
+Run: {manual_command}
+
+--
+{app_name}
+{app_url}

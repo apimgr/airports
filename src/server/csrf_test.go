@@ -79,7 +79,7 @@ func TestCSRFMiddlewarePostMissingTokenRejected(t *testing.T) {
 		t.Fatalf("handler should not be reached when the CSRF token is missing")
 	})
 
-	r := httptest.NewRequest(http.MethodPost, "/theme", strings.NewReader("theme=dark"))
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("theme=dark"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: "csrf_token", Value: "existing-cookie-token"})
 	w := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestCSRFMiddlewarePostMatchingTokenAccepted(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	r := httptest.NewRequest(http.MethodPost, "/theme", strings.NewReader("theme=dark"))
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader("theme=dark"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
 	r.Header.Set("X-CSRF-Token", token)
@@ -128,7 +128,7 @@ func TestCSRFMiddlewarePostMismatchedTokenRejected(t *testing.T) {
 	})
 
 	form := url.Values{"theme": {"dark"}}
-	r := httptest.NewRequest(http.MethodPost, "/theme", strings.NewReader(form.Encode()))
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: "csrf_token", Value: "cookie-token"})
 	r.Header.Set("X-CSRF-Token", "different-token")
@@ -157,7 +157,7 @@ func TestCSRFMiddlewareFormFieldAccepted(t *testing.T) {
 	})
 
 	form := url.Values{"theme": {"dark"}, "csrf_token": {token}}
-	r := httptest.NewRequest(http.MethodPost, "/theme", strings.NewReader(form.Encode()))
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
 	w := httptest.NewRecorder()
@@ -223,7 +223,7 @@ func TestCSRFMiddlewareDisabledSkipsValidation(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	r := httptest.NewRequest(http.MethodPost, "/theme", nil)
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", nil)
 	w := httptest.NewRecorder()
 	s.csrfMiddleware(next).ServeHTTP(w, r)
 

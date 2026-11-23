@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
 )
 
@@ -52,7 +54,7 @@ func hasValidConsentCookie(r *http.Request) bool {
 	return ok
 }
 
-func consentFromRequest(r *http.Request, cfg *config.Config) *ConsentState {
+func consentFromRequest(r *http.Request, cfg *config.ApplicationConfig) *ConsentState {
 	if state, ok := readConsentCookie(r); ok {
 		state.Essential = true
 		if cfg != nil {
@@ -69,18 +71,18 @@ func consentFromRequest(r *http.Request, cfg *config.Config) *ConsentState {
 
 // ConsentMiddleware puts the effective consent state in the request context.
 func ConsentMiddleware(next http.Handler) http.Handler {
-	return consentMiddlewareWithConfig(next, config.Get)
+	return consentMiddlewareWithConfig(next, config.GetApplicationConfig)
 }
 
 func (s *Server) consentMiddleware(next http.Handler) http.Handler {
-	return consentMiddlewareWithConfig(next, func() *config.Config {
+	return consentMiddlewareWithConfig(next, func() *config.ApplicationConfig {
 		s.configMu.RLock()
 		defer s.configMu.RUnlock()
 		return s.config
 	})
 }
 
-func consentMiddlewareWithConfig(next http.Handler, currentConfig func() *config.Config) http.Handler {
+func consentMiddlewareWithConfig(next http.Handler, currentConfig func() *config.ApplicationConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		state := consentFromRequest(r, currentConfig())
 		ctx := context.WithValue(r.Context(), consentContextKey{}, state)
@@ -97,10 +99,10 @@ func CanSetPreferenceCookie(r *http.Request) bool {
 // CanLoadAnalytics reports whether analytics consent is enabled and a provider
 // is configured for this request.
 func CanLoadAnalytics(r *http.Request) bool {
-	return canLoadAnalytics(r, config.Get())
+	return canLoadAnalytics(r, config.GetApplicationConfig())
 }
 
-func canLoadAnalytics(r *http.Request, cfg *config.Config) bool {
+func canLoadAnalytics(r *http.Request, cfg *config.ApplicationConfig) bool {
 	if cfg == nil || r == nil || !cfg.Server.Privacy.Cookies.Analytics.Enabled || cfg.Server.Tracking.Type == "" || cfg.Server.Tracking.Type == "none" {
 		return false
 	}
@@ -127,10 +129,13 @@ func (s *Server) handleServerCCPA(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "errors.form_parse_failed")
 		return
 	}
+	previous := consentFromRequest(r, s.config)
 	switch r.FormValue("choice") {
 	case "opt-out":
 		http.SetCookie(w, &http.Cookie{Name: ccpaOptOutCookieName, Value: "true", Path: "/", MaxAge: 365 * 24 * 60 * 60})
-		writeConsentCookie(w, ConsentState{Essential: true, Timestamp: time.Now().Unix()})
+		state := ConsentState{Essential: true, Timestamp: time.Now().Unix()}
+		s.applyConsentWithdrawal(w, r, *previous, state, true)
+		writeConsentCookie(w, state)
 	case "opt-in":
 		http.SetCookie(w, &http.Cookie{Name: ccpaOptOutCookieName, Value: "", Path: "/", MaxAge: -1})
 	default:
@@ -174,6 +179,24 @@ func redirectBack(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
+func (s *Server) applyConsentWithdrawal(w http.ResponseWriter, r *http.Request, previous, next ConsentState, forceClear bool) {
+	preferencesWithdrawn := !next.Preferences && (forceClear || previous.Preferences)
+	analyticsWithdrawn := !next.Analytics && (forceClear || previous.Analytics)
+	if preferencesWithdrawn {
+		for _, name := range []string{themeCookieName, i18n.LanguageCookieName} {
+			s.setPreferenceCookie(w, r, name, "", -1)
+		}
+		for _, cookie := range r.Cookies() {
+			if strings.HasPrefix(cookie.Name, "airports_pref_") {
+				s.setPreferenceCookie(w, r, cookie.Name, "", -1)
+			}
+		}
+	}
+	if forceClear || preferencesWithdrawn || analyticsWithdrawn {
+		w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
+	}
+}
+
 // handleServerConsent implements POST /server/consent per AI.md PART 16
 // "Banner Behavior": choice=accept grants all categories, choice=decline
 // grants essential only, choice=save reads the granular preferences form
@@ -184,6 +207,7 @@ func (s *Server) handleServerConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	previous := consentFromRequest(r, s.config)
 	choice := r.FormValue("choice")
 	state := ConsentState{Essential: true, Timestamp: time.Now().Unix()}
 
@@ -212,6 +236,7 @@ func (s *Server) handleServerConsent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.applyConsentWithdrawal(w, r, *previous, state, choice == "decline")
 	writeConsentCookie(w, state)
 	redirectBack(w, r)
 }

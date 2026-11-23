@@ -2,7 +2,6 @@ package server
 
 import (
 	"crypto/subtle"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -54,15 +53,15 @@ type appMetrics struct {
 	rateLimitBlockedTotal  *prometheus.CounterVec
 	// Metrics service-token checks are the only authentication flow in this
 	// public, no-user-account product; labels never contain credentials.
-	authAttemptsTotal  *prometheus.CounterVec
-	authSessionsActive prometheus.Gauge
+	authAttemptsTotal *prometheus.CounterVec
 
 	// Airport-level business metrics.
-	airportSearchTotal *prometheus.CounterVec
-	airportNearbyTotal *prometheus.CounterVec
-	airportLookupTotal *prometheus.CounterVec
-	airportExportTotal *prometheus.CounterVec
-	database           *sql.DB
+	airportSearchTotal  *prometheus.CounterVec
+	airportNearbyTotal  *prometheus.CounterVec
+	airportLookupTotal  *prometheus.CounterVec
+	airportExportTotal  *prometheus.CounterVec
+	contactBlockedTotal *prometheus.CounterVec
+	database            dbpkg.Handle
 }
 
 // buildInfo carries the version metadata newMetrics stamps onto
@@ -172,10 +171,6 @@ func newMetrics(cfg config.MetricsConfig, build buildInfo, startTime time.Time, 
 			Name: "airports_auth_attempts_total",
 			Help: "Metrics service-token authentication attempts partitioned by method and outcome.",
 		}, []string{"method", "status"}),
-		authSessionsActive: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "airports_auth_sessions_active",
-			Help: "Active authenticated user sessions; this product does not create user sessions.",
-		}),
 
 		airportSearchTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -208,6 +203,10 @@ func newMetrics(cfg config.MetricsConfig, build buildInfo, startTime time.Time, 
 			},
 			[]string{"format"},
 		),
+		contactBlockedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "airports_contact_blocked_total",
+			Help: "Contact submissions blocked by anti-spam reason.",
+		}, []string{"reason"}),
 	}
 
 	m.appUptimeSeconds = prometheus.NewGaugeFunc(
@@ -220,9 +219,6 @@ func newMetrics(cfg config.MetricsConfig, build buildInfo, startTime time.Time, 
 
 	m.appInfo.WithLabelValues(build.version, build.commit, build.buildDate, runtime.Version()).Set(1)
 	m.appStartTimestamp.Set(float64(startTime.Unix()))
-	// Authentication is limited to per-service metrics tokens. The public
-	// airport API has no login or user-session model (IDEA.md Product scope).
-	m.authSessionsActive.Set(0)
 
 	reg.MustRegister(
 		m.appInfo,
@@ -236,11 +232,11 @@ func newMetrics(cfg config.MetricsConfig, build buildInfo, startTime time.Time, 
 		m.rateLimitRequestsTotal,
 		m.rateLimitBlockedTotal,
 		m.authAttemptsTotal,
-		m.authSessionsActive,
 		m.airportSearchTotal,
 		m.airportNearbyTotal,
 		m.airportLookupTotal,
 		m.airportExportTotal,
+		m.contactBlockedTotal,
 		dbpkg.QueryMetricsCollector(),
 	)
 
@@ -258,6 +254,13 @@ func (m *appMetrics) recordRateLimit(limit string, allowed bool) {
 	}
 }
 
+func (m *appMetrics) recordContactBlocked(reason string) {
+	if m == nil || !validContactBlockReason(reason) {
+		return
+	}
+	m.contactBlockedTotal.WithLabelValues(reason).Inc()
+}
+
 func (m *appMetrics) setLokiLogs(buffer *logging.RecentLogBuffer) {
 	m.lokiLogs = buffer
 }
@@ -272,7 +275,7 @@ func (m *appMetrics) setSchedulerMetrics(collector prometheus.Collector) {
 // A request counter is deliberately not inferred from Host: only trusted
 // proxy-protocol metadata on a dedicated hidden-service listener can identify
 // actual onion traffic.
-func (m *appMetrics) setTorManager(manager *torpkg.Manager) {
+func (m *appMetrics) setTorManager(manager *torpkg.TorManager) {
 	if manager == nil {
 		return
 	}
@@ -286,7 +289,7 @@ func (m *appMetrics) setTorManager(manager *torpkg.Manager) {
 			Name: "airports_tor_enabled",
 			Help: "Whether the Tor service is available and enabled.",
 		}, func() float64 {
-			if manager.Enabled() {
+			if manager.IsTorEnabled() {
 				return 1
 			}
 			return 0
@@ -314,7 +317,7 @@ func (m *appMetrics) setTorManager(manager *torpkg.Manager) {
 
 // setDatabase registers live connection-pool gauges for the shared SQLite
 // database. Query counters and duration metrics are recorded at call sites.
-func (m *appMetrics) setDatabase(database *sql.DB) {
+func (m *appMetrics) setDatabase(database dbpkg.Handle) {
 	if database == nil {
 		return
 	}
@@ -327,6 +330,20 @@ func (m *appMetrics) setDatabase(database *sql.DB) {
 		Name: "airports_db_connections_in_use",
 		Help: "Number of database connections currently in use.",
 	}, func() float64 { return float64(database.Stats().InUse) }))
+	for _, kind := range []string{"primary", "linked"} {
+		kind := kind
+		m.registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name:        "airports_owner_tokens_active",
+			Help:        "Active owner tokens that are neither revoked nor expired.",
+			ConstLabels: prometheus.Labels{"kind": kind},
+		}, func() float64 {
+			var count int64
+			if err := database.QueryRow(`SELECT COUNT(*) FROM api_tokens WHERE kind = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`, kind, time.Now().Unix()).Scan(&count); err != nil {
+				return 0
+			}
+			return float64(count)
+		}))
+	}
 }
 
 // setCache registers only cache measurements the configured backend can
@@ -354,7 +371,7 @@ func newCacheMetricsCollector(provider cachepkg.MetricsProvider) *cacheMetricsCo
 		provider:  provider,
 		hits:      prometheus.NewDesc("airports_cache_hits_total", "Total successful cache lookups.", []string{"cache"}, nil),
 		misses:    prometheus.NewDesc("airports_cache_misses_total", "Total cache lookups without a value.", []string{"cache"}, nil),
-		evictions: prometheus.NewDesc("airports_cache_evictions_total", "Total cache entries removed after expiration.", []string{"cache"}, nil),
+		evictions: prometheus.NewDesc("airports_cache_evictions_total", "Total cache entries evicted or observed to disappear before their TTL.", []string{"cache"}, nil),
 		size:      prometheus.NewDesc("airports_cache_size", "Current number of live entries in the cache.", []string{"cache"}, nil),
 		bytes:     prometheus.NewDesc("airports_cache_bytes", "Current logical key and value bytes stored in the cache; excludes runtime allocation overhead.", []string{"cache"}, nil),
 	}
@@ -629,6 +646,9 @@ func grafanaMetricsDashboard() map[string]interface{} {
 	}
 
 	panelsSpec := []panelDefinition{
+		{title: "Application · Build info", expr: "airports_app_info", legend: "{{version}} · {{commit}}", unit: "short"},
+		{title: "Application · Uptime", expr: "airports_app_uptime_seconds", unit: "s"},
+		{title: "Application · Start time", expr: "airports_app_start_timestamp", unit: "dateTimeAsIso"},
 		{title: "HTTP · Request rate by status", expr: "sum by (status) (rate(airports_http_requests_total[5m]))", legend: "{{status}}", unit: "reqps"},
 		{title: "HTTP · 95th percentile request duration", expr: "histogram_quantile(0.95, sum by (le) (rate(airports_http_request_duration_seconds_bucket[5m])))", unit: "s"},
 		{title: "HTTP · 95th percentile request size", expr: "histogram_quantile(0.95, sum by (le) (rate(airports_http_request_size_bytes_bucket[5m])))", unit: "bytes"},
@@ -639,6 +659,8 @@ func grafanaMetricsDashboard() map[string]interface{} {
 		{title: "Database · Open connections", expr: "airports_db_connections_open", unit: "short"},
 		{title: "Database · Connections in use", expr: "airports_db_connections_in_use", unit: "short"},
 		{title: "Database · Error rate by type", expr: "sum by (error_type) (rate(airports_db_errors_total[5m]))", legend: "{{error_type}}", unit: "reqps"},
+		{title: "Database · Busy retries", expr: "rate(airports_db_busy_total[5m])", unit: "reqps"},
+		{title: "Database · Write wait p95", expr: "histogram_quantile(0.95, sum by (le) (rate(airports_db_write_wait_seconds_bucket[5m])))", unit: "s"},
 		{title: "Cache · Hit ratio", expr: "sum by (cache) (rate(airports_cache_hits_total[5m])) / clamp_min(sum by (cache) (rate(airports_cache_hits_total[5m]) + rate(airports_cache_misses_total[5m])), 1e-9)", legend: "{{cache}}", unit: "percentunit"},
 		{title: "Cache · Miss rate", expr: "sum by (cache) (rate(airports_cache_misses_total[5m]))", legend: "{{cache}}", unit: "reqps"},
 		{title: "Cache · Eviction rate", expr: "sum by (cache) (rate(airports_cache_evictions_total[5m]))", legend: "{{cache}}", unit: "reqps"},
@@ -656,7 +678,7 @@ func grafanaMetricsDashboard() map[string]interface{} {
 		{title: "System · Disk used by path", expr: "airports_system_disk_used_bytes", legend: "{{path}}", unit: "bytes"},
 		{title: "System · Disk total by path", expr: "airports_system_disk_total_bytes", legend: "{{path}}", unit: "bytes"},
 		{title: "Authentication · Attempts by status", expr: "sum by (method, status) (rate(airports_auth_attempts_total[5m]))", legend: "{{method}} · {{status}}", unit: "reqps"},
-		{title: "Authentication · Active sessions", expr: "airports_auth_sessions_active", unit: "short"},
+		{title: "Authentication · Active owner tokens", expr: "airports_owner_tokens_active", legend: "{{kind}}", unit: "short"},
 		{title: "Rate limiting · Requests by status", expr: "sum by (limit, status) (rate(airports_ratelimit_requests_total[5m]))", legend: "{{limit}} · {{status}}", unit: "reqps"},
 		{title: "Rate limiting · Blocked requests", expr: "sum by (limit) (rate(airports_ratelimit_blocked_total[5m]))", legend: "{{limit}}", unit: "reqps"},
 		{title: "Go runtime · Goroutines", expr: "airports_go_goroutines", unit: "short"},
@@ -782,15 +804,24 @@ func metricsAuthMiddleware(token string, allowUnauthenticated bool, metrics *app
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if subtle.ConstantTimeCompare([]byte(requestAuthToken(r)), []byte(token)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(metricsBearerToken(r)), []byte(token)) != 1 {
 			recordAuthAttempt(metrics, false)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
-			writeTextError(w, http.StatusUnauthorized, "UNAUTHORIZED", i18n.T(i18n.FromContext(r.Context()), "errors.unauthorized"))
+			writeTextError(w, http.StatusUnauthorized, "UNAUTHORIZED", i18n.TranslateText(i18n.FromContext(r.Context()), "errors.unauthorized"))
 			return
 		}
 		recordAuthAttempt(metrics, true)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func metricsBearerToken(r *http.Request) string {
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	scheme, token, found := strings.Cut(value, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 func recordAuthAttempt(metrics *appMetrics, success bool) {

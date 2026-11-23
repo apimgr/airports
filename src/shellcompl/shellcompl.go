@@ -70,7 +70,7 @@ func DetectShell() string {
 // and writes to w (normally os.Stdout for completions/init, os.Stderr for
 // usage errors). commands and flags describe the binary's own command/flag
 // surface and are embedded in the generated completion scripts.
-func Handle(w io.Writer, errW io.Writer, subcmd, shell, binaryName string, commands []string, flags []string) int {
+func HandleShellCompletion(w io.Writer, errW io.Writer, subcmd, shell, binaryName string, commands []string, flags []string) int {
 	if shell == "" {
 		shell = DetectShell()
 	}

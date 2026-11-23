@@ -40,7 +40,7 @@ func newWebhookConfigurationError(message string) error {
 }
 
 // WebhookTarget identifies one configured destination. Secret is the
-// per-webhook signing secret stored beside its URL in server.yml.
+// per-webhook signing secret stored beside its URL in secrets.yml.
 type WebhookTarget struct {
 	Role      string
 	Transport string

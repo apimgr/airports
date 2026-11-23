@@ -1,0 +1,113 @@
+{{define "content"}}
+<div class="container container-md">
+    <header class="page-header">
+        <nav class="breadcrumb" aria-label="{{t "help.breadcrumb_label"}}"><a href="{{.BaseURL}}/server/help">{{t "help.back_to_help"}}</a></nav>
+        <h1 class="page-title">{{t "help.mcp_title"}}</h1>
+        <p class="page-lead">{{t "help.mcp_desc"}}</p>
+    </header>
+
+    <section class="section-card" aria-labelledby="overview">
+        <h2 id="overview">{{t "help.mcp_overview_heading"}}</h2>
+        <p>{{t "help.mcp_overview_desc"}}</p>
+        <p>{{t "help.mcp_versions_label"}}: {{range $index, $version := .Versions}}{{if $index}}, {{end}}{{$version}}{{end}}</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="endpoint">
+        <h2 id="endpoint">{{t "help.mcp_endpoint_heading"}}</h2>
+        <p>{{t "help.mcp_endpoint_desc"}}</p>
+        <div class="code-block">
+            <pre><code>{{.MCPURL}}</code></pre>
+            <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.MCPURL}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+            <span class="copy-feedback" aria-live="polite"></span>
+        </div>
+        <p>{{t "help.mcp_aliases_label"}}:</p>
+        <ul>
+            <li><div class="code-block"><pre><code>{{.PublicBaseURL}}/api/mcp</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.PublicBaseURL}}/api/mcp" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div></li>
+            <li><div class="code-block"><pre><code>{{.PublicBaseURL}}/mcp</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.PublicBaseURL}}/mcp" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div></li>
+        </ul>
+    </section>
+
+    <section class="section-card" aria-labelledby="authentication">
+        <h2 id="authentication">{{t "help.mcp_auth_heading"}}</h2>
+        <p>{{t "help.mcp_auth_desc"}}</p>
+    </section>
+
+    <section class="section-card" aria-labelledby="connect">
+        <h2 id="connect">{{t "help.mcp_connect_heading"}}</h2>
+        <p>{{t "help.mcp_connect_desc"}}</p>
+        <div class="code-block">
+            <pre><code>{{.MCPConfig}}</code></pre>
+            <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.MCPConfig}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+            <span class="copy-feedback" aria-live="polite"></span>
+        </div>
+        <div class="code-block">
+            <pre><code>{{.MCPClaude}}</code></pre>
+            <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.MCPClaude}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+            <span class="copy-feedback" aria-live="polite"></span>
+        </div>
+        <div class="code-block">
+            <pre><code>{{.MCPToolsList}}</code></pre>
+            <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{.MCPToolsList}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+            <span class="copy-feedback" aria-live="polite"></span>
+        </div>
+    </section>
+
+    <section class="section-card" aria-labelledby="tools">
+        <h2 id="tools">{{t "help.mcp_tools_heading"}}</h2>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "help.mcp_tools_caption"}}</caption>
+                <thead><tr><th scope="col">{{t "help.mcp_tool_name"}}</th><th scope="col">{{t "help.mcp_tool_description"}}</th></tr></thead>
+                <tbody>
+                {{range .Tools}}
+                    <tr><td><code>{{.Name}}</code></td><td>{{markdownToHTML .Description}}</td></tr>
+                {{else}}
+                    <tr><td colspan="2">{{t "help.mcp_no_tools"}}</td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section-card" aria-labelledby="limits">
+        <h2 id="limits">{{t "help.mcp_limits_heading"}}</h2>
+        <p>{{t "help.mcp_limits_desc"}}</p>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "help.mcp_status_caption"}}</caption>
+                <thead><tr><th scope="col">{{t "help.mcp_status_code"}}</th><th scope="col">{{t "help.mcp_status_meaning"}}</th></tr></thead>
+                <tbody>
+                    <tr><td>200</td><td>{{t "help.mcp_status_200"}}</td></tr>
+                    <tr><td>202</td><td>{{t "help.mcp_status_202"}}</td></tr>
+                    <tr><td>400</td><td>{{t "help.mcp_status_400"}}</td></tr>
+                    <tr><td>401</td><td>{{t "help.mcp_status_401"}}</td></tr>
+                    <tr><td>403</td><td>{{t "help.mcp_status_403"}}</td></tr>
+                    <tr><td>405</td><td>{{t "help.mcp_status_405"}}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section-card" aria-labelledby="troubleshooting">
+        <h2 id="troubleshooting">{{t "help.mcp_troubleshooting_heading"}}</h2>
+        <div class="table-wrapper">
+            <table class="data-table">
+                <caption>{{t "help.mcp_troubleshooting_heading"}}</caption>
+                <thead><tr><th scope="col">{{t "help.mcp_status_code"}}</th><th scope="col">{{t "help.mcp_issue"}}</th><th scope="col">{{t "help.mcp_fix"}}</th></tr></thead>
+                <tbody>
+                    <tr><td>400</td><td>{{t "help.mcp_issue_400"}}</td><td>{{t "help.mcp_fix_400"}}</td></tr>
+                    <tr><td>401</td><td>{{t "help.mcp_issue_401"}}</td><td>{{t "help.mcp_fix_401"}}</td></tr>
+                    <tr><td>403</td><td>{{t "help.mcp_issue_403"}}</td><td>{{t "help.mcp_fix_403"}}</td></tr>
+                    <tr><td>405</td><td>{{t "help.mcp_issue_405"}}</td><td>{{t "help.mcp_fix_405"}}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="section-card" aria-labelledby="project">
+        <h2 id="project">{{t "help.mcp_project_heading"}}</h2>
+        {{if .Project}}{{.Project | markdownToHTML}}{{end}}
+        <p><a href="{{.BaseURL}}/server/docs/swagger">{{t "help.swagger_desc"}}</a></p>
+    </section>
+</div>
+{{end}}

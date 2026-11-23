@@ -16,7 +16,7 @@ import (
 // LogWriter owns a single log file: appending raw plain-text lines to it,
 // and rotating/pruning it against its configured policy. It is safe for
 // concurrent use. The last-rotation timestamp is tracked in memory only —
-// the owning Manager is created once at process startup and lives for the
+// the owning LogManager is created once at process startup and lives for the
 // life of the process (per AI.md, the scheduler runs continuously from
 // startup to shutdown), so no on-disk sidecar file is needed, and none is
 // ever left behind — even when the log's retention policy is "none".

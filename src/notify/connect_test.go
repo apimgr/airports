@@ -143,3 +143,43 @@ func TestDialSMTPFailsWhenUnreachable(t *testing.T) {
 		t.Error("dialSMTP should fail to connect to a closed port")
 	}
 }
+
+func TestEffectiveTLSMode(t *testing.T) {
+	for _, test := range []struct {
+		mode string
+		port int
+		want string
+	}{
+		{mode: "auto", port: 465, want: "tls"},
+		{mode: "auto", port: 25, want: "auto"},
+		{mode: "auto", port: 587, want: "auto"},
+		{mode: "starttls", port: 465, want: "starttls"},
+	} {
+		if got := effectiveTLSMode(test.mode, test.port); got != test.want {
+			t.Errorf("effectiveTLSMode(%q, %d) = %q, want %q", test.mode, test.port, got, test.want)
+		}
+	}
+}
+
+func TestPrivateSMTPHost(t *testing.T) {
+	for _, test := range []struct {
+		host string
+		want bool
+	}{
+		{host: "10.1.2.3", want: true},
+		{host: "172.31.2.3", want: true},
+		{host: "192.168.2.3", want: true},
+		{host: "100.64.1.2", want: true},
+		{host: "127.0.0.1", want: true},
+		{host: "169.254.1.2", want: true},
+		{host: "::1", want: true},
+		{host: "fc00::1", want: true},
+		{host: "fe80::1", want: true},
+		{host: "8.8.8.8", want: false},
+		{host: "relay.example.com", want: false},
+	} {
+		if got := privateSMTPHost(test.host); got != test.want {
+			t.Errorf("privateSMTPHost(%q) = %v, want %v", test.host, got, test.want)
+		}
+	}
+}

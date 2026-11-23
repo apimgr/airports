@@ -39,7 +39,7 @@ func TestHandleDebugDBReportsPoolStatistics(t *testing.T) {
 
 func TestHandleDebugCacheReportsAvailability(t *testing.T) {
 	s := &Server{
-		config: &config.Config{},
+		config: &config.ApplicationConfig{},
 		cache:  &debugProbeCache{},
 	}
 	w := httptest.NewRecorder()

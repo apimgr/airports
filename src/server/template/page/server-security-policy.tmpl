@@ -1,11 +1,25 @@
 {{define "content"}}
-<section class="page-section">
-    <h1>Security Disclosure Policy</h1>
-    <p>Report suspected vulnerabilities privately and include enough detail to reproduce the issue. Do not access or modify data that is not yours, disrupt service, or disclose a vulnerability publicly before coordinating with the maintainers.</p>
-    <h2>What to include</h2>
-    <p>Describe the affected endpoint or component, the impact, and clear reproduction steps. Avoid including real personal data or credentials in a report.</p>
-    <h2>Coordinated disclosure</h2>
-    <p>We will acknowledge reports and work with researchers on a reasonable disclosure timeline. We may publish a security advisory after a fix is available.</p>
-    <p><a href="{{.BaseURL}}/server/security">Security overview</a></p>
-</section>
+<div class="container container-md">
+    <header class="page-header">
+        <h1 class="page-title">{{t "security.policy_title"}}</h1>
+        <p class="page-lead">{{t "security.policy_lead"}}</p>
+    </header>
+    <section class="section-card" aria-labelledby="security-disclosure-policy">
+        <h2 id="security-disclosure-policy">{{t "security.disclosure_heading"}}</h2>
+        {{if .Policy}}
+        {{.Policy | markdownToHTML}}
+        {{else}}
+        <p>{{t "security.default_policy"}}</p>
+        {{end}}
+    </section>
+    <section class="section-card" aria-labelledby="security-research">
+        <h2 id="security-research">{{t "security.research_heading"}}</h2>
+        <p>{{t "security.research_guidance"}}</p>
+    </section>
+    <section class="section-card" aria-labelledby="security-disclosure">
+        <h2 id="security-disclosure">{{t "security.coordinated_heading"}}</h2>
+        <p>{{t "security.coordinated_guidance"}}</p>
+        <p><a href="{{.BaseURL}}/server/security">{{t "security.back_to_overview"}}</a></p>
+    </section>
+</div>
 {{end}}

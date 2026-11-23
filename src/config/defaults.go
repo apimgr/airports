@@ -1,13 +1,15 @@
 package config
 
 import (
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/i2p"
+	paths "github.com/apimgr/airports/src/path"
 	"github.com/apimgr/airports/src/tor"
 )
 
-// DefaultConfig returns the default configuration
-func DefaultConfig() *Config {
-	return &Config{
+// DefaultApplicationConfig returns the default configuration
+func DefaultApplicationConfig() *ApplicationConfig {
+	cfg := &ApplicationConfig{
 		Server: ServerConfig{
 			Port:    "", // Will be set to random 64xxx port
 			FQDN:    "",
@@ -23,12 +25,8 @@ func DefaultConfig() *Config {
 			BaseURL:      "/",
 			URLDetection: URLDetectionConfig{Learning: true, MinSamples: 3, SampleWindow: "5m", LogChanges: true, LiveReload: true},
 			I18n: I18nConfig{
-				Enabled:          true,
-				DefaultLanguage:  "en",
-				Supported:        []string{"en", "es", "zh", "fr", "ar", "de", "ja"},
-				FallbackLanguage: "en",
-				CookieName:       "lang",
-				CookieMaxAge:     "365d",
+				DefaultLanguage: "en",
+				Supported:       i18n.RegisteredLanguageCodes(),
 			},
 			Update: UpdateConfig{
 				Branch:      "stable",
@@ -43,7 +41,14 @@ func DefaultConfig() *Config {
 				Tagline:     "",
 				Description: "",
 			},
-			SEO:       SEOConfig{Keywords: []string{}},
+			SEO: SEOConfig{
+				Keywords:       []string{},
+				TitleSeparator: " - ",
+				OpenGraph:      SEOOpenGraphConfig{Enabled: true, Type: "website"},
+				Twitter:        SEOTwitterConfig{Enabled: true, Card: "summary_large_image"},
+				Sitemap:        SEOSitemapConfig{MaxURLs: 50000},
+				Feed:           SEOFeedConfig{MaxItems: 50},
+			},
 			User:      "",
 			Group:     "",
 			PIDFile:   true,
@@ -69,6 +74,7 @@ func DefaultConfig() *Config {
 					BlocklistUpdate: TaskConfig{Enabled: true, Schedule: "0 4 * * *", RetryOnFail: true, RetryDelay: "1h"},
 					CVEUpdate:       TaskConfig{Enabled: true, Schedule: "0 5 * * *", RetryOnFail: true, RetryDelay: "1h"},
 					UpdateCheck:     TaskConfig{Enabled: true, Schedule: "0 6 * * *"},
+					DiskCheck:       TaskConfig{Enabled: true, Schedule: "*/5 * * * *"},
 					TokenCleanup:    TaskConfig{Enabled: true, Schedule: "*/15 * * * *"},
 					LogRotation:     TaskConfig{Enabled: true, Schedule: "0 0 * * *"},
 					Backup:          BackupTaskConfig{Enabled: true, Schedule: "0 2 * * *", Retention: 5},
@@ -78,11 +84,12 @@ func DefaultConfig() *Config {
 				},
 			},
 			RateLimit: RateLimitConfig{
-				Enabled:     true,
-				Read:        RateLimitBucket{Requests: 120, Window: 60},
-				Write:       RateLimitBucket{Requests: 10, Window: 60},
-				Health:      RateLimitBucket{Requests: 120, Window: 60},
-				GlobalBurst: 240,
+				Read:         RateLimitBucket{Requests: 120, Window: 60},
+				Write:        RateLimitBucket{Requests: 10, Window: 60},
+				Health:       RateLimitBucket{Requests: 120, Window: 60},
+				Strict:       RateLimitBucket{Requests: 10, Window: 900},
+				AuthFailures: RateLimitBucket{Requests: 5, Window: 900},
+				GlobalBurst:  240,
 			},
 			Database: DatabaseConfig{
 				Driver: "sqlite",
@@ -125,8 +132,13 @@ func DefaultConfig() *Config {
 				HTTPOnly:   true,
 				SameSite:   "lax",
 			},
+			Tokens: OwnerTokensConfig{
+				MaxLinked:     25,
+				CookieMaxAge:  "1y",
+				IdlePurgeDays: 0,
+			},
 			Maintenance: MaintenanceConfig{
-				SelfHealing: SelfHealingConfig{Enabled: true, RetryInterval: "30s", MaxAttempts: 0},
+				SelfHealing: SelfHealingConfig{RetryInterval: "30s", MaxAttempts: 0},
 				Cleanup:     CleanupConfig{DiskThreshold: 90, LogRetentionDays: 7, BackupKeepCount: 5},
 				Notify:      MaintenanceNotify{OnEnter: true, OnExit: true},
 			},
@@ -312,9 +324,29 @@ When the configured sold-data option is enabled, the operator may share or sell 
 			},
 			Pages: ServerPagesConfig{
 				Contact: ContactPageConfig{
-					Enabled:        true,
-					Captcha:        "simple",
+					Enabled: true,
+					Captcha: "simple",
+					Antispam: ContactAntispamConfig{
+						Honeypot:             true,
+						MinFillSeconds:       3,
+						MaxAgeSeconds:        43200,
+						PerIP:                5,
+						PerEmail:             3,
+						Global:               60,
+						Window:               "1h",
+						MaxLinks:             10,
+						RejectMarkup:         true,
+						Strikes:              3,
+						BanHours:             24,
+						ReviewMinSeconds:     2,
+						ReviewMaxSeconds:     900,
+						DuplicateWindowHours: 24,
+					},
 					SuccessMessage: "Thank you for your message. We'll respond soon.",
+				},
+				Help: HelpPagesConfig{
+					Content: "Connect an MCP client to use the read-only airport tools. Use `searchAirports` to find airports by name, city, country, or code; `nearbyAirports` and `airportsWithin` for geographic searches; `getAirport` for an airport record; `listCountries` for country data; and `airportStats` for dataset totals. Example prompts: find airports near my coordinates, search for airports serving London, or compare details for KJFK and KLGA. The tools expose the same embedded public dataset as the REST API; no flight tracking or live operational data is available.",
+					MCP:     "Use `searchAirports` to find airports by name, city, country, or code; `nearbyAirports` and `airportsWithin` for geographic searches; `getAirport` for one airport record; `listCountries` for country data; and `airportStats` for dataset totals. Example prompts: find airports near these coordinates, search for airports serving London, compare KJFK and KLGA, or list airports in France. Results use the public embedded OurAirports dataset; there is no live flight tracking or operational data.",
 				},
 			},
 			Tracking: TrackingConfig{Type: "", ID: "", URL: ""},
@@ -332,6 +364,7 @@ When the configured sold-data option is enabled, the operator may share or sell 
 			Security: SecurityConfig{
 				Allowlist:  []AllowlistEntry{},
 				BlockedIPs: []BlockedIPEntry{},
+				Reports:    SecurityReportsConfig{RetentionDays: 365},
 				AbuseDetection: AbuseDetectionConfig{
 					RequestFlood: RequestFloodConfig{
 						Multiplier:    10,
@@ -340,9 +373,6 @@ When the configured sold-data option is enabled, the operator may share or sell 
 					AutoBlockIP: true,
 					AutoAlert:   true,
 				},
-			},
-			CVE: CVEConfig{
-				APIKey: "",
 			},
 			Backup: BackupConfig{
 				EncryptionPassword: "",
@@ -355,10 +385,15 @@ When the configured sold-data option is enabled, the operator may share or sell 
 				},
 			},
 			Compliance: ComplianceConfig{
-				Enabled: false,
+				GDPRAllowedRegions: []string{},
+				FedRAMPImpactLevel: "",
 			},
-			Tor: tor.DefaultConfig(),
-			I2P: i2p.DefaultConfig(),
+			Tor: tor.DefaultTorConfig(),
+			I2P: func() i2p.I2PConfig {
+				cfg := i2p.DefaultI2PConfig()
+				cfg.Enabled = paths.IsRunningInContainer()
+				return cfg
+			}(),
 			Notifications: ServerNotificationsConfig{
 				WebUI: NotifyWebUIConfig{
 					Position: "top-right",
@@ -379,24 +414,33 @@ When the configured sold-data option is enabled, the operator may share or sell 
 					},
 					ReplyTo: "",
 					Events: map[string]bool{
-						"startup":            false,
-						"shutdown":           false,
-						"backup_complete":    false,
-						"backup_failed":      true,
-						"ssl_expiring":       true,
-						"ssl_renewed":        false,
-						"ssl_renewal_failed": true,
-						"security_alert":     true,
-						"scheduler_error":    true,
-						"update_available":   false,
-						"update_installed":   true,
+						"startup":                        false,
+						"shutdown":                       false,
+						"backup_complete":                false,
+						"backup_failed":                  true,
+						"ssl_expiring":                   true,
+						"ssl_renewed":                    false,
+						"ssl_renewal_failed":             true,
+						"security_alert":                 true,
+						"security_report_received":       true,
+						"security_report_acknowledgment": true,
+						"security_report_status":         true,
+						"scheduler_error":                true,
+						"update_available":               false,
+						"update_installed":               true,
+						"update_failed":                  true,
+						"update_staged":                  true,
+						"disk_low":                       true,
 					},
 				},
+				DiskLow: DiskLowConfig{Enabled: true, ThresholdPercent: 85, CheckInterval: "5m", Repeat: "24h"},
 			},
 		},
+		Data: DataConfig{CVE: CVEConfig{}},
 		Web: WebConfig{
 			UI: WebUIConfig{
 				Theme:   "dark",
+				Accent:  "",
 				Logo:    "",
 				Favicon: "",
 				Notifications: NotificationsConfig{
@@ -407,19 +451,27 @@ When the configured sold-data option is enabled, the operator may share or sell 
 				Enabled:  true,
 				Messages: []AnnouncementMessage{},
 			},
+			LLMS: WebLLMSConfig{
+				Enabled:          true,
+				IncludeEndpoints: true,
+				CustomSections:   []string{},
+			},
 			Robots: WebRobotsConfig{
 				Allow: []string{"/", "/api"},
 				Deny:  []string{"/admin", "/debug"},
-				AIBots: WebRobotsAIBotsConfig{
-					Default: "allow",
-					Bots:    map[string]string{},
-				},
 			},
 			Security: WebSecurityConfig{
-				Admin: "",
+				Admin:      "",
+				ReportURL:  "https://github.com/apimgr/airports/security/advisories/new",
+				Contact:    "security@{fqdn}",
+				Expires:    "{1year}",
+				Policy:     "",
+				Keyservers: []string{},
 			},
 		},
 	}
+	cfg.Server.Pages.Help.MCP = cfg.Server.Pages.Help.Content
+	return cfg
 }
 
 // Load loads configuration from a YAML file

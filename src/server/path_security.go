@@ -36,7 +36,7 @@ func PathSecurityMiddleware(next http.Handler) http.Handler {
 		}
 		if strings.Contains(original, "..") || strings.Contains(rawPath, "..") ||
 			strings.Contains(strings.ToLower(rawPath), "%2e") {
-			message := i18n.T(i18n.FromContext(r.Context()), "errors.bad_request")
+			message := i18n.TranslateText(i18n.FromContext(r.Context()), "errors.bad_request")
 			if commonhttputil.GetAPIResponseFormat(r) == "text" {
 				writeTextError(w, http.StatusBadRequest, "BAD_REQUEST", message)
 			} else {

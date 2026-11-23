@@ -30,3 +30,22 @@
 </div>
 {{end}}
 {{end}}
+
+{{define "cookie-preferences-modal"}}
+<dialog id="cookie-preferences-modal" class="modal" aria-labelledby="cookie-preferences-title">
+    <header class="modal-header">
+        <h2 id="cookie-preferences-title">{{t "privacy.cookie_categories"}}</h2>
+        <form method="dialog"><button class="modal-close" aria-label="{{t "common.close"}}">×</button></form>
+    </header>
+    <div class="modal-body">
+        <form method="post" action="{{.BaseURL}}/server/consent">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <input type="hidden" name="choice" value="save">
+            <div class="form-group"><label><input type="checkbox" checked disabled> {{t "privacy.essential_label"}} — {{.EssentialCookieDescription}}</label></div>
+            <div class="form-group"><label><input id="pref-preferences" type="checkbox" name="preferences" value="true" {{if .ConsentPreferences}}checked{{end}} {{if not .PreferencesCategoryEnabled}}disabled{{end}}> {{t "privacy.preferences_label"}} — {{.ConsentPreferencesDescription}}</label></div>
+            <div class="form-group"><label><input id="pref-analytics" type="checkbox" name="analytics" value="true" {{if .ConsentAnalytics}}checked{{end}} {{if not .AnalyticsCategoryEnabled}}disabled{{end}}> {{t "privacy.analytics_label"}} — {{.ConsentAnalyticsDescription}}</label></div>
+            <button type="submit" class="btn btn-primary">{{.ConsentPreferencesText}}</button>
+        </form>
+    </div>
+</dialog>
+{{end}}

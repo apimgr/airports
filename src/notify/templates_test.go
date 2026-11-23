@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/apimgr/airports/src/config"
 )
 
 // testTempDir creates an isolated temp dir under /tmp/apimgr/airports-XXXXXX
@@ -25,7 +27,7 @@ func testTempDir(t *testing.T) string {
 }
 
 func TestLoadTemplateEmbeddedDefault(t *testing.T) {
-	subject, body, err := LoadTemplate("", "test")
+	subject, body, err := LoadEmailTemplate("", "test")
 	if err != nil {
 		t.Fatalf("LoadTemplate: %v", err)
 	}
@@ -41,25 +43,53 @@ func TestLoadTemplateAllDefaultsParse(t *testing.T) {
 	names := []string{
 		"security_alert", "backup_complete", "backup_failed",
 		"ssl_expiring", "ssl_renewed", "ssl_renewal_failed",
-		"scheduler_error", "update_available", "update_installed", "test",
+		"scheduler_error", "startup", "shutdown", "disk_low", "database_error",
+		"update_available", "update_failed", "update_staged", "update_installed",
+		"maintenance_entered", "maintenance_recovered", "contact_submission",
+		"security_report_received", "security_report_acknowledgment", "security_report_status", "test",
 	}
 	for _, name := range names {
-		subject, body, err := LoadTemplate("", name)
+		subject, body, err := LoadEmailTemplate("", name)
 		if err != nil {
-			t.Errorf("LoadTemplate(%q): %v", name, err)
+			t.Errorf("LoadEmailTemplate(%q): %v", name, err)
 			continue
 		}
 		if subject == "" {
-			t.Errorf("LoadTemplate(%q): empty subject", name)
+			t.Errorf("LoadEmailTemplate(%q): empty subject", name)
 		}
 		if body == "" {
-			t.Errorf("LoadTemplate(%q): empty body", name)
+			t.Errorf("LoadEmailTemplate(%q): empty body", name)
 		}
 	}
 }
 
+func TestPreviewEmailTemplatesIncludesBuiltInsAndRendersSampleValues(t *testing.T) {
+	previews, err := PreviewEmailTemplates("", &config.ApplicationConfig{})
+	if err != nil {
+		t.Fatalf("PreviewEmailTemplates: %v", err)
+	}
+	byName := make(map[string]EmailTemplatePreview, len(previews))
+	for _, preview := range previews {
+		byName[preview.Name] = preview
+	}
+	for _, name := range []string{"startup", "shutdown", "disk_low", "database_error", "update_failed", "update_staged"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("preview omitted built-in %q", name)
+		}
+	}
+	if got := byName["startup"].Subject; strings.Contains(got, "{app_name}") {
+		t.Errorf("startup subject was not rendered: %q", got)
+	}
+}
+
+func TestTestEmailSubjectPrefix(t *testing.T) {
+	if got := TestEmailSubject("Test Email"); got != "[TEST] Test Email" {
+		t.Errorf("TestEmailSubject() = %q", got)
+	}
+}
+
 func TestLoadTemplateUnknownName(t *testing.T) {
-	if _, _, err := LoadTemplate("", "does_not_exist"); err == nil {
+	if _, _, err := LoadEmailTemplate("", "does_not_exist"); err == nil {
 		t.Error("expected error for unknown template name")
 	}
 }
@@ -75,7 +105,7 @@ func TestLoadTemplateConfigDirOverride(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	subject, body, err := LoadTemplate(dir, "test")
+	subject, body, err := LoadEmailTemplate(dir, "test")
 	if err != nil {
 		t.Fatalf("LoadTemplate: %v", err)
 	}
@@ -107,7 +137,7 @@ func TestLoadTemplateWarnsAboutUnknownVariable(t *testing.T) {
 		log.SetOutput(previousWriter)
 		log.SetFlags(previousFlags)
 	})
-	if _, _, err := LoadTemplate(dir, "test"); err != nil {
+	if _, _, err := LoadEmailTemplate(dir, "test"); err != nil {
 		t.Fatalf("LoadTemplate: %v", err)
 	}
 	if got := logOutput.String(); !strings.Contains(got, `unknown variable {foo}`) || !strings.Contains(got, `did you mean {fqdn}`) {
@@ -118,7 +148,7 @@ func TestLoadTemplateWarnsAboutUnknownVariable(t *testing.T) {
 func TestLoadTemplateConfigDirFallsBackWhenMissing(t *testing.T) {
 	dir := testTempDir(t)
 
-	subject, _, err := LoadTemplate(dir, "test")
+	subject, _, err := LoadEmailTemplate(dir, "test")
 	if err != nil {
 		t.Fatalf("LoadTemplate: %v", err)
 	}

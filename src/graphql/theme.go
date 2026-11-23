@@ -5,6 +5,12 @@ import (
 	"html"
 )
 
+// ThemeCSS returns the external stylesheet used to synchronize GraphiQL with
+// the application theme without adding inline CSS to the document.
+func ThemeCSS() string {
+	return `#graphql-container{display:flex;min-height:32rem;flex:1;flex-direction:column}.graphiql-container,#graphiql{min-height:32rem;background:var(--color-bg);color:var(--color-text)}.graphiql-container .CodeMirror,.graphiql-container .result-window{background:var(--color-bg);color:var(--color-text)}.graphiql-container .CodeMirror-gutters,.graphiql-container .toolbar{background:var(--color-bg-secondary);border-color:var(--color-border)}.graphiql-container button,.graphiql-container select,.graphiql-container input{background:var(--color-bg-hover);color:var(--color-text);border-color:var(--color-border)}.graphiql-container .execute-button{background:var(--color-success);color:var(--color-text-on-primary)}.graphiql-container .toolbar-button{color:var(--color-text)}`
+}
+
 // renderGraphiQLHTML returns the GraphiQL page that loads the embedded
 // React + GraphiQL bundles at assetsPrefix and posts queries to
 // endpointURL. The page wraps GraphiQL in the site chrome and applies
