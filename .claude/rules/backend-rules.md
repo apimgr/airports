@@ -35,6 +35,7 @@
 - Keep I2P disabled by default; allocate no port or state unless explicitly enabled, prefer managed i2pd over an external SAM bridge, and log unavailable providers as a warning while continuing startup
 - For I2P, persist the destination under `{data_dir}/i2p/site/`, regenerate managed i2pd `tunnels.conf` at startup, enforce 0700 directories/0600 keys, and use a separate plain loopback backend with no PROXY header
 - Never route a destination supplied by an inbound Tor visitor through the app's outbound Tor client
+- Keep the audit log append-only and hash-chained during data-subject deletion; entries retain their original opaque subject ID, while owner records, tokens, resources, and every identity mapping are deleted or anonymized as AI.md PART 11 specifies
 
 ## Key Rules Summary
 

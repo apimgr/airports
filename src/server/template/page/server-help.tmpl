@@ -13,7 +13,7 @@ curl -q -LSsf "{{.APIBaseURL}}/airports/KJFK"
 # Search by name, city, country, or code
 curl -q -LSsf "{{.APIBaseURL}}/airports/search?q=denver"
 
-# Find airports near a coordinate (radius in km, default metric)
+# Find airports near a coordinate (radius defaults to miles)
 curl -q -LSsf "{{.APIBaseURL}}/airports/nearby?lat=40.64&lon=-73.78&radius=50"
 
 # Bounding-box query
@@ -22,7 +22,7 @@ curl -q -LSsf "{{.APIBaseURL}}/airports/within?minLat=40&maxLat=42&minLon=-75&ma
 # Bulk dataset (JSON / CSV / GeoJSON)
 curl -q -LSsf "{{.APIBaseURL}}/airports.json"
 curl -q -LSsf "{{.APIBaseURL}}/airports.csv"
-curl -q -LSsf "{{.APIBaseURL}}/airports.geojson"</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="# Get a single airport by ICAO or IATA code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/KJFK&quot;&#10;&#10;# Search by name, city, country, or code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/search?q=denver&quot;&#10;&#10;# Find airports near a coordinate (radius in km, default metric)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/nearby?lat=40.64&amp;lon=-73.78&amp;radius=50&quot;&#10;&#10;# Bounding-box query&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/within?minLat=40&amp;maxLat=42&amp;minLon=-75&amp;maxLon=-73&quot;&#10;&#10;# Bulk dataset (JSON / CSV / GeoJSON)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.json&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.csv&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.geojson&quot;" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
+curl -q -LSsf "{{.APIBaseURL}}/airports.geojson"</code></pre><button class="copy-btn" type="button" data-action="copy-value" data-copy="# Get a single airport by ICAO or IATA code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/KJFK&quot;&#10;&#10;# Search by name, city, country, or code&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/search?q=denver&quot;&#10;&#10;# Find airports near a coordinate (radius defaults to miles)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/nearby?lat=40.64&amp;lon=-73.78&amp;radius=50&quot;&#10;&#10;# Bounding-box query&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports/within?minLat=40&amp;maxLat=42&amp;minLon=-75&amp;maxLon=-73&quot;&#10;&#10;# Bulk dataset (JSON / CSV / GeoJSON)&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.json&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.csv&quot;&#10;curl -q -LSsf &quot;{{.APIBaseURL}}/airports.geojson&quot;" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button><span class="copy-feedback" aria-live="polite"></span></div>
     </section>
 
     <section class="section-card" aria-labelledby="help-airport-features">

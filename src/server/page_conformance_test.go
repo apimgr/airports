@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/apimgr/airports/src/config"
 	xhtml "golang.org/x/net/html"
 )
 
@@ -77,8 +78,11 @@ func TestDocumentationUIThemeAssets(t *testing.T) {
 
 func TestServerPageHTMLConformance(t *testing.T) {
 	s := contactTestServer(t)
+	s.config.Server.Healthz.Root.Enabled = true
+	s.setupRouter()
 	pages := []string{
-		"/", "/airports", "/server/about", "/server/help", "/server/help/mcp", "/server/healthz",
+		"/", "/healthz", "/airports", "/airports/search?q=JFK", "/airports/nearby?lat=40.6398&lon=-73.7789&radius=50",
+		"/airports/KJFK", "/stats", "/geoip", "/server/about", "/server/help", "/server/help/mcp", "/server/healthz",
 		"/server/privacy", "/server/preferences", "/server/preferences/sync", "/server/preferences/tokens",
 		"/server/dpo", "/server/terms", "/server/contact", "/server/security",
 		"/server/security/policy", "/server/security/thanks", "/server/security/report/not-found",
@@ -96,8 +100,93 @@ func TestServerPageHTMLConformance(t *testing.T) {
 			assertPageHTML(t, response.Body.String())
 			assertPageBreadcrumb(t, response.Body.String(), path)
 			assertInternalPageLinks(t, s, response.Body.String())
+			if path == "/server/docs/swagger" {
+				assertInteractiveDocsPage(t, response.Body.String(), "/api/v1/server/swagger")
+			}
+			if path == "/server/docs/graphql" {
+				assertInteractiveDocsPage(t, response.Body.String(), "/api/v1/server/graphql")
+			}
 		})
 	}
+	for _, testCase := range []struct {
+		name   string
+		method string
+		path   string
+		status int
+	}{
+		{name: "not found", method: http.MethodGet, path: "/missing-page", status: http.StatusNotFound},
+	} {
+		t.Run("error/"+testCase.name, func(t *testing.T) {
+			request := httptest.NewRequest(testCase.method, testCase.path, nil)
+			request.RemoteAddr = nextPageTestAddress()
+			request.Header.Set("Accept", "text/html")
+			response := httptest.NewRecorder()
+			s.router.ServeHTTP(response, request)
+			if response.Code != testCase.status {
+				t.Fatalf("error page status = %d, want %d", response.Code, testCase.status)
+			}
+			assertPageHTML(t, response.Body.String())
+			assertInternalPageLinks(t, s, response.Body.String())
+		})
+	}
+	t.Run("error/method not allowed", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPut, "/server/about", nil)
+		request.RemoteAddr = nextPageTestAddress()
+		request.Header.Set("Accept", "text/html")
+		response := httptest.NewRecorder()
+		s.renderErrorPage(response, request, http.StatusMethodNotAllowed)
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("error page status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+		}
+		assertPageHTML(t, response.Body.String())
+		assertInternalPageLinks(t, s, response.Body.String())
+	})
+	t.Run("operator header fragment", func(t *testing.T) {
+		originalContent := s.config.Server.Branding.Content
+		content := make(map[string]config.BrandingContent, len(originalContent)+1)
+		for name, value := range originalContent {
+			content[name] = value
+		}
+		content["header"] = config.BrandingContent{
+			Format: "html",
+			Body:   `<span id="operator-header-fragment">Alignment header notice</span>`,
+		}
+		s.config.Server.Branding.Content = content
+		defer func() { s.config.Server.Branding.Content = originalContent }()
+		response := servePage(t, s, "/server/about")
+		if response.Code != http.StatusOK {
+			t.Fatalf("header-fragment page status = %d", response.Code)
+		}
+		assertPageHTML(t, response.Body.String())
+		document, err := xhtml.Parse(strings.NewReader(response.Body.String()))
+		if err != nil {
+			t.Fatalf("parse header-fragment page: %v", err)
+		}
+		var header *xhtml.Node
+		var findHeader func(*xhtml.Node)
+		findHeader = func(node *xhtml.Node) {
+			if node.Type == xhtml.ElementNode && node.Data == "header" && attrValue(node, "id") == "main-header" {
+				header = node
+				return
+			}
+			for child := node.FirstChild; child != nil && header == nil; child = child.NextSibling {
+				findHeader(child)
+			}
+		}
+		findHeader(document)
+		if header == nil {
+			t.Fatal("page has no shared header")
+		}
+		var elementChildren []*xhtml.Node
+		for child := header.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == xhtml.ElementNode {
+				elementChildren = append(elementChildren, child)
+			}
+		}
+		if len(elementChildren) != 2 || attrValue(elementChildren[0], "class") != "header-container" || attrValue(elementChildren[1], "id") != "operator-header-fragment" {
+			t.Errorf("header element children = %d; want unchanged container followed by operator fragment", len(elementChildren))
+		}
+	})
 	s.config.Server.Privacy.Data.Sold = true
 	privacy := servePage(t, s, "/server/privacy")
 	assertPageHTML(t, privacy.Body.String())
@@ -105,6 +194,37 @@ func TestServerPageHTMLConformance(t *testing.T) {
 		if !strings.Contains(privacy.Body.String(), expected) {
 			t.Errorf("CCPA privacy form is missing %q", expected)
 		}
+	}
+}
+
+func assertInteractiveDocsPage(t *testing.T, source, fallbackPath string) {
+	t.Helper()
+	document, err := xhtml.Parse(strings.NewReader(source))
+	if err != nil {
+		t.Fatalf("parse interactive docs page: %v", err)
+	}
+	sections, pageLead := 0, false
+	var walk func(*xhtml.Node)
+	walk = func(node *xhtml.Node) {
+		if node.Type == xhtml.ElementNode {
+			if node.Data == "section" && hasClass(node, "section-card") {
+				sections++
+				if firstElement(node, "h2") == nil {
+					t.Error("interactive docs card is missing its heading")
+				}
+			}
+			if node.Data == "p" && hasClass(node, "page-lead") {
+				pageLead = true
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(document)
+	noscriptFallback := strings.Contains(source, "<noscript>") && strings.Contains(source, "JavaScript required") && strings.Contains(source, fallbackPath)
+	if sections < 1 || !pageLead || !noscriptFallback {
+		t.Errorf("interactive docs page has %d parsed cards, page lead=%t, noscript fallback=%t; want a headed tool card, a page lead, and a plain endpoint link in noscript", sections, pageLead, noscriptFallback)
 	}
 }
 
@@ -224,6 +344,45 @@ func assertHeaderChildren(t *testing.T, header *xhtml.Node) {
 	want := []string{"a.logo", "nav.nav-links", "label.nav-toggle", "div.header-actions"}
 	if strings.Join(actual, ",") != strings.Join(want, ",") {
 		t.Errorf("header elements = %v, want %v", actual, want)
+	}
+	brand := firstElement(container, "a")
+	if brand == nil || attrValue(brand, "class") != "logo" || attrValue(brand, "href") != "/" {
+		t.Errorf("brand link = %#v, want one .logo link to /", brand)
+	}
+	var nav, actions *xhtml.Node
+	for child := container.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != xhtml.ElementNode {
+			continue
+		}
+		if hasClass(child, "nav-links") {
+			nav = child
+		}
+		if hasClass(child, "header-actions") {
+			actions = child
+		}
+	}
+	if nav == nil || actions == nil {
+		t.Fatal("header is missing its navigation or actions container")
+	}
+	preferences, themeForm := 0, 0
+	for child := actions.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != xhtml.ElementNode {
+			continue
+		}
+		switch {
+		case child.Data == "a" && hasClass(child, "preferences-link"):
+			preferences++
+		case child.Data == "form" && hasClass(child, "theme-toggle-form"):
+			themeForm++
+			if strings.ToLower(attrValue(child, "method")) != "post" || attrValue(child, "action") != "/server/preferences" {
+				t.Errorf("theme toggle form method/action = %q/%q", attrValue(child, "method"), attrValue(child, "action"))
+			}
+		default:
+			t.Errorf("unexpected header action %s.%s", child.Data, attrValue(child, "class"))
+		}
+	}
+	if preferences != 1 || themeForm != 1 {
+		t.Errorf("header actions have %d preferences links and %d theme forms, want one of each", preferences, themeForm)
 	}
 }
 

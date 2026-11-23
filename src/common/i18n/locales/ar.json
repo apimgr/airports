@@ -63,6 +63,12 @@
     "showing_x_of_y": "عرض {count} من {total}",
     "last_updated": "آخر تحديث: {datetime}",
     "made_with": "صُنع باستخدام",
+    "javascript_required": "يتطلب JavaScript",
+    "docs_js_fallback": "يتطلب هذا العرض التفاعلي JavaScript. استخدم نقطة النهاية المباشرة:",
+    "openapi_json": "JSON الخاص بـ OpenAPI",
+    "graphql_endpoint": "نقطة نهاية GraphQL",
+    "swagger_explorer": "مستكشف REST API",
+    "graphql_explorer": "مستكشف GraphQL",
     "default_description": "واجهة برمجة عالمية لمعلومات مواقع المطارات مع تكامل GeoIP"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "mcp_issue_405": "استخدم الطلب طريقة HTTP غير مدعومة.",
     "mcp_fix_405": "أرسل طلبات MCP باستخدام POST؛ لا يتم دعم GET وDELETE.",
     "faq_q4": "ما الوحدات التي يستخدمها radius؟",
-    "faq_a4": "الوحدة الافتراضية هي الكيلومتر. مرّر {parameter} لاستخدام الأميال."
+    "faq_a4": "الوحدة الافتراضية هي الميل. مرّر {parameter} لاستخدام الكيلومترات."
   },
   "privacy": {
     "title": "الخصوصية",

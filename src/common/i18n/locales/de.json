@@ -63,6 +63,12 @@
     "showing_x_of_y": "{count} von {total} angezeigt",
     "last_updated": "Zuletzt aktualisiert: {datetime}",
     "made_with": "Erstellt mit",
+    "javascript_required": "JavaScript erforderlich",
+    "docs_js_fallback": "Diese interaktive Ansicht benötigt JavaScript. Verwenden Sie den direkten Endpunkt:",
+    "openapi_json": "OpenAPI-JSON",
+    "graphql_endpoint": "GraphQL-Endpunkt",
+    "swagger_explorer": "REST-API-Explorer",
+    "graphql_explorer": "GraphQL-Explorer",
     "default_description": "Globale API für Flughafenstandortinformationen mit GeoIP-Integration"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "mcp_issue_405": "Die Anfrage verwendet eine nicht unterstützte HTTP-Methode.",
     "mcp_fix_405": "Senden Sie MCP-Anfragen mit POST; GET und DELETE werden nicht unterstützt.",
     "faq_q4": "Welche Einheiten verwendet radius?",
-    "faq_a4": "Standardmäßig werden Kilometer verwendet. Übergeben Sie {parameter}, um Meilen zu verwenden."
+    "faq_a4": "Standardmäßig werden Meilen verwendet. Übergeben Sie {parameter}, um Kilometer zu verwenden."
   },
   "privacy": {
     "title": "Datenschutz",

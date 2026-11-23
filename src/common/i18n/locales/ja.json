@@ -63,6 +63,12 @@
     "showing_x_of_y": "{total} 件中 {count} 件を表示",
     "last_updated": "最終更新：{datetime}",
     "made_with": "使用技術",
+    "javascript_required": "JavaScript が必要です",
+    "docs_js_fallback": "このインタラクティブ表示には JavaScript が必要です。直接エンドポイントを利用してください：",
+    "openapi_json": "OpenAPI JSON",
+    "graphql_endpoint": "GraphQL エンドポイント",
+    "swagger_explorer": "REST API エクスプローラー",
+    "graphql_explorer": "GraphQL エクスプローラー",
     "default_description": "GeoIP連携を備えた世界規模の空港位置情報API"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "mcp_issue_405": "サポートされていないHTTPメソッドが使用されました。",
     "mcp_fix_405": "MCPリクエストにはPOSTを使用してください。GETとDELETEはサポートされていません。",
     "faq_q4": "radius ではどの単位が使われますか？",
-    "faq_a4": "既定の単位はキロメートルです。マイルを使うには {parameter} を指定してください。"
+    "faq_a4": "既定の単位はマイルです。キロメートルを使うには {parameter} を指定してください。"
   },
   "privacy": {
     "title": "プライバシー",

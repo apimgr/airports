@@ -917,8 +917,9 @@ type ConsentConfig struct {
 	ShowUntilAcknowledged bool   `yaml:"show_until_acknowledged"`
 	DefaultEnabled        bool   `yaml:"default_enabled"`
 	Policy                struct {
-		Text string `yaml:"text"`
-		URL  string `yaml:"url"`
+		Text    string `yaml:"text"`
+		URL     string `yaml:"url"`
+		Version string `yaml:"version"`
 	} `yaml:"policy"`
 	Buttons struct {
 		Decline string `yaml:"decline"`
@@ -3938,10 +3939,10 @@ func formatServerPublicSettings(cfg ContactConfig, page ContactPageConfig, help 
 	fmt.Fprintf(&out, "    retention:\n      period: %s\n      export_available: %t\n      deletion_available: %t\n",
 		strconv.Quote(privacy.Retention.Period), privacy.Retention.ExportAvailable, privacy.Retention.DeletionAvailable)
 	consent := privacy.Consent
-	fmt.Fprintf(&out, "    consent:\n      show_until_acknowledged: %t\n      default_enabled: %t\n      message: %s\n      message_if_sold: %s\n      policy:\n        text: %s\n        url: %s\n      buttons:\n        decline: %s\n        accept: %s\n      position: %s\n      show_preferences: %t\n      preferences_text: %s\n",
+	fmt.Fprintf(&out, "    consent:\n      show_until_acknowledged: %t\n      default_enabled: %t\n      message: %s\n      message_if_sold: %s\n      policy:\n        text: %s\n        url: %s\n        version: %s\n      buttons:\n        decline: %s\n        accept: %s\n      position: %s\n      show_preferences: %t\n      preferences_text: %s\n",
 		consent.ShowUntilAcknowledged, consent.DefaultEnabled,
 		strconv.Quote(consent.Message), strconv.Quote(consent.MessageIfSold),
-		strconv.Quote(consent.Policy.Text), strconv.Quote(consent.Policy.URL),
+		strconv.Quote(consent.Policy.Text), strconv.Quote(consent.Policy.URL), strconv.Quote(consent.Policy.Version),
 		strconv.Quote(consent.Buttons.Decline), strconv.Quote(consent.Buttons.Accept),
 		strconv.Quote(consent.Position), consent.ShowPreferences, strconv.Quote(consent.PreferencesText))
 	fmt.Fprintf(&out, "    cookies:\n      essential:\n        enabled: %t\n        description: %s\n      preferences:\n        enabled: %t\n        description: %s\n      analytics:\n        enabled: %t\n        description: %s\n        description_suffix_not_sold: %s\n        description_suffix_sold: %s\n",

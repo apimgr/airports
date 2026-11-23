@@ -258,9 +258,10 @@ func DefaultApplicationConfig() *ApplicationConfig {
 					ShowPreferences:       true,
 					PreferencesText:       "Manage Preferences",
 					Policy: struct {
-						Text string `yaml:"text"`
-						URL  string `yaml:"url"`
-					}{Text: "Privacy Policy", URL: "/server/privacy"},
+						Text    string `yaml:"text"`
+						URL     string `yaml:"url"`
+						Version string `yaml:"version"`
+					}{Text: "Privacy Policy", URL: "/server/privacy", Version: "1"},
 					Buttons: struct {
 						Decline string `yaml:"decline"`
 						Accept  string `yaml:"accept"`

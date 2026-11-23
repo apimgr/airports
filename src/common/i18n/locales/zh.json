@@ -63,6 +63,12 @@
     "showing_x_of_y": "显示 {count} / {total}",
     "last_updated": "最后更新：{datetime}",
     "made_with": "构建工具",
+    "javascript_required": "需要 JavaScript",
+    "docs_js_fallback": "此交互视图需要 JavaScript。请使用直接接口端点：",
+    "openapi_json": "OpenAPI JSON",
+    "graphql_endpoint": "GraphQL 端点",
+    "swagger_explorer": "REST API 浏览器",
+    "graphql_explorer": "GraphQL 浏览器",
     "default_description": "集成 GeoIP 的全球机场位置信息 API"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "mcp_issue_405": "请求使用了不受支持的 HTTP 方法。",
     "mcp_fix_405": "请使用 POST 发送 MCP 请求；不支持 GET 和 DELETE。",
     "faq_q4": "radius 使用什么单位？",
-    "faq_a4": "默认使用公里。传入 {parameter} 可使用英里。"
+    "faq_a4": "默认使用英里。传入 {parameter} 可使用公里。"
   },
   "privacy": {
     "title": "隐私",

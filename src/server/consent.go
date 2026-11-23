@@ -257,14 +257,20 @@ func (s *Server) logConsentUpdated(r *http.Request, state ConsentState) {
 		actorType = "owner"
 		fields += " actor=" + strconv.Quote(identity.Owner)
 	}
-	if ip := anonymizeConsentIP(realIP(r)); ip != "" {
+	if s.isTorRequest(r) {
+		fields += " ip=" + strconv.Quote(TorClientIdentity(r))
+	} else if ip := anonymizeConsentIP(realIP(r)); ip != "" {
 		fields += " ip=" + strconv.Quote(ip)
 	}
 	value, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
-	line := fmt.Sprintf("event=compliance.consent_updated actor_type=%s source=web consent_type=cookie_consent new_value=%s%s", actorType, strconv.Quote(string(value)), fields)
+	policyVersion := strings.TrimSpace(s.config.Server.Privacy.Consent.Policy.Version)
+	if policyVersion == "" {
+		policyVersion = "1"
+	}
+	line := fmt.Sprintf("event=compliance.consent_updated actor_type=%s source=web consent_type=cookie_consent policy_version=%s new_value=%s%s", actorType, strconv.Quote(policyVersion), strconv.Quote(string(value)), fields)
 	if err := s.auditLogger.WriteAudit(logging.AuditCategoryServer, line); err != nil {
 		log.Printf("failed to write consent audit event: %v", err)
 	}

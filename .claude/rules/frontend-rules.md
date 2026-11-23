@@ -27,6 +27,7 @@
 - Make ALL error pages, Swagger UI, GraphiQL, CLI, TUI, and GUI share ONE unified theme palette (dark/light/auto), sourced from `src/common/theme/colors.go`; default theme is dark; persist via server-readable `theme` cookie (no FOUC, no init JS)
 - Meet WCAG 2.1 AA: 4.5:1 contrast minimum, visible focus rings, `aria-label`/`aria-describedby`/`role`, alt text, labeled inputs, skip links, `prefers-reduced-motion` support
 - Build full PWA support: `manifest.json`, service worker (install/activate/fetch), offline fallback, all icon sizes incl. maskable, HTTPS-only
+- Keep `/server/docs/swagger` and `/server/docs/graphql` inside the shared page shell; self-host their scripts/styles and startup code, use the shared theme tokens, and provide `<noscript>` links to the plain API endpoints
 - Word-break/scroll any long unbreakable string (IPv6, onion address, tokens, hashes, UUIDs) — never let it overflow mobile layout
 - Give every list/table/data view a proper empty state (icon + title + message + action button) — never blank space
 - Validate forms with HTML5 attributes first (`required`, `pattern`, `type=email`), `:user-invalid` for zero-JS error styling, inline `aria-describedby` errors on blur
@@ -41,7 +42,7 @@
 | Area | Rule |
 |------|------|
 | Templates | `html/template`, `.tmpl` ext, embedded via `//go:embed`; `layout/public.tmpl` is the only layout (no admin web UI) |
-| CSS | `common.css` → `components.css` → `public.css`; CSS variables in `:root`, mobile-first, no `!important` (except print), no inline styles |
+| CSS | `common.css` → `components.css` → `public.css`; CSS variables in `:root`, mobile-first, use the shared `--space-*` and `--radius-*` scales, no `!important` (except print), no inline styles |
 | JS | ONE file `static/js/app.js`; no frameworks/bundlers/transpilers/npm; bind via `data-action` + `addEventListener`, never inline |
 | Theme | 3 modes: dark (default) / light / auto; class on `<html>`, `theme` cookie (server-rendered, no FOUC); shared palette across Web/Swagger/GraphQL/CLI/TUI/GUI |
 | Mobile breakpoints | Base = mobile (<768px); `min-width:768px` tablet; `min-width:1024px` desktop; touch targets ≥44x44px |

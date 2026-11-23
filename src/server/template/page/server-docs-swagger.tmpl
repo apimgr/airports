@@ -2,11 +2,20 @@
 <div class="container container-lg docs-ui">
     <header class="page-header">
         <h1 class="page-title">{{t "swagger.page_title"}}</h1>
-        <p>{{t "swagger.page_description"}}</p>
+        <p class="page-lead">{{t "swagger.page_description"}}</p>
     </header>
-    <div id="swagger-container">
-        <div id="swagger-ui" data-spec-url="{{.SwaggerURL}}"></div>
-    </div>
+    <section class="section-card" aria-labelledby="swagger-explorer-heading">
+        <h2 id="swagger-explorer-heading">{{t "common.swagger_explorer"}}</h2>
+        <div id="swagger-container">
+            <div id="swagger-ui" data-spec-url="{{.SwaggerURL}}"></div>
+        </div>
+    </section>
+    <noscript>
+        <section class="section-card" aria-labelledby="swagger-noscript-heading">
+            <h2 id="swagger-noscript-heading">{{t "common.javascript_required"}}</h2>
+            <p>{{t "common.docs_js_fallback"}} <a href="{{.SwaggerURL}}">{{t "common.openapi_json"}}</a></p>
+        </section>
+    </noscript>
 </div>
 <script src="{{.BaseURL}}/server/docs/swagger/assets/swagger-ui-bundle.js"></script>
 <script src="{{.BaseURL}}/server/docs/swagger/assets/swagger-ui-standalone-preset.js"></script>

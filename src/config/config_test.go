@@ -65,6 +65,9 @@ func TestValidateConfigPreservesRequiredLanguages(t *testing.T) {
 
 func TestDefaultApplicationConfig(t *testing.T) {
 	cfg := DefaultApplicationConfig()
+	if cfg.Server.Privacy.Consent.Policy.Version != "1" {
+		t.Errorf("Consent.Policy.Version = %q, want default version 1", cfg.Server.Privacy.Consent.Policy.Version)
+	}
 	antispam := cfg.Server.Pages.Contact.Antispam
 	if !antispam.Honeypot || antispam.MinFillSeconds != 3 || antispam.MaxAgeSeconds != 43200 || antispam.PerIP != 5 || antispam.PerEmail != 3 || antispam.Global != 60 || antispam.Window != "1h" || antispam.MaxLinks != 10 || !antispam.RejectMarkup || antispam.Strikes != 3 || antispam.BanHours != 24 || antispam.ReviewMinSeconds != 2 || antispam.ReviewMaxSeconds != 900 || antispam.DuplicateWindowHours != 24 {
 		t.Errorf("Contact.Antispam = %+v, want AI.md PART 16 defaults", antispam)

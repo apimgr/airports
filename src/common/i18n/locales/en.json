@@ -63,6 +63,12 @@
     "showing_x_of_y": "Showing {count} of {total}",
     "last_updated": "Last updated: {datetime}",
     "made_with": "Made with",
+    "javascript_required": "JavaScript required",
+    "docs_js_fallback": "This interactive view requires JavaScript. Use the plain endpoint:",
+    "openapi_json": "OpenAPI JSON",
+    "graphql_endpoint": "GraphQL endpoint",
+    "swagger_explorer": "REST API Explorer",
+    "graphql_explorer": "GraphQL Explorer",
     "default_description": "Global airport location information API with GeoIP integration"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "feature_nearby": "Find nearby airports",
     "feature_maps": "Airport and search results include coordinates and OpenStreetMap links; interactive maps are available when JavaScript and map tiles load.",
     "faq_q4": "What units does radius use?",
-    "faq_a4": "Kilometres by default. Pass {parameter} for miles."
+    "faq_a4": "Miles by default. Pass {parameter} for kilometers."
   },
   "privacy": {
     "title": "Privacy",

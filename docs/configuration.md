@@ -356,6 +356,8 @@ server:
     consent:
       show_until_acknowledged: true
       default_enabled: true
+      policy:
+        version: "1"
       show_preferences: true
       preferences_text: "Manage Preferences"
 ```

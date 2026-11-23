@@ -7,6 +7,7 @@
 <div class="search-box">
     <form id="geoip-form" method="get" action="{{.BaseURL}}/geoip" data-action="lookup-ip">
         <div class="search-input-group">
+            <label for="ip-input">{{t "geoip.ip_label"}}</label>
             <input type="text" id="ip-input" name="ip" class="search-input"
                    placeholder="{{t "geoip.ip_placeholder"}}"
                    pattern="^(\d{1,3}\.){3}\d{1,3}$"

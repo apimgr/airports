@@ -5,7 +5,7 @@
 ## CRITICAL - NEVER DO
 
 - Guess or assume a requirement — stop and ask
-- Pre-load the entire AI.md speculatively — read only the PART(s) the current task needs
+- Pre-load the entire AI.md speculatively — use its PART index, read every applicable PART section by section, and follow cross-references before returning to the original PART
 - Run `go` commands on the host — all builds/tests are Docker (`casjaysdev/go:latest`) or Incus
 - Modify AI.md — it is read-only source of truth; project changes go in IDEA.md
 - Create report files (AUDIT.md, COMPLIANCE.md, SUMMARY.md) — fix issues directly instead

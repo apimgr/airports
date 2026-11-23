@@ -77,8 +77,28 @@ func TestHandleServerConsentWritesAnonymizedAuditEvent(t *testing.T) {
 			t.Errorf("audit event %q does not contain %q", line, want)
 		}
 	}
-	if strings.Contains(line, "actor=") || strings.Contains(line, "policy_version=") {
-		t.Errorf("anonymous event contains an owner identity or undefined policy version: %q", line)
+	if strings.Contains(line, "actor=") || !strings.Contains(line, `policy_version="1"`) {
+		t.Errorf("anonymous event contains an owner identity or lacks the default policy version: %q", line)
+	}
+}
+
+func TestHandleServerConsentUsesTorCircuitIdentity(t *testing.T) {
+	recorder := &ownerTokenAuditRecorder{}
+	s := &Server{config: config.DefaultApplicationConfig(), auditLogger: recorder}
+	r := httptest.NewRequest(http.MethodPost, "/server/consent", strings.NewReader("choice=decline"))
+	r.RemoteAddr = "127.0.0.1:1234"
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r = r.WithContext(context.WithValue(r.Context(), torCircuitContextKey{}, "fc00::1234"))
+	w := httptest.NewRecorder()
+
+	s.handleServerConsent(w, r)
+
+	if len(recorder.events) != 1 {
+		t.Fatalf("audit events = %d, want 1", len(recorder.events))
+	}
+	line := recorder.events[0]
+	if !strings.Contains(line, `ip="tor:fc00::1234"`) || strings.Contains(line, "127.0.0.1") {
+		t.Errorf("Tor consent event must use the circuit identity, got %q", line)
 	}
 }
 

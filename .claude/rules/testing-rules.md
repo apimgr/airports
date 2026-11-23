@@ -36,11 +36,12 @@
 | Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `./tests/*.sh` is manual binary validation before release; `./tests/e2e.sh` is on-demand and never part of the commit gate |
 | Test file naming | `config_test.go`, `server_test.go`, `*_handler_test.go`, `mode_test.go`, `ssl_test.go`, `paths_test.go` — colocated with source |
 | Coverage tooling | `go test -cover -coverprofile=coverage.out ./...` + `go tool cover -func=coverage.out`; CI fails build if `< 60` |
-| Integration container | Incus `debian:latest` (preferred, systemd) or Docker `casjaysdev/go:latest`/`alpine:latest` (fallback) |
+| Unit-test container | Docker toolchain image `casjaysdev/go:latest` via `make test`; never `alpine:latest` |
+| Integration container | Incus `debian:latest` (preferred, systemd) or Docker `casjaysdev/go:latest` for Go integration tests |
 | Temp dir pattern | `/tmp/{project_org}/{internal_name}-XXXXXX/` — never bare `/tmp`, never in project dir |
 | docs/ required files | `index.md`, `installation.md`, `configuration.md`, `api.md`, `cli.md` (if applicable), `security.md`, `integrations.md`, `development.md`, `requirements.txt` |
 | RTD config | `mkdocs.yml` (Material theme, dark/light/auto) + `.readthedocs.yaml` (`os: ubuntu-24.04`, latest stable Python) |
-| RTD URL | `https://{project_org}-{project_name}.readthedocs.io` or `https://{project_name}.readthedocs.io` |
+| RTD URL | `https://{project_org}-{project_name}.readthedocs.io`; change only to the URL shown in the ReadTheDocs dashboard and update badges/links together |
 | i18n locale files | `src/common/i18n/locales/{lang}.json`, embedded via `go:embed`, shared by ALL binaries |
 | Supported languages | Minimum: en, es, fr, ar (rtl), de, it; this project also supports zh and ja. Every registered language must have complete locale-key parity |
 | i18n fallback | Missing key → `en` value; unsupported lang → `en`; never error |

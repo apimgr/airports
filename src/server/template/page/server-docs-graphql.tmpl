@@ -2,11 +2,20 @@
 <div class="container container-lg docs-ui">
     <header class="page-header">
         <h1 class="page-title">{{t "graphql.playground_title"}}</h1>
-        <p>{{t "graphql.playground_description"}}</p>
+        <p class="page-lead">{{t "graphql.playground_description"}}</p>
     </header>
-    <div id="graphql-container">
-        <div id="graphiql" data-endpoint-url="{{.GraphQLEndpoint}}"></div>
-    </div>
+    <section class="section-card" aria-labelledby="graphql-explorer-heading">
+        <h2 id="graphql-explorer-heading">{{t "common.graphql_explorer"}}</h2>
+        <div id="graphql-container">
+            <div id="graphiql" data-endpoint-url="{{.GraphQLEndpoint}}"></div>
+        </div>
+    </section>
+    <noscript>
+        <section class="section-card" aria-labelledby="graphql-noscript-heading">
+            <h2 id="graphql-noscript-heading">{{t "common.javascript_required"}}</h2>
+            <p>{{t "common.docs_js_fallback"}} <a href="{{.GraphQLEndpoint}}">{{t "common.graphql_endpoint"}}</a></p>
+        </section>
+    </noscript>
 </div>
 <script src="{{.BaseURL}}/server/docs/graphql/assets/react.production.min.js"></script>
 <script src="{{.BaseURL}}/server/docs/graphql/assets/react-dom.production.min.js"></script>

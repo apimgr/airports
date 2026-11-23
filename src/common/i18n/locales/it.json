@@ -63,6 +63,12 @@
     "showing_x_of_y": "Mostra {count} di {total}",
     "last_updated": "Ultimo aggiornamento: {datetime}",
     "made_with": "Realizzato con",
+    "javascript_required": "JavaScript richiesto",
+    "docs_js_fallback": "Questa vista interattiva richiede JavaScript. Usa l’endpoint diretto:",
+    "openapi_json": "JSON OpenAPI",
+    "graphql_endpoint": "Endpoint GraphQL",
+    "swagger_explorer": "Esplora API REST",
+    "graphql_explorer": "Esplora GraphQL",
     "default_description": "API globale di informazioni sulla posizione degli aeroporti con integrazione GeoIP"
   },
   "theme": {
@@ -668,7 +674,7 @@
     "feature_nearby": "Trova aeroporti vicini",
     "feature_maps": "L'aeroporto e i risultati della ricerca includono coordinate e collegamenti OpenStreetMap; le mappe interattive sono disponibili quando vengono caricati JavaScript e i riquadri della mappa.",
     "faq_q4": "Quali unità usa radius?",
-    "faq_a4": "I chilometri sono l'unità predefinita. Passa {parameter} per usare le miglia."
+    "faq_a4": "Le miglia sono l'unità predefinita. Passa {parameter} per usare i chilometri."
   },
   "privacy": {
     "title": "Privacy",
