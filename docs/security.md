@@ -79,10 +79,11 @@ ordinary page loads never decrypt token values.
 - TLS 1.2 minimum; TLS 1.3 preferred.
 - Strong cipher suites only (no RC4, no 3DES, no plain CBC < TLS 1.2).
 - HSTS on HTTPS: `max-age=63072000; includeSubDomains; preload`.
+- Successful HTML pages set the public, non-HttpOnly `airports_build` stamp
+  cookie. A mismatched stamp on a top-level navigation sends
+  `Clear-Site-Data: "cache", "storage"` once; cookies are preserved.
 - Preference-token forget sends `Clear-Site-Data: "storage"` to remove the
-  browser's convenience copy while keeping the credential valid. A build
-  version mismatch sends `Clear-Site-Data: "cache", "storage"` to recover
-  stale assets and service workers; it never clears cookies.
+  browser's convenience copy while keeping the credential valid.
 - Consent withdrawal sends `Clear-Site-Data: "cache", "storage"` and never
   clears cookies; the server expires cookies for withdrawn categories while
   preserving the updated consent choice and owner token.
