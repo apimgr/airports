@@ -11,7 +11,7 @@ func ThemeCSS() string {
 	return `#graphql-container{display:flex;min-height:32rem;flex:1;flex-direction:column}.graphiql-container,#graphiql{min-height:32rem;background:var(--color-bg);color:var(--color-text)}.graphiql-container .CodeMirror,.graphiql-container .result-window{background:var(--color-bg);color:var(--color-text)}.graphiql-container .CodeMirror-gutters,.graphiql-container .toolbar{background:var(--color-bg-secondary);border-color:var(--color-border)}.graphiql-container button,.graphiql-container select,.graphiql-container input{background:var(--color-bg-hover);color:var(--color-text);border-color:var(--color-border)}.graphiql-container .execute-button{background:var(--color-success);color:var(--color-text-on-primary)}.graphiql-container .toolbar-button{color:var(--color-text)}`
 }
 
-// renderGraphiQLHTML returns the GraphiQL page that loads the embedded
+// renderGraphiQLHTML returns the GraphiQL page that loads the vendored
 // React + GraphiQL bundles at assetsPrefix and posts queries to
 // endpointURL. The page wraps GraphiQL in the site chrome and applies
 // the project theme variables (AI.md PART 14 "Swagger & GraphQL
@@ -32,12 +32,9 @@ func renderGraphiQLHTML(endpointURL, assetsPrefix string, baseURLs ...string) st
     <link rel="stylesheet" href="%[3]s/static/css/common.css">
     <link rel="stylesheet" href="%[3]s/static/css/components.css">
     <link rel="stylesheet" href="%[3]s/static/css/public.css">
+    <link rel="stylesheet" href="%[3]s/static/css/docs.css">
     <link rel="stylesheet" href="%[2]sgraphiql.min.css">
-    <style>
-      body { margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
-      #graphql-container { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-      #graphiql { flex: 1; height: 100%%; }
-    </style>
+    <link rel="stylesheet" href="%[3]s/server/docs/graphql/theme.css">
   </head>
   <body>
     <header id="main-header">
@@ -70,6 +67,7 @@ func renderGraphiQLHTML(endpointURL, assetsPrefix string, baseURLs ...string) st
     <script src="%[2]sreact-dom.production.min.js"></script>
     <script src="%[2]sgraphiql.min.js"></script>
     <script src="%[3]s/static/js/app.js"></script>
+    <script src="%[3]s/static/js/docs-graphql.js"></script>
   </body>
 </html>
 `, endpointURL, assetsPrefix, baseURL)

@@ -7,6 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ORG="apimgr"
 INTERNAL_NAME="airports"
+DOCKER_MEM="${DOCKER_MEM:-4g}"
+DOCKER_CPUS="${DOCKER_CPUS:-2}"
+DOCKER_CPU_SHARES="${DOCKER_CPU_SHARES:-256}"
+DOCKER_TIMEOUT="${DOCKER_TIMEOUT:-3600}"
 TEMP_DIR=""
 RUNNER_IMAGE=""
 CLEANED_UP=0
@@ -143,7 +147,9 @@ mkdir -p "$TEMP_DIR/artifacts"
 chmod 700 "$TEMP_DIR/artifacts"
 RUNNER_IMAGE="airports-e2e-$(random_suffix)"
 docker build --progress=plain --tag "$RUNNER_IMAGE" --file "$TEMP_DIR/Dockerfile.e2e" "$TEMP_DIR/runner"
-if docker run --rm --name "airports-$(random_suffix)" --network "$E2E_NETWORK" \
+if timeout -k 30 "$DOCKER_TIMEOUT" docker run --rm --no-healthcheck \
+    --name "airports-$(random_suffix)" --memory="$DOCKER_MEM" --cpus="$DOCKER_CPUS" --cpu-shares="$DOCKER_CPU_SHARES" \
+    --network "$E2E_NETWORK" \
     -e "E2E_BASE_URL=http://${E2E_SERVER_IP}" \
     -e E2E_ARTIFACT_DIR=/artifacts -v "$TEMP_DIR/artifacts:/artifacts" "$RUNNER_IMAGE" >"$TEMP_DIR/e2e.log" 2>&1; then
     cat "$TEMP_DIR/e2e.log"

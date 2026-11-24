@@ -139,6 +139,9 @@ $RECYCLE.BIN/
 
 # Dependency directories
 vendor/
+# The documentation UI vendor releases are first-party static assets, not Go dependencies.
+!src/server/static/vendor/
+!src/server/static/vendor/**
 
 # Go workspace file (Go 1.18+)
 go.work

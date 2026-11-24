@@ -39,7 +39,6 @@ func OriginalRequestHost(r *http.Request) string {
 
 // URLResolverOptions supplies URL sources and trust checks to a resolver.
 type URLResolverOptions struct {
-	FQDN         string
 	DomainEnv    string
 	Hostname     string
 	HostEnv      string
@@ -146,9 +145,6 @@ func (m *URLResolverManager) configuredDomains() []string {
 
 func configuredDomains(options URLResolverOptions) []string {
 	values := strings.Split(options.DomainEnv, ",")
-	if strings.TrimSpace(options.DomainEnv) == "" {
-		values = []string{options.FQDN}
-	}
 	seen := make(map[string]bool)
 	var result []string
 	for _, value := range values {
@@ -160,13 +156,6 @@ func configuredDomains(options URLResolverOptions) []string {
 		if !seen[host] {
 			seen[host] = true
 			result = append(result, host)
-		}
-	}
-	if len(result) == 0 && options.FQDN != "" {
-		host, _, ok := parseHostPort(options.FQDN)
-		ip := net.ParseIP(host)
-		if ok && ((ip != nil && IsPublicIP(ip)) || IsValidHost(host, options.Development, options.ProjectName)) && !isOverlayHost(host) {
-			result = append(result, strings.ToLower(host))
 		}
 	}
 	return result
@@ -183,6 +172,9 @@ func (m *URLResolverManager) GetRequestURLVariables(r *http.Request) (proto, fqd
 		m.mu.RUnlock()
 		if primary == "" {
 			primary = configuredPrimary(options)
+		}
+		if primary == "" {
+			primary = automaticFallbackHost(options)
 		}
 		return "http", primary, ""
 	}
@@ -221,6 +213,26 @@ func (m *URLResolverManager) GetRequestURLVariables(r *http.Request) (proto, fqd
 			fqdn = configuredPrimary(options)
 		}
 	}
+	if proxyHost == "" && IsValidHost(requestHost, options.Development, options.ProjectName) && validObservedHost(requestHost, options) {
+		allowed := strings.TrimSpace(options.DomainEnv) == ""
+		if !allowed {
+			for _, configured := range configuredDomains(options) {
+				if strings.EqualFold(requestHost, configured) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				wildcard := m.GetWildcardDomain()
+				if strings.HasPrefix(wildcard, "*.") && strings.HasSuffix(requestHost, wildcard[1:]) && requestHost != wildcard[2:] {
+					allowed = true
+				}
+			}
+		}
+		if allowed {
+			fqdn = strings.ToLower(requestHost)
+		}
+	}
 	if fqdn == "" {
 		m.mu.RLock()
 		fqdn = m.primaryHost
@@ -230,16 +242,7 @@ func (m *URLResolverManager) GetRequestURLVariables(r *http.Request) (proto, fqd
 		fqdn = configuredPrimary(options)
 	}
 	if fqdn == "" {
-		for _, candidate := range []string{options.Hostname, options.HostEnv} {
-			candidate = strings.ToLower(strings.TrimSpace(candidate))
-			if candidate != "" && IsValidHost(candidate, options.Development, options.ProjectName) {
-				fqdn = candidate
-				break
-			}
-		}
-	}
-	if fqdn == "" {
-		fqdn = "localhost"
+		fqdn = automaticFallbackHost(options)
 	}
 	port = firstHeaderValue(r.Header.Get("X-Forwarded-Port"))
 	if !trusted {
@@ -472,10 +475,62 @@ func configuredPrimary(options URLResolverOptions) string {
 			return strings.ToLower(host)
 		}
 	}
-	if host, _, ok := parseHostPort(options.FQDN); ok && !isOverlayHost(host) {
-		ip := net.ParseIP(host)
-		if (ip != nil && IsPublicIP(ip)) || IsValidHost(host, options.Development, options.ProjectName) {
-			return strings.ToLower(host)
+	return ""
+}
+
+func automaticFallbackHost(options URLResolverOptions) string {
+	for _, candidate := range []string{options.Hostname, options.HostEnv} {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if candidate != "" && !isLoopbackHost(candidate) && IsValidHost(candidate, options.Development, options.ProjectName) {
+			return candidate
+		}
+	}
+	for _, wantIPv6 := range []bool{true, false} {
+		if host := publicInterfaceIP(wantIPv6); host != "" {
+			return host
+		}
+	}
+	return "localhost"
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
+func publicInterfaceIP(wantIPv6 bool) string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			var ip net.IP
+			switch value := address.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			if ip == nil || !IsPublicIP(ip) || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+				continue
+			}
+			if (ip.To4() == nil) == wantIPv6 {
+				return ip.String()
+			}
 		}
 	}
 	return ""

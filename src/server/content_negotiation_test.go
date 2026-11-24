@@ -104,7 +104,7 @@ func TestGeneratedResourcesHonorBaseURL(t *testing.T) {
 		want []string
 	}{
 		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/v1/server/swagger"`, `href="/myproject/static/css/common.css"`, `href="/myproject/server/docs/graphql"`}},
-		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/server/docs/graphql/assets/react.production.min.js"`, `href="/myproject/server/docs/swagger"`}},
+		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/static/vendor/graphiql/react.production.min.js"`, `src="/myproject/static/js/docs-graphql.js"`, `href="/myproject/server/docs/swagger"`}},
 		{path: "/api/swagger", want: []string{`"url": "/myproject/api/v1"`}},
 	}
 	for _, tc := range routes {

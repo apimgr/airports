@@ -8,36 +8,10 @@ import (
 	"testing"
 )
 
-// TestAssetsHandler covers the embedded Swagger UI dist file server,
-// including prefix stripping and the 404 case for an unknown asset.
-func TestAssetsHandler(t *testing.T) {
-	tests := []struct {
-		name       string
-		prefix     string
-		path       string
-		wantStatus int
-	}{
-		{"known asset", "/assets/", "/assets/swagger-ui.css", http.StatusOK},
-		{"unknown asset", "/assets/", "/assets/nope.js", http.StatusNotFound},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := AssetsHandler(tt.prefix)
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
-			if rec.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
-			}
-		})
-	}
-}
-
 // TestHandler verifies the Swagger UI HTML page renders with the correct
 // content type and embeds the supplied spec path / assets prefix.
 func TestHandler(t *testing.T) {
-	h := Handler("/api/swagger", "/server/docs/swagger/assets/")
+	h := Handler("/api/swagger", "/static/vendor/swagger-ui/")
 	req := httptest.NewRequest(http.MethodGet, "/server/docs/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -53,8 +27,8 @@ func TestHandler(t *testing.T) {
 	if !strings.Contains(body, "/api/swagger") {
 		t.Error("body missing spec path")
 	}
-	if !strings.Contains(body, "/server/docs/swagger/assets/swagger-ui.css") {
-		t.Error("body missing assets prefix in stylesheet link")
+	if !strings.Contains(body, "/static/vendor/swagger-ui/swagger-ui.css") {
+		t.Error("body missing static vendor stylesheet link")
 	}
 }
 

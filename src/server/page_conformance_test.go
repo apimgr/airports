@@ -60,15 +60,23 @@ func TestDocumentationUIThemeAssets(t *testing.T) {
 	for _, path := range []string{
 		"/server/docs/swagger/theme.css",
 		"/server/docs/graphql/theme.css",
-		"/server/docs/swagger/assets/swagger-ui.css",
-		"/server/docs/graphql/assets/graphiql.min.css",
+		"/static/vendor/swagger-ui/swagger-ui.css",
+		"/static/vendor/swagger-ui/swagger-ui-bundle.js",
+		"/static/vendor/graphiql/graphiql.min.css",
+		"/static/vendor/graphiql/react.production.min.js",
+		"/static/js/docs-swagger.js",
+		"/static/js/docs-graphql.js",
+		"/static/css/docs.css",
 	} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.RemoteAddr = nextPageTestAddress()
 		response := httptest.NewRecorder()
 		s.router.ServeHTTP(response, request)
-		if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "text/css") {
-			t.Errorf("stylesheet %s status/content-type = %d/%q", path, response.Code, response.Header().Get("Content-Type"))
+		if response.Code != http.StatusOK {
+			t.Errorf("asset %s status = %d", path, response.Code)
+		}
+		if strings.HasSuffix(path, ".css") && !strings.Contains(response.Header().Get("Content-Type"), "text/css") {
+			t.Errorf("stylesheet %s content-type = %q", path, response.Header().Get("Content-Type"))
 		}
 		if strings.Contains(path, "theme.css") && !strings.Contains(response.Body.String(), "var(--color-bg)") {
 			t.Errorf("theme stylesheet %s does not use the shared palette", path)

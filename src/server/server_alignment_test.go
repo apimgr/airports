@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apimgr/airports/src/common/i18n"
+	"github.com/apimgr/airports/src/common/urlvars"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/db"
 )
@@ -169,12 +170,13 @@ func TestServerPageAPIUsesOperatorContentSource(t *testing.T) {
 }
 
 func TestDefaultSecurityPolicyContainsRequiredSectionsAndScope(t *testing.T) {
-	cfg := config.DefaultApplicationConfig()
-	cfg.Server.FQDN = "airports.example"
-	cfg.Server.Tor.OnionAddress = "example.onion"
+	s := newTestServer(t)
+	s.config.Server.FQDN = "ignored.example.org"
+	s.config.Server.Tor.OnionAddress = "example.onion"
+	s.urlResolver = urlvars.NewURLResolverManager(urlvars.URLResolverOptions{DomainEnv: "airports.example.com"})
 	r := httptest.NewRequest(http.MethodGet, "/server/security/policy", nil)
-	policy := defaultSecurityPolicy(cfg, r, nil)
-	for _, want := range []string{"airports.example", "example.onion", "## Scope", "## Out of scope", "## Coordinated disclosure", "## Safe harbor", "## Reporting", "90 days", "/server/security"} {
+	policy := s.defaultSecurityPolicy(r)
+	for _, want := range []string{"airports.example.com", "example.onion", "## Scope", "## Out of scope", "## Coordinated disclosure", "## Safe harbor", "## Reporting", "90 days", "/server/security"} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("default security policy missing %q", want)
 		}
@@ -182,12 +184,13 @@ func TestDefaultSecurityPolicyContainsRequiredSectionsAndScope(t *testing.T) {
 }
 
 func TestDefaultSecurityPolicyUsesRequestLanguage(t *testing.T) {
-	cfg := config.DefaultApplicationConfig()
-	cfg.Server.FQDN = "airports.example"
+	s := newTestServer(t)
+	s.config.Server.FQDN = "ignored.example.org"
+	s.urlResolver = urlvars.NewURLResolverManager(urlvars.URLResolverOptions{DomainEnv: "airports.example.com"})
 	r := httptest.NewRequest(http.MethodGet, "/server/security/policy", nil)
 	r = r.WithContext(i18n.SetLanguage(r.Context(), "fr"))
-	policy := defaultSecurityPolicy(cfg, r, nil)
-	for _, want := range []string{"## Périmètre", "## Divulgation coordonnée", "page de sécurité", "airports.example"} {
+	policy := s.defaultSecurityPolicy(r)
+	for _, want := range []string{"## Périmètre", "## Divulgation coordonnée", "page de sécurité", "airports.example.com"} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("French security policy missing %q: %s", want, policy)
 		}

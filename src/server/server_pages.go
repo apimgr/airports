@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/apimgr/airports/src/common/i18n"
+	"github.com/apimgr/airports/src/common/urlvars"
 	"github.com/apimgr/airports/src/config"
-	"github.com/apimgr/airports/src/i2p"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -216,8 +216,7 @@ func (s *Server) handleServerPrivacy(w http.ResponseWriter, r *http.Request) {
 	tracking := s.config.Server.Tracking
 	lang := i18n.FromContext(r.Context())
 	services := configuredThirdPartyServices(privacy, tracking, lang)
-	dpoEmail := strings.TrimSpace(s.config.Server.Contact.DPO.Email)
-	dpoEmail = strings.ReplaceAll(dpoEmail, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+	dpoEmail := s.dpoEmail(r)
 	s.renderTemplate(w, r, "server_privacy", map[string]interface{}{
 		"Title":              "Privacy",
 		"Theme":              s.config.Web.UI.Theme,
@@ -400,7 +399,7 @@ func (s *Server) handleServerDPO(w http.ResponseWriter, r *http.Request) {
 		"Title": "Data Protection Officer",
 		"Theme": s.config.Web.UI.Theme,
 		"Name":  strings.TrimSpace(contacts.DPO.Name),
-		"Email": s.dpoEmail(),
+		"Email": s.dpoEmail(r),
 	})
 }
 
@@ -412,18 +411,18 @@ func (s *Server) handleServerDPOAPI(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimSuffix(RequestBaseURL(r), "/")
 	s.respondItem(w, http.StatusOK, map[string]string{
 		"name":        name,
-		"email":       s.dpoEmail(),
+		"email":       s.dpoEmail(r),
 		"privacy_url": base + "/server/privacy",
 	})
 }
 
-func (s *Server) dpoEmail() string {
+func (s *Server) dpoEmail(r *http.Request) string {
 	value := s.config.Server.Contact.ResolveEmail("dpo")
-	host := strings.TrimSpace(s.config.Server.FQDN)
-	if strings.Contains(value, "{fqdn}") && host == "" {
+	host := s.resolvedFQDN(r)
+	if strings.Contains(value, "{fqdn}") && host == "localhost" {
 		return ""
 	}
-	return strings.ReplaceAll(strings.TrimSpace(value), "{fqdn}", host)
+	return resolveFQDNPlaceholder(value, host)
 }
 
 // handleServerSecurity renders the public security reporting overview.
@@ -450,7 +449,7 @@ func (s *Server) handleServerSecurity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleServerSecurityPolicy(w http.ResponseWriter, r *http.Request) {
 	policy := strings.TrimSpace(s.config.Web.Security.Policy)
 	if policy == "" {
-		policy = defaultSecurityPolicy(s.config, r, s.i2p)
+		policy = s.defaultSecurityPolicy(r)
 	}
 	s.renderTemplate(w, r, "server_security_policy", map[string]interface{}{
 		"Title":  "Security Policy",
@@ -459,15 +458,17 @@ func (s *Server) handleServerSecurityPolicy(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func defaultSecurityPolicy(cfg *config.ApplicationConfig, r *http.Request, i2pManager *i2p.I2PManager) string {
-	host := strings.TrimSpace(cfg.Server.FQDN)
-	if host == "" && r != nil {
-		host = strings.TrimSpace(r.Host)
+func (s *Server) defaultSecurityPolicy(r *http.Request) string {
+	cfg := s.config
+	host := s.resolvedFQDN(r)
+	i2pManager := s.i2p
+	domains := make([]string, 0, 3)
+	if host != "" && !strings.EqualFold(host, "localhost") {
+		domains = append(domains, host)
 	}
-	domains := []string{host}
 	for _, domain := range strings.Split(os.Getenv("DOMAIN"), ",") {
 		domain = strings.TrimSpace(domain)
-		if domain != "" && domain != host {
+		if domain != "" && domain != host && urlvars.IsValidHost(domain, strings.EqualFold(cfg.Server.Mode, "development"), "airports") {
 			domains = append(domains, domain)
 		}
 	}
@@ -523,7 +524,7 @@ func (s *Server) handleServerSecurityAPI(w http.ResponseWriter, r *http.Request)
 	if s.isTorRequest(r) || contact == "" {
 		contact = s.securityContactEmail(r)
 	} else {
-		contact = strings.ReplaceAll(contact, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+		contact = resolveFQDNPlaceholder(contact, s.resolvedFQDN(r))
 	}
 	if contact != "" {
 		contacts = append(contacts, map[string]string{"type": "email", "value": strings.TrimPrefix(contact, "mailto:")})
@@ -544,7 +545,7 @@ func (s *Server) handleServerSecurityAPI(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleServerSecurityPolicyAPI(w http.ResponseWriter, r *http.Request) {
 	policy := strings.TrimSpace(s.config.Web.Security.Policy)
 	if policy == "" {
-		policy = defaultSecurityPolicy(s.config, r, s.i2p)
+		policy = s.defaultSecurityPolicy(r)
 	}
 	s.respondItem(w, http.StatusOK, map[string]string{"policy": policy})
 }
@@ -664,12 +665,9 @@ func (s *Server) publicContactEmails(r *http.Request) (general, abuse string) {
 		return address, address
 	}
 	contacts := s.config.Server.Contact
-	host := strings.TrimSpace(s.config.Server.FQDN)
+	host := s.resolvedFQDN(r)
 	resolve := func(value string) string {
-		if strings.Contains(value, "{fqdn}") && host == "" {
-			return ""
-		}
-		return strings.ReplaceAll(strings.TrimSpace(value), "{fqdn}", host)
+		return resolveFQDNPlaceholder(value, host)
 	}
 	general = resolve(contacts.General.Email)
 	if general == "" {
@@ -701,11 +699,8 @@ func (s *Server) securityContactEmail(r *http.Request) string {
 	if value == "" {
 		value = "security@{fqdn}"
 	}
-	host := strings.TrimSpace(s.config.Server.FQDN)
-	if strings.Contains(value, "{fqdn}") && host == "" {
-		return ""
-	}
-	return strings.ReplaceAll(strings.TrimSpace(value), "{fqdn}", host)
+	host := s.resolvedFQDN(r)
+	return resolveFQDNPlaceholder(value, host)
 }
 
 // handleServerContact renders the public contact form and contact information.
@@ -740,11 +735,7 @@ func (s *Server) handleServerContact(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) contactPageData(r *http.Request, kind string, securityMode bool, securityID string, showChooser bool) (map[string]interface{}, error) {
 	general, abuse := s.publicContactEmails(r)
-	requestURL, _ := url.Parse(RequestBaseURL(r))
-	fqdn := strings.TrimSpace(s.config.Server.FQDN)
-	if fqdn == "" && requestURL != nil {
-		fqdn = requestURL.Hostname()
-	}
+	fqdn := s.resolvedFQDN(r)
 	formFields := contactFormFields(kind)
 	if kind == "abuse" || kind == "dmca" {
 		for _, field := range formFields {

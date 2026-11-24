@@ -29,8 +29,8 @@
     <link rel="stylesheet" href="{{.BaseURL}}/static/css/common.css">
     <link rel="stylesheet" href="{{.BaseURL}}/static/css/components.css">
     <link rel="stylesheet" href="{{.BaseURL}}/static/css/public.css">
-    {{if .SwaggerUI}}<link rel="stylesheet" href="{{.BaseURL}}/server/docs/swagger/assets/swagger-ui.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/swagger/theme.css">{{end}}
-    {{if .GraphiQLUI}}<link rel="stylesheet" href="{{.BaseURL}}/server/docs/graphql/assets/graphiql.min.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/graphql/theme.css">{{end}}
+    {{if .SwaggerUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/swagger-ui/swagger-ui.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/swagger/theme.css">{{end}}
+    {{if .GraphiQLUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/graphiql/graphiql.min.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/graphql/theme.css">{{end}}
     {{if .AccentCSS}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/accent.css">{{end}}
     <link rel="icon" type="image/png" href="{{.Favicon16URL}}" sizes="16x16">
     <link rel="icon" type="image/png" href="{{.FaviconURL}}" sizes="32x32">

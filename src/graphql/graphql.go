@@ -2,22 +2,16 @@
 //
 // Per AI.md PART 14 ("Swagger & GraphQL Sync") this package is the
 // canonical home for the GraphQL handler, schema, resolvers, and UI
-// theming. All UI assets are embedded via Go's embed.FS so the binary
-// is self-contained — no CDN fetches at runtime.
+// theming. Its pinned UI libraries are vendored in the server's static
+// tree, embedded into the binary, and never fetched from a CDN.
 package graphql
 
 import (
-	"embed"
-	"io/fs"
-	"log"
 	"net/http"
 
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/geoip"
 )
-
-//go:embed assets/*
-var assetsFS embed.FS
 
 // AirportSource is the minimal surface the GraphQL resolvers need from
 // the airport service. Defining it as an interface keeps the graphql
@@ -41,17 +35,6 @@ type AirportSource interface {
 // from the GeoIP service, mirroring handleGeoIPLookup/handleGeoIPLookupIP.
 type GeoIPSource interface {
 	LookupString(ipStr string) (*geoip.GeoLocation, error)
-}
-
-// AssetsHandler serves the vendored GraphiQL + React UMD bundles under
-// the supplied URL prefix (e.g. "/server/docs/graphql/assets/").
-func AssetsHandler(prefix string) http.Handler {
-	sub, err := fs.Sub(assetsFS, "assets")
-	if err != nil {
-		log.Printf("graphql: failed to sub assets fs: %v", err)
-		return http.NotFoundHandler()
-	}
-	return http.StripPrefix(prefix, http.FileServer(http.FS(sub)))
 }
 
 // UIHandler serves the GraphiQL page that loads the embedded assets and

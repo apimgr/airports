@@ -2,35 +2,18 @@
 //
 // Per AI.md PART 14 ("Swagger & GraphQL Sync") this package is the
 // canonical home for the Swagger handler, UI theming, and OpenAPI
-// annotations. All assets are embedded via Go's embed.FS so the
-// resulting binary is self-contained — no CDN fetches at runtime.
+// annotations. Its pinned UI libraries are vendored in the server's
+// static tree, embedded into the binary, and never fetched from a CDN.
 package swagger
 
 import (
-	"embed"
 	"encoding/json"
-	"io/fs"
-	"log"
 	"net/http"
 
 	"github.com/apimgr/airports/src/common/i18n"
 )
 
-//go:embed assets/*
-var assetsFS embed.FS
-
-// AssetsHandler serves the vendored Swagger UI dist files under the
-// supplied URL prefix (e.g. "/server/docs/swagger/assets/").
-func AssetsHandler(prefix string) http.Handler {
-	sub, err := fs.Sub(assetsFS, "assets")
-	if err != nil {
-		log.Printf("swagger: failed to sub assets fs: %v", err)
-		return http.NotFoundHandler()
-	}
-	return http.StripPrefix(prefix, http.FileServer(http.FS(sub)))
-}
-
-// Handler serves the Swagger UI HTML page that loads the embedded assets
+// Handler serves the Swagger UI HTML page that loads the vendored assets
 // and points at the OpenAPI spec at specPath.
 func Handler(specPath, assetsPrefix string, baseURLResolver ...func(*http.Request) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

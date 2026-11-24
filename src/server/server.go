@@ -35,13 +35,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// Asset URL prefixes for the embedded Swagger UI and GraphiQL bundles.
-// The UI HTML templates reference these — keep in sync with route mounts.
-const (
-	swaggerAssetsPrefix = "/server/docs/swagger/assets/"
-	graphqlAssetsPrefix = "/server/docs/graphql/assets/"
-)
-
 // Build info (set from main)
 var (
 	Version   = "dev"
@@ -319,7 +312,7 @@ func (s *Server) configureURLResolver(cfg *config.ApplicationConfig) {
 		return
 	}
 	options := urlvars.URLResolverOptions{
-		FQDN: cfg.Server.FQDN, DomainEnv: os.Getenv("DOMAIN"), ListenPort: cfg.Server.Port,
+		DomainEnv: os.Getenv("DOMAIN"), ListenPort: cfg.Server.Port,
 		OnionAddress: cfg.Server.Tor.OnionAddress, ProjectName: "airports",
 		Development: strings.EqualFold(cfg.Server.Mode, "development"), Detection: cfg.Server.URLDetection,
 		TrustedPeer: s.IsTrustedProxyRequest, BaseURL: RequestBaseURL,
@@ -612,10 +605,7 @@ func (s *Server) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	if apiContact == "" {
 		apiContact = strings.TrimSpace(s.config.Web.Security.Contact)
 	}
-	if strings.Contains(apiContact, "{fqdn}") && strings.TrimSpace(s.config.Server.FQDN) == "" {
-		apiContact = ""
-	}
-	apiContact = strings.ReplaceAll(apiContact, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+	apiContact = resolveFQDNPlaceholder(apiContact, s.resolvedFQDN(r))
 	if apiContact == "" {
 		apiContact = s.securityContactEmail(r)
 	}
@@ -758,6 +748,23 @@ func (s *Server) publicBaseURL(r *http.Request) string {
 	return scheme + "://" + stripDefaultPort(r.Host, scheme) + baseURL
 }
 
+func (s *Server) resolvedFQDN(r *http.Request) string {
+	if s != nil && s.urlResolver != nil {
+		_, host, _ := s.urlResolver.GetRequestURLVariables(r)
+		return host
+	}
+	_, host, _ := urlvars.GetRequestURLVariables(r)
+	return host
+}
+
+func resolveFQDNPlaceholder(value, host string) string {
+	value = strings.TrimSpace(value)
+	if strings.Contains(value, "{fqdn}") && host == "localhost" {
+		return ""
+	}
+	return strings.ReplaceAll(value, "{fqdn}", host)
+}
+
 func (s *Server) isI2PRequest(r *http.Request) bool {
 	if r == nil || s.i2p == nil || s.i2p.EepsiteAddress() == "" {
 		return false
@@ -884,7 +891,7 @@ func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
 	if s.isTorRequest(r) || contact == "" {
 		contact = s.securityContactEmail(r)
 	} else {
-		contact = strings.ReplaceAll(contact, "{fqdn}", strings.TrimSpace(s.config.Server.FQDN))
+		contact = resolveFQDNPlaceholder(contact, s.resolvedFQDN(r))
 	}
 	if contact == "" {
 		contact = s.securityContactEmail(r)

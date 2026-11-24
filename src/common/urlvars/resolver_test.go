@@ -13,7 +13,7 @@ import (
 
 func testOptions() URLResolverOptions {
 	return URLResolverOptions{
-		FQDN: "api.example.net", ListenPort: "8081", ProjectName: "airports",
+		Hostname: "api.example.net", ListenPort: "8081", ProjectName: "airports",
 		Detection:   config.URLDetectionConfig{Learning: true, MinSamples: 3, SampleWindow: "5m", LiveReload: true},
 		TrustedPeer: func(r *http.Request) bool { return r.RemoteAddr == "10.0.0.1:9000" },
 	}
@@ -53,6 +53,51 @@ func TestGetRequestURLVariablesIgnoresUntrustedOrInvalidProxyHosts(t *testing.T)
 	_, fqdn, _ = manager.GetRequestURLVariables(req)
 	if fqdn != "api.example.net" {
 		t.Errorf("invalid trusted host resolved to %q, want configured fallback", fqdn)
+	}
+}
+
+func TestRequestHostIsUsedWhenDomainIsUnset(t *testing.T) {
+	manager := NewURLResolverManager(testOptions())
+	req := httptest.NewRequest(http.MethodGet, "https://edge.example.org/path", nil)
+	_, host, _ := manager.GetRequestURLVariables(req)
+	if host != "edge.example.org" {
+		t.Fatalf("request host = %q, want edge.example.org", host)
+	}
+}
+
+func TestRequestHostMustMatchConfiguredDomain(t *testing.T) {
+	options := testOptions()
+	options.DomainEnv = "api.example.net"
+	manager := NewURLResolverManager(options)
+	req := httptest.NewRequest(http.MethodGet, "https://attacker.example.org/path", nil)
+	_, host, _ := manager.GetRequestURLVariables(req)
+	if host != "api.example.net" {
+		t.Fatalf("unconfigured request host = %q, want api.example.net", host)
+	}
+	allowed := httptest.NewRequest(http.MethodGet, "https://api.example.net/path", nil)
+	_, host, _ = manager.GetRequestURLVariables(allowed)
+	if host != "api.example.net" {
+		t.Fatalf("configured request host = %q, want api.example.net", host)
+	}
+}
+
+func TestRequestHostMayMatchLearnedWildcard(t *testing.T) {
+	options := testOptions()
+	options.DomainEnv = "example.com"
+	manager := NewURLResolverManager(options)
+	for _, host := range []string{"www.example.com", "api.example.com", "cdn.example.com"} {
+		req := httptest.NewRequest(http.MethodGet, "http://internal/", nil)
+		req.RemoteAddr = "10.0.0.1:9000"
+		req.Header.Set("X-Forwarded-Host", host)
+		manager.GetRequestURLVariables(req)
+	}
+	if got := manager.GetWildcardDomain(); got != "*.example.com" {
+		t.Fatalf("learned wildcard = %q, want *.example.com", got)
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://other.example.com/path", nil)
+	_, host, _ := manager.GetRequestURLVariables(req)
+	if host != "other.example.com" {
+		t.Fatalf("request host matching learned wildcard = %q, want other.example.com", host)
 	}
 }
 
@@ -170,7 +215,7 @@ func TestListenPortFollowsResolvedProtocol(t *testing.T) {
 func TestUpdateOptionsRefreshesLiveResolverSettings(t *testing.T) {
 	manager := NewURLResolverManager(testOptions())
 	options := testOptions()
-	options.FQDN = "new.example.org"
+	options.DomainEnv = "new.example.org"
 	options.ListenPort = "9090"
 	options.Detection.LiveReload = false
 	manager.UpdateOptions(options)
@@ -210,7 +255,7 @@ func TestHostValidationSharedRules(t *testing.T) {
 	}
 }
 
-func TestPublicIPIsAllowedOnlyAsAutomaticFallback(t *testing.T) {
+func TestAutomaticFallbackUsesHostnameWhenDomainIsUnset(t *testing.T) {
 	if IsValidHost("203.0.113.10", false, "airports") {
 		t.Fatal("IsValidHost accepted an IP address, want hostname validation to reject it")
 	}
@@ -218,16 +263,11 @@ func TestPublicIPIsAllowedOnlyAsAutomaticFallback(t *testing.T) {
 		t.Fatal("IsPublicIP rejected a global-unicast non-private address")
 	}
 	options := testOptions()
-	options.FQDN = "203.0.113.10"
 	options.DomainEnv = ""
+	options.Hostname = "api.example.net"
 	manager := NewURLResolverManager(options)
 	_, host, _ := manager.GetRequestURLVariables(httptest.NewRequest(http.MethodGet, "http://internal/", nil))
-	if host != "203.0.113.10" {
-		t.Fatalf("automatic fallback host = %q, want public interface IP", host)
-	}
-	options.FQDN = "2001:db8::10"
-	manager = NewURLResolverManager(options)
-	if got, want := manager.BuildURL(nil, "/health"), "http://[2001:db8::10]/health"; got != want {
-		t.Fatalf("IPv6 BuildURL() = %q, want %q", got, want)
+	if host != "api.example.net" {
+		t.Fatalf("automatic fallback host = %q, want api.example.net", host)
 	}
 }

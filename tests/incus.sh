@@ -34,6 +34,13 @@ INCUS_IMAGE_SYSTEMD="${INCUS_IMAGE_SYSTEMD:-images:debian/trixie}"
 INCUS_IMAGE_OPENRC="${INCUS_IMAGE_OPENRC:-images:alpine/3.24}"
 GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
 GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/$PROJECT_NAME}"
+DOCKER_MEM="${DOCKER_MEM:-4g}"
+DOCKER_CPUS="${DOCKER_CPUS:-2}"
+DOCKER_CPU_SHARES="${DOCKER_CPU_SHARES:-256}"
+DOCKER_TIMEOUT="${DOCKER_TIMEOUT:-3600}"
+INCUS_CPUS="${INCUS_CPUS:-2}"
+INCUS_MEM="${INCUS_MEM:-4GiB}"
+INCUS_CPU_PRIORITY="${INCUS_CPU_PRIORITY:-2}"
 TEMP_DIR=""
 TEST_NETWORK=""
 INSTANCES=()
@@ -324,7 +331,8 @@ __run_mode() {
   INSTANCES+=("$instance")
   if [[ "$init" == systemd ]]; then image="$INCUS_IMAGE_SYSTEMD"; else image="$INCUS_IMAGE_OPENRC"; fi
   printf '=== [%s] Launching %s from %s ===\n' "$init" "$instance" "$image"
-  incus launch "$image" "$instance" --network "$TEST_NETWORK"
+  incus launch "$image" "$instance" --network "$TEST_NETWORK" \
+    -c limits.cpu="$INCUS_CPUS" -c limits.memory="$INCUS_MEM" -c limits.cpu.priority="$INCUS_CPU_PRIORITY"
   __wait_boot "$instance" "$init"
   if [[ "$init" == systemd ]]; then
     incus exec "$instance" -- bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl jq file tor i2pd' >/dev/null
@@ -354,7 +362,8 @@ chmod 0700 "$TEMP_DIR"
 mkdir -p "$GO_CACHE" "$GO_BUILD"
 docker_suffix="$(random_suffix)"
 printf '=== Building Linux binaries ===\n'
-docker run --rm --name "${PROJECT_NAME}-${docker_suffix}" --memory=4g --cpus=2 \
+timeout -k 30 "$DOCKER_TIMEOUT" docker run --rm --no-healthcheck --name "${PROJECT_NAME}-${docker_suffix}" \
+  --memory="$DOCKER_MEM" --cpus="$DOCKER_CPUS" --cpu-shares="$DOCKER_CPU_SHARES" \
   -v "$REPO_ROOT:/build:ro" -v "$TEMP_DIR:/out" \
   -v "$GO_CACHE:/usr/local/share/go/pkg/mod" -v "$GO_BUILD:/usr/local/share/go/cache" \
   -w /build -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 -e GOFLAGS=-buildvcs=false \

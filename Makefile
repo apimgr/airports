@@ -23,7 +23,7 @@ endif
 CLIENT_NAME     := airports-cli
 
 # Local version precedence: VERSION override > non-empty release.txt > short commit id.
-VERSION         ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
+VERSION         ?= $(shell cat release.txt 2>/dev/null || echo "0.1.0")
 # Release tags use v only for semantic versions; text and timestamp tags stay plain.
 RELEASE_TAG     := $(shell tag='$(VERSION)'; if printf '%s' "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then printf '%s' "$$tag"; elif printf '%s' "$$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then printf 'v%s' "$$tag"; elif [ "$${tag#v}" != "$$tag" ]; then printf '%s' "$${tag#v}"; else printf '%s' "$$tag"; fi)
 COMMIT_ID       := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -56,8 +56,17 @@ GO_BUILD        ?= $(HOME)/.cache/go-build/$(PROJECT_NAME)
 # Docker image to build inside
 GO_IMAGE        := casjaysdev/go:latest
 
-GO_DOCKER       := docker run --rm \
+
+DOCKER_MEM       ?= 4g
+DOCKER_CPUS      ?= 2
+DOCKER_CPU_SHARES ?= 256
+DOCKER_TIMEOUT   ?= 3600
+
+DOCKER_RUN       := timeout -k 30 $(DOCKER_TIMEOUT) docker run --rm --no-healthcheck \
 	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) --cpu-shares=$(DOCKER_CPU_SHARES)
+
+GO_DOCKER       := $(DOCKER_RUN) \
 	-v $(PWD):/app -w /app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -78,8 +87,7 @@ dev:
 	@mkdir -p $(DEV_DIR_BASE) $(GO_CACHE) $(GO_BUILD)
 	@set -e; DEV_DIR=$$(mktemp -d $(DEV_DIR_BASE)/$(INTERNAL_NAME)-XXXXXX); \
 	echo "Building $(PROJECT_NAME) (dev) -> $$DEV_DIR"; \
-	docker run --rm \
-		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	$(DOCKER_RUN) \
 		-v $(PWD):/app -w /app \
 		-v $$DEV_DIR:/out \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
@@ -99,8 +107,7 @@ dev:
 local: clean
 	@mkdir -p binaries $(GO_CACHE) $(GO_BUILD)
 	@echo "Building $(PROJECT_NAME) $(VERSION) for host ($(HOSTOS)/$(HOSTARCH))..."
-	@docker run --rm \
-		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	@$(DOCKER_RUN) \
 		-v $(PWD):/app -w /app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -114,13 +121,12 @@ local: clean
 	@echo "Built: binaries/$(PROJECT_NAME)"
 
 # ----------------------------------------------------------------------------
-# make build: full 8-platform release
+# make build: host binaries plus all 8 release platforms
 # ----------------------------------------------------------------------------
 build: clean
 	@mkdir -p binaries $(GO_CACHE) $(GO_BUILD)
 	@echo "Building $(PROJECT_NAME) $(VERSION) for all platforms..."
-	@docker run --rm \
-		--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	@$(DOCKER_RUN) \
 		-v $(PWD):/app -w /app \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -129,6 +135,9 @@ build: clean
 		$(GO_IMAGE) sh -c '\
 			set -e; \
 			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
+			hostext=""; [ "$(HOSTOS)" = "windows" ] && hostext=".exe"; \
+			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)$$hostext ./src; \
+			if [ -d src/client ]; then GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)$$hostext ./src/client; fi; \
 			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \

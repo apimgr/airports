@@ -258,40 +258,6 @@ function formatCoordinates(lat, lon) {
     return Math.abs(lat).toFixed(4) + '°' + latDir + ', ' + Math.abs(lon).toFixed(4) + '°' + lonDir;
 }
 
-// ── Swagger UI / GraphiQL bootstrap ─────────────────────────────────────────
-// Both pages load their vendor bundles as external <script src> tags before
-// this file, then embed the per-request spec/endpoint URL as a data
-// attribute (never inline JS) so the single app.js file can initialize them
-// under a strict script-src 'self' CSP.
-document.addEventListener('DOMContentLoaded', function() {
-    const swaggerEl = document.getElementById('swagger-ui');
-    if (swaggerEl && typeof SwaggerUIBundle !== 'undefined') {
-        window.ui = SwaggerUIBundle({
-            url: swaggerEl.getAttribute('data-spec-url'),
-            dom_id: '#swagger-ui',
-            deepLinking: true,
-            presets: [
-                SwaggerUIBundle.presets.apis,
-                SwaggerUIStandalonePreset
-            ],
-            plugins: [
-                SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: 'StandaloneLayout'
-        });
-    }
-
-    const graphiqlEl = document.getElementById('graphiql');
-    if (graphiqlEl && typeof GraphiQL !== 'undefined') {
-        const fetcher = GraphiQL.createFetcher({ url: graphiqlEl.getAttribute('data-endpoint-url') });
-        const defaultQuery = '# ' + translate('graphql.editor_welcome') + '\n# ' + translate('graphql.editor_run_hint') + '\n\n' +
-            'query GetAirport {\n  airport(code: "KJFK") {\n    icao\n    iata\n    name\n    city\n    country\n    coordinates { lat lon }\n  }\n}\n\n' +
-            'query SearchNearby {\n  nearby(lat: 40.6398, lon: -73.7789, radius: 50) {\n    icao\n    name\n    distance\n  }\n}\n';
-        ReactDOM.createRoot(graphiqlEl)
-            .render(React.createElement(GraphiQL, { fetcher: fetcher, defaultQuery: defaultQuery }));
-    }
-});
-
 // Service worker registration
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {

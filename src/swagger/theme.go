@@ -11,7 +11,7 @@ func ThemeCSS() string {
 	return `body{margin:0;display:flex;min-height:100vh;flex-direction:column}#swagger-container{flex:1}.swagger-ui{background:var(--color-bg);color:var(--color-text)}.swagger-ui .topbar{display:none}.swagger-ui .info,.swagger-ui .info .title,.swagger-ui .opblock-tag{color:var(--color-text)}.swagger-ui .scheme-container,.swagger-ui .opblock{background:var(--color-bg-secondary);border-color:var(--color-border)}.swagger-ui .opblock-summary{background:var(--color-bg-hover)}.swagger-ui .opblock-description{color:var(--color-muted)}.swagger-ui table thead tr td,.swagger-ui table thead tr th{color:var(--color-text);border-color:var(--color-border)}.swagger-ui .parameter__name{color:var(--color-primary)}.swagger-ui .response-col_status{color:var(--color-success)}.swagger-ui input,.swagger-ui select,.swagger-ui textarea{background:var(--color-bg-hover);color:var(--color-text);border-color:var(--color-border)}.swagger-ui .btn{background:var(--color-primary);color:var(--color-text-on-primary)}.swagger-ui .model-box,.swagger-ui section.models{background:var(--color-bg-secondary);border-color:var(--color-border)}.swagger-ui .markdown p,.swagger-ui .renderedMarkdown p{color:var(--color-text)}.swagger-ui .response-col_description__inner div.markdown{color:var(--color-text)}`
 }
 
-// renderSwaggerHTML returns the Swagger UI page that loads the embedded
+// renderSwaggerHTML returns the Swagger UI page that loads the vendored
 // assets at assetsPrefix and fetches the OpenAPI spec from specURL.
 //
 // The page uses the project's site CSS for the header and overrides
@@ -34,24 +34,9 @@ func renderSwaggerHTML(specURL, assetsPrefix string, baseURLs ...string) string 
     <link rel="stylesheet" href="%[3]s/static/css/common.css">
     <link rel="stylesheet" href="%[3]s/static/css/components.css">
     <link rel="stylesheet" href="%[3]s/static/css/public.css">
+    <link rel="stylesheet" href="%[3]s/static/css/docs.css">
     <link rel="stylesheet" href="%[2]sswagger-ui.css">
-    <style>
-      body { margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
-      #swagger-container { flex: 1; }
-      .swagger-ui { background: var(--color-bg); }
-      .swagger-ui .topbar { display: none; }
-      .swagger-ui .info { color: var(--color-text); }
-      .swagger-ui .scheme-container { background: var(--color-bg-secondary); }
-      .swagger-ui .opblock { background: var(--color-bg-secondary); border-color: var(--color-border); }
-      .swagger-ui .opblock-tag { color: var(--color-text); border-color: var(--color-border); }
-      .swagger-ui .opblock-summary { background: var(--color-bg-hover); }
-      .swagger-ui .opblock-description { color: var(--color-muted); }
-      .swagger-ui table thead tr td, .swagger-ui table thead tr th { color: var(--color-text); border-color: var(--color-border); }
-      .swagger-ui .parameter__name { color: var(--color-primary); }
-      .swagger-ui .response-col_status { color: var(--color-success); }
-      .swagger-ui input, .swagger-ui select, .swagger-ui textarea { background: var(--color-bg-hover); color: var(--color-text); border-color: var(--color-border); }
-      .swagger-ui .btn { background: var(--color-primary); color: var(--color-text-on-primary); }
-    </style>
+    <link rel="stylesheet" href="%[3]s/server/docs/swagger/theme.css">
   </head>
   <body>
     <header id="main-header">
@@ -83,6 +68,7 @@ func renderSwaggerHTML(specURL, assetsPrefix string, baseURLs ...string) string 
     <script src="%[2]sswagger-ui-bundle.js"></script>
     <script src="%[2]sswagger-ui-standalone-preset.js"></script>
     <script src="%[3]s/static/js/app.js"></script>
+    <script src="%[3]s/static/js/docs-swagger.js"></script>
   </body>
 </html>
 `, specURL, assetsPrefix, baseURL)

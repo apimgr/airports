@@ -14,7 +14,7 @@ func TestRenderGraphiQLHTML(t *testing.T) {
 		endpointURL  string
 		assetsPrefix string
 	}{
-		{"typical values", "/api/graphql", "/server/docs/graphql/assets/"},
+		{"typical values", "/api/graphql", "/static/vendor/graphiql/"},
 		{"empty assets prefix", "/api/graphql", ""},
 		{"empty endpoint", "", "/assets/"},
 		{"endpoint with quotes is escaped", `/api/graphql?x="y"`, "/assets/"},
@@ -37,6 +37,12 @@ func TestRenderGraphiQLHTML(t *testing.T) {
 			}
 			if !strings.Contains(html, `src="/static/js/app.js"`) {
 				t.Error("output missing shared app.js script tag")
+			}
+			if !strings.Contains(html, "/static/js/docs-graphql.js") {
+				t.Error("output missing GraphiQL bootstrap script")
+			}
+			if strings.Contains(html, "<style") {
+				t.Error("output contains inline styles")
 			}
 			if !strings.Contains(html, "</html>") {
 				t.Error("output missing closing html tag")

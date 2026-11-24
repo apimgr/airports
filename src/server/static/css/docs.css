@@ -1,0 +1,16 @@
+.docs-ui #swagger-container,
+.docs-ui #graphql-container {
+    min-height: 32rem;
+}
+
+.docs-ui #swagger-container {
+    overflow-x: auto;
+}
+
+.docs-ui #graphql-container,
+.docs-ui #graphiql {
+    display: flex;
+    min-height: 32rem;
+    flex: 1;
+    flex-direction: column;
+}

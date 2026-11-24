@@ -13,7 +13,7 @@ func TestRenderSwaggerHTML(t *testing.T) {
 		specURL      string
 		assetsPrefix string
 	}{
-		{"typical values", "/api/swagger", "/server/docs/swagger/assets/"},
+		{"typical values", "/api/swagger", "/static/vendor/swagger-ui/"},
 		{"empty assets prefix", "/api/swagger", ""},
 		{"empty spec url", "", "/assets/"},
 		{"spec url with quotes is escaped", `/api/swagger?x="y"`, "/assets/"},
@@ -36,6 +36,12 @@ func TestRenderSwaggerHTML(t *testing.T) {
 			}
 			if !strings.Contains(html, `src="/static/js/app.js"`) {
 				t.Error("output missing shared app.js script tag")
+			}
+			if !strings.Contains(html, "/static/js/docs-swagger.js") {
+				t.Error("output missing Swagger UI bootstrap script")
+			}
+			if strings.Contains(html, "<style") {
+				t.Error("output contains inline styles")
 			}
 			if !strings.Contains(html, "</html>") {
 				t.Error("output missing closing html tag")

@@ -113,37 +113,10 @@ func newFakeGeoIPSource() *fakeGeoIPSource {
 	}
 }
 
-// TestAssetsHandler covers the embedded-assets file server, including the
-// prefix-stripping behavior and the 404 case for an unknown asset.
-func TestAssetsHandler(t *testing.T) {
-	tests := []struct {
-		name       string
-		prefix     string
-		path       string
-		wantStatus int
-	}{
-		{"known asset", "/assets/", "/assets/graphiql.min.css", http.StatusOK},
-		{"unknown asset", "/assets/", "/assets/does-not-exist.js", http.StatusNotFound},
-		{"root under prefix serves directory listing", "/assets/", "/assets/", http.StatusOK},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := AssetsHandler(tt.prefix)
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
-			if rec.Code != tt.wantStatus {
-				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
-			}
-		})
-	}
-}
-
 // TestUIHandler verifies the GraphiQL HTML page renders with the correct
 // content type and embeds the supplied endpoint/asset prefix values.
 func TestUIHandler(t *testing.T) {
-	h := UIHandler("/api/graphql", "/server/docs/graphql/assets/")
+	h := UIHandler("/api/graphql", "/static/vendor/graphiql/")
 	req := httptest.NewRequest(http.MethodGet, "/server/docs/graphql", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -159,8 +132,8 @@ func TestUIHandler(t *testing.T) {
 	if !strings.Contains(body, "/api/graphql") {
 		t.Error("body missing endpoint path")
 	}
-	if !strings.Contains(body, "/server/docs/graphql/assets/graphiql.min.css") {
-		t.Error("body missing assets prefix in stylesheet link")
+	if !strings.Contains(body, "/static/vendor/graphiql/graphiql.min.css") {
+		t.Error("body missing static vendor stylesheet link")
 	}
 }
 

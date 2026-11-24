@@ -21,6 +21,10 @@ BASE_URL="http://127.0.0.1:${TEST_PORT}"
 HOST_BIND_ADDRESS="127.0.0.1"
 COMPOSE_PROJECT_NAME="airports-test-$(printf '%08x' "$(( (RANDOM << 15) | RANDOM ))")"
 TEST_IMAGE="${DOCKER_TEST_IMAGE:-airports-docker-test-local}"
+DOCKER_MEM="${DOCKER_MEM:-4g}"
+DOCKER_CPUS="${DOCKER_CPUS:-2}"
+DOCKER_CPU_SHARES="${DOCKER_CPU_SHARES:-256}"
+DOCKER_TIMEOUT="${DOCKER_TIMEOUT:-3600}"
 export COMPOSE_PROJECT_NAME HOST_BIND_ADDRESS TEST_PORT
 
 TEMP_DIR=""
@@ -81,7 +85,13 @@ fi
 echo ">> Bringing up Airports test stack in $TEMP_DIR"
 (cd "$TEMP_DIR" && docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build)
 
-docker run --rm --network none --entrypoint sh "$TEST_IMAGE" -c 'for c in bash curl tor i2pd tini groupadd useradd; do command -v "$c" || exit 1; done; test -f /etc/ssl/cert.pem; test -d /usr/share/zoneinfo'
+# The command is passed verbatim to the test image's shell.
+# shellcheck disable=SC2016
+timeout -k 30 "$DOCKER_TIMEOUT" docker run --rm --no-healthcheck \
+    --name "airports-$(printf '%08x' "$(( (RANDOM << 15) | RANDOM ))")" \
+    --memory="$DOCKER_MEM" --cpus="$DOCKER_CPUS" --cpu-shares="$DOCKER_CPU_SHARES" \
+    --network none --entrypoint sh "$TEST_IMAGE" \
+    -c 'for c in bash curl tor i2pd tini groupadd useradd; do command -v "$c" || exit 1; done; test -f /etc/ssl/cert.pem; test -d /usr/share/zoneinfo'
 
 echo ">> Waiting for /server/healthz to become ready..."
 __deadline=$(( $(date +%s) + 90 ))

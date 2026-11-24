@@ -142,9 +142,9 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	r.Head("/feed.xml", s.handleAtomFeed)
 	r.Get("/rss.xml", s.handleRSSFeed)
 	r.Head("/rss.xml", s.handleRSSFeed)
-	// Swagger UI + GraphiQL — handlers live in src/swagger and src/graphql
-	// per AI.md PART 14 "Standardized File Locations". UI assets are
-	// served from embed.FS in those packages (no CDN, single binary).
+	// Swagger UI + GraphiQL handlers and themes live in src/swagger and
+	// src/graphql. Their pinned UI assets use the server's embedded static
+	// tree under /static/vendor/ and load without a CDN.
 	apiBase := s.APIBasePath()
 	requestBaseURL := func(r *http.Request) string {
 		return strings.TrimSuffix(RequestBaseURL(r), "/")
@@ -162,8 +162,6 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		_, _ = w.Write([]byte(graphqlpkg.ThemeCSS()))
 	})
-	r.Mount(swaggerAssetsPrefix, swaggerpkg.AssetsHandler(swaggerAssetsPrefix))
-	r.Mount(graphqlAssetsPrefix, graphqlpkg.AssetsHandler(graphqlAssetsPrefix))
 
 	// Unversioned API aliases (mounted to the same handlers as the current version,
 	// per AI.md PART 14 "Unversioned API aliases" — never redirect, never fork behavior).
