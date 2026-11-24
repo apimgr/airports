@@ -36,6 +36,20 @@ __cleanup() {
     if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
         echo ">> Cleaning up Docker test environment in $TEMP_DIR"
         (cd "$TEMP_DIR" && docker compose down --volumes --remove-orphans) >/dev/null 2>&1 || true
+        if docker image inspect "$TEST_IMAGE" >/dev/null 2>&1; then
+            local cleanup_uid cleanup_gid
+            cleanup_uid="$(id -u)"
+            cleanup_gid="$(id -g)"
+            # The container shell expands the cleanup IDs from its environment.
+            # shellcheck disable=SC2016
+            local -a cleanup_command=(-c 'chown -R "$CLEANUP_UID:$CLEANUP_GID" /cleanup')
+            timeout -k 30 "$DOCKER_TIMEOUT" docker run --rm --no-healthcheck \
+                --name "${COMPOSE_PROJECT_NAME}-cleanup" \
+                --memory="$DOCKER_MEM" --cpus="$DOCKER_CPUS" --cpu-shares="$DOCKER_CPU_SHARES" \
+                --user 0 --network none --volume "$TEMP_DIR/volumes:/cleanup" \
+                --env "CLEANUP_UID=$cleanup_uid" --env "CLEANUP_GID=$cleanup_gid" \
+                --entrypoint sh "$TEST_IMAGE" "${cleanup_command[@]}" >/dev/null 2>&1 || true
+        fi
         rm -rf -- "$TEMP_DIR"
     fi
 }
@@ -109,27 +123,95 @@ if ! curl -q -LSsf "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
     exit 1
 fi
 
-echo ">> Waiting for Tor hidden service health (up to 180 seconds)..."
-__tor_deadline=$(( $(date +%s) + 180 ))
-while [[ $(date +%s) -lt $__tor_deadline ]]; do
-    if curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}/server/healthz" 2>/dev/null | grep -Fxq 'features.tor.status: healthy'; then
-        echo ">> Tor hidden service is healthy."
-        break
-    fi
-    sleep 2
-done
-if ! curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}/server/healthz" 2>/dev/null | grep -Fxq 'features.tor.status: healthy'; then
-    echo "ERROR: Tor hidden service did not become healthy within 180 seconds" >&2
-    (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
-    exit 1
-fi
-
 API_VERSION="$(curl -q -LSsf "${BASE_URL}/api/autodiscover" | sed -n 's/.*"current_version":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
 if [[ -z "$API_VERSION" ]]; then
     echo "ERROR: could not discover the current API version" >&2
     exit 1
 fi
 API_BASE="/api/${API_VERSION}"
+
+TOR_WAIT="${TOR_WAIT:-180}"
+__tor_status=""
+__get_tor_status() {
+    curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}${API_BASE}/server/healthz" 2>/dev/null \
+        | sed -n 's/^features\.tor: \([^ ]*\).*/\1/p' | head -n1
+}
+
+echo ">> Waiting for Tor hidden service health (up to ${TOR_WAIT} seconds)..."
+__tor_deadline=$(( $(date +%s) + TOR_WAIT ))
+while [[ $(date +%s) -lt $__tor_deadline ]]; do
+    __tor_status="$(__get_tor_status)"
+    if [[ "$__tor_status" == healthy ]]; then
+        echo ">> Tor hidden service is healthy."
+        break
+    fi
+    sleep 2
+done
+if [[ "$__tor_status" != healthy ]]; then
+    if [[ "${REQUIRE_OVERLAY:-0}" == 1 ]]; then
+        echo "ERROR: Tor hidden service did not become healthy within ${TOR_WAIT} seconds" >&2
+        (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+        exit 1
+    fi
+    case "$__tor_status" in
+        starting|unavailable)
+            echo "SKIP: no outbound network; Tor status is $__tor_status" >&2
+            ;;
+        *)
+            echo "ERROR: unexpected Tor status '$__tor_status' after ${TOR_WAIT} seconds" >&2
+            (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+            exit 1
+            ;;
+    esac
+fi
+
+I2P_WAIT="${I2P_WAIT:-600}"
+__i2p_line=""
+__get_i2p_line() {
+    curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}${API_BASE}/server/healthz" 2>/dev/null \
+        | sed -n 's/^features\.i2p: //p' | head -n1
+}
+
+echo ">> Waiting for I2P eepsite health (up to ${I2P_WAIT} seconds)..."
+__i2p_deadline=$(( $(date +%s) + I2P_WAIT ))
+while [[ $(date +%s) -lt $__i2p_deadline ]]; do
+    __i2p_line="$(__get_i2p_line)"
+    if [[ "${__i2p_line%% *}" == healthy ]]; then
+        break
+    fi
+    sleep 2
+done
+if [[ "${__i2p_line%% *}" == healthy ]]; then
+    if [[ ! "$__i2p_line" =~ ^healthy[[:space:]]+[a-z2-7]+\.b32\.i2p[[:space:]]+provider=i2pd[[:space:]]+state=running$ ]]; then
+        echo "ERROR: unexpected healthy I2P feature line: $__i2p_line" >&2
+        exit 1
+    fi
+    if ! curl -q -LSsf -H 'Accept: text/plain' "${BASE_URL}${API_BASE}/server/healthz" 2>/dev/null | grep -Fxq 'checks.i2p: ok'; then
+        echo "ERROR: healthy I2P is missing checks.i2p: ok" >&2
+        exit 1
+    fi
+    if ! (cd "$TEMP_DIR" && docker compose exec -T --user 0 airports sh -c 'test -s /data/airports/i2p/site/site-keys.dat && test "$(stat -c %a /data/airports/i2p/site/site-keys.dat)" = 600'); then
+        echo "ERROR: I2P destination key was not persisted with mode 0600" >&2
+        exit 1
+    fi
+    echo ">> I2P hidden service is healthy and its destination key is persisted."
+else
+    case "${__i2p_line%% *}" in
+        starting|unavailable)
+            if [[ "${REQUIRE_OVERLAY:-0}" == 1 ]]; then
+                echo "ERROR: I2P did not become healthy within ${I2P_WAIT} seconds" >&2
+                (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+                exit 1
+            fi
+            echo "SKIP: no outbound network; I2P status is ${__i2p_line%% *}" >&2
+            ;;
+        *)
+            echo "ERROR: unexpected I2P status '${__i2p_line%% *}' after ${I2P_WAIT} seconds" >&2
+            (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+            exit 1
+            ;;
+    esac
+fi
 
 __expect_2xx() {
     local path="$1"
