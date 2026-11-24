@@ -330,13 +330,15 @@ limits are skipped for Tor and I2P requests; per-email and global limits still
 apply. Rejections are logged as `contact.spam_blocked` with only a reason and
 client IP, never submitted content.
 
-The server's CLI binary endpoint reads matching versioned assets and
-`sha256.txt` from the `apimgr/airports` GitHub Release. Downloads are public by
-default; require the operator token with:
+The CLI binary endpoint serves only locally provisioned release files from
+`{data_dir}/cli/`. Configure the directory and optional authentication in
+`yaml.d/maintenance.yml`; the server validates each binary against
+`sha256.txt` and publishes the version from `version.txt`:
 
 ```yaml
 cli:
   binary_download:
+    dir: "{data_dir}/cli"
     require_auth: true
 ```
 
@@ -355,7 +357,6 @@ server:
   privacy:
     consent:
       show_until_acknowledged: true
-      default_enabled: true
       policy:
         version: "1"
       show_preferences: true

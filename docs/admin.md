@@ -44,6 +44,7 @@ If you are looking for "how do I log into the admin panel?", there is no answer 
 | `{log_dir}/access.log` | Request access log |
 | `{log_dir}/error.log` | Error log |
 | `{data_dir}/backups/` | Backup archives |
+| `{data_dir}/cli/` | Operator-provisioned CLI release binaries and version/checksum manifests |
 
 See [installation.md](./installation.md) for OS-specific default paths.
 

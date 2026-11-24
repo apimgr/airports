@@ -45,7 +45,7 @@
 | Rate limiting | Weighted two-window counters in `server.db` by default or the configured external cache; per-IP or per-token identity, process-local empty counters when external cache is unavailable; defaults: read 120/min, write 10/min, health 120/min, global burst 240/min; `429` + `Retry-After` header |
 | Contact roles | `server.contact.{admin,security,abuse,general}.email` + `webhooks{telegram,discord,slack,generic,...}`; canonical keys only, no aliases |
 | Cache config | `server.cache.type`: none/memory (default)/valkey/redis; `url` takes precedence over host/port/password fields |
-| Privacy/consent | GDPR/CCPA cookie banner config under `server.privacy.*`; opt-out default (`consent.default_enabled: true`); essential cookies always on; policy version defaults to `1` and is recorded in consent audit events |
+| Privacy/consent | GDPR/CCPA cookie banner config under `server.privacy.*`; non-essential categories stay off until the visitor consents; essential cookies always on; policy version defaults to `1` and is recorded in consent audit events |
 | Request limits | `server.limits.{max_body_size,read_timeout,write_timeout,idle_timeout}`; defaults 10MB/30s/30s/120s |
 
 For complete details, see AI.md PART 5, PART 6, PART 12.

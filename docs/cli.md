@@ -74,11 +74,14 @@ airports --update branch NAME  # set update branch (stable, beta, devel; daily/r
 
 ### CLI Binary Downloads
 
-The server's `/api/autodiscover` response lists CLI versions, checksums, and
-local download URLs for the assets in the matching `apimgr/airports` GitHub
-Release. The server streams those release assets from
-`/cli/binaries/airports-cli-{os}-{arch}`. Downloads are public by default; set
-`cli.binary_download.require_auth: true` to require the server operator token.
+The server reads release files from `{data_dir}/cli/` (or
+`cli.binary_download.dir` in `yaml.d/maintenance.yml`). Provision the matching
+CLI binaries plus `version.txt` and `sha256.txt` there from a release. The
+server recomputes checksums before advertising or serving a binary;
+`/api/autodiscover` lists each verified platform's version and SHA-256.
+Downloads from `/cli/binaries/airports-cli-{os}-{arch}` are public by default;
+set `cli.binary_download.require_auth: true` to require the server operator
+token.
 
 ### Service Subcommands
 
