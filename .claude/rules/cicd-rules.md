@@ -27,8 +27,9 @@
   `.gitlab-ci.yml`; Jenkins → `Jenkinsfile`
 - Run every CI/CD job (build/lint/test/vuln-scan) inside `container: image: casjaysdev/go:latest`
   (or GitLab `image:`) — never install Go tooling inline
-- Set `VERSION`, `COMMIT_ID`, `BUILD_DATE` explicitly in a "Set build info" step, then inject via
-  `-ldflags "-s -w -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildDate=...' -X 'main.OfficialSite=...'"`
+- Set `VERSION`, `COMMIT_ID`, and the single-source `BUILD_EPOCH` explicitly in a "Set build info" step (`BUILD_DATE` is derived from the epoch), then inject via
+  `-ldflags "-s -w -X 'github.com/apimgr/airports/src/app.Version=...' -X 'github.com/apimgr/airports/src/app.CommitID=...' -X 'github.com/apimgr/airports/src/app.BuildEpoch=...' -X 'github.com/apimgr/airports/src/app.OfficialSite=...' -X 'main.Version=...' -X 'main.CommitID=...' -X 'main.BuildEpoch=...' -X 'main.OfficialSite=...'"`;
+  the `src/app` symbols configure the server and the `main` symbols configure the separately built CLI.
 - Build the full 8-target matrix: linux/darwin/windows/freebsd × amd64/arm64 (windows adds `.exe`)
 - Add workflow concurrency (`cancel-in-progress: true`) to every push-triggered workflow targeting
   `main`, `master`, `devel`, `dev`, or `beta`; tag-release workflows use a per-exact-tag group

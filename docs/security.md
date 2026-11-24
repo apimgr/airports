@@ -86,6 +86,11 @@ ordinary page loads never decrypt token values.
 - Consent withdrawal sends `Clear-Site-Data: "cache", "storage"` and never
   clears cookies; the server expires cookies for withdrawn categories while
   preserving the updated consent choice and owner token.
+- The service worker caches only versioned static assets and explicitly marked
+  public pages. Static entries expire after seven days and the cache is capped
+  at 50 MiB. API requests stay network-only; offline navigation uses the
+  translated page strings stored by the browser, and a ten-second startup
+  watchdog clears stale worker/cache state once before showing a recovery page.
 - TLS certificates may come from ACME (Let's Encrypt), operator-provided files, or self-signed (development only).
 - All ACME challenges served on port 80 with redirect to HTTPS for everything else.
 

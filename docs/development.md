@@ -35,6 +35,8 @@ toolchain image. Documentation can be built with `mkdocs build` after installing
 ```
 .
 ├── src/                  # Go source
+│   ├── main.go           # Thin process entry point
+│   ├── app/              # Server startup, CLI dispatch and app tests
 │   ├── server/           # HTTP server, routes, handlers, middleware and templates
 │   ├── client/           # airports-cli source
 │   ├── config/           # Configuration loading and validation
@@ -44,9 +46,9 @@ toolchain image. Documentation can be built with `mkdocs build` after installing
 ├── docker/               # Dockerfile, compose files, rootfs overlay
 ├── docs/                 # ReadTheDocs MkDocs source (only RTD files)
 ├── tests/                # Integration and end-to-end checks
-│   ├── run_tests.sh      # Auto-detect Docker or Incus for integration checks
-│   ├── docker.sh         # Force Docker-based integration
-│   ├── incus.sh          # Force Incus-based integration
+│   ├── run_tests.sh      # Docker-only basic test runner
+│   ├── docker.sh         # Docker-based basic test suite
+│   ├── incus.sh          # Explicit full-OS integration suite
 │   ├── integration/      # Go HTTP integration tests
 │   ├── e2e/              # Go end-to-end tests
 │   └── e2e.sh            # Browser/server E2E runner
@@ -71,15 +73,18 @@ live in `src/server/`.
 
 ```bash
 make test                  # Go unit tests inside Docker
-./tests/run_tests.sh       # Auto-detect Incus or Docker, run integration suite
+./tests/run_tests.sh       # Docker-only basic test runner
 ./tests/docker.sh          # Build the current tree and test it in Docker
-./tests/incus.sh [systemd|openrc|all] # Test Debian/systemd and Alpine/OpenRC; defaults to both
+./tests/incus.sh [systemd|openrc|all] # Explicit Debian/systemd and Alpine/OpenRC suite
 ./tests/e2e.sh             # On-demand SSR, no-JS, and full-browser E2E suite in Docker
 ```
 
 The Go integration tests live under `tests/integration/` and end-to-end tests
 under `tests/e2e/`. The browser E2E suite is run separately on demand; it is
 not part of `make test` or `tests/run_tests.sh`.
+
+The process entry point in `src/main.go` delegates to the testable application
+package under `src/app/`. Domain packages and app-level tests live below `src/`.
 
 The Docker integration and E2E scripts copy
 `docker/docker-compose.test.yml` into a project-scoped OS temp directory. Each
