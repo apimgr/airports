@@ -13,6 +13,8 @@ The Airports project ships two binaries:
 airports [flags]
 airports --service <subcommand>
 airports --update check|yes|branch <name>
+airports --maintenance email test [--to ADDRESS] [--dry-run]
+airports --maintenance tor <operation>
 airports --version
 ```
 
@@ -49,6 +51,8 @@ Running `airports` with no flags starts the server in the foreground, creating d
 | `--maintenance data export --owner <prefix>` | `server.token` or root | Export owner and resource data as JSON |
 | `--maintenance data delete --owner <prefix> [--yes]` | `server.token` or root | Delete an owner and its data |
 | `--maintenance compliance report` | `server.token` or root | Print aggregate compliance settings, event counts, and audit-chain integrity |
+| `--maintenance email test [--to ADDRESS] [--dry-run]` | `server.token` or root | Send a test email or preview templates without sending |
+| `--maintenance tor <operation>` | `server.token` or root | Manage the running Tor service through its internal control endpoint |
 
 ### Shell Integration
 

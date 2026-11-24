@@ -567,7 +567,7 @@ Available via introspection at the GraphQL endpoint.
 GET /api/autodiscover
 ```
 
-Unversioned. Returns server identity/version, the API version list, the primary URL, and the endpoint map — used by `airports-cli` and other agent consumers to self-configure.
+Unversioned. Returns the standard `{"ok":true,"data":...}` envelope. `data` contains only `name`, `version`, `api.current_version`, `cli_versions` (platform entries with `version` and `sha256`), `cli_min_version`, and `urls` (public origins, with the current request origin first). It may contain `onion` or `i2p` only when the corresponding overlay is enabled and its `server.tor.expose` or `server.i2p.expose` setting is true. It does not publish server settings or an endpoint map.
 
 ## Metrics
 

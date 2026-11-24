@@ -110,11 +110,11 @@ security page; the emailed one-shot status link opens
 `/server/security/report/{tracking_id}`. Swagger and GraphQL explorers are
 available from the server help page.
 
-`GET /api/autodiscover` returns server identity and version, supported API
-versions, the primary URL, and the endpoint map for `airports-cli` and other
-programmatic clients. It is machine discovery; Tor and I2P addresses are
-advertised only when the overlay is enabled and the operator opts in to
-exposure.
+`GET /api/autodiscover` returns the project name and version, the current API
+version, CLI binary versions and checksums, and public origins for
+`airports-cli` and other programmatic clients. Tor and I2P addresses appear
+only when that overlay is enabled and its `server.tor.expose` or
+`server.i2p.expose` setting is true.
 
 ## SMTP — Outbound Email (optional)
 

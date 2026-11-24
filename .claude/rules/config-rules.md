@@ -42,7 +42,7 @@
 | Base URL | `baseurl` resolved: `X-Forwarded-Prefix` > `X-Forwarded-Path` > `X-Script-Name` > config/CLI `server.baseurl`/`--baseurl` > default `/` |
 | Trusted proxies | Private ranges + loopback + link-local always trusted; `server.trusted_proxies.additional` adds public IP/CIDR/DNS; ungated direct deployments should leave `additional: []` |
 | Tor handling | `tor.onion_address` match = priority-0 Tor request; proto forced `http://`, port stripped, no clearnet leakage, no `Preferred-Languages` |
-| Rate limiting | Per-IP sliding window in `server.db` (or external cache if configured); defaults: read 120/min, write 10/min, health 120/min, global burst 240/min; `429` + `Retry-After` header |
+| Rate limiting | Weighted two-window counters in `server.db` by default or the configured external cache; per-IP or per-token identity, process-local empty counters when external cache is unavailable; defaults: read 120/min, write 10/min, health 120/min, global burst 240/min; `429` + `Retry-After` header |
 | Contact roles | `server.contact.{admin,security,abuse,general}.email` + `webhooks{telegram,discord,slack,generic,...}`; canonical keys only, no aliases |
 | Cache config | `server.cache.type`: none/memory (default)/valkey/redis; `url` takes precedence over host/port/password fields |
 | Privacy/consent | GDPR/CCPA cookie banner config under `server.privacy.*`; opt-out default (`consent.default_enabled: true`); essential cookies always on; policy version defaults to `1` and is recorded in consent audit events |

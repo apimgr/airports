@@ -26,6 +26,8 @@ If you are looking for "how do I log into the admin panel?", there is no answer 
 | Upgrade | `airports --update` or `docker pull` |
 | Validate config | `airports --config validate` |
 | Show config | `airports --config show` (secrets masked) |
+| Test email | `airports --maintenance email test` |
+| Manage Tor | `airports --maintenance tor status` |
 
 ## Where Things Live
 
