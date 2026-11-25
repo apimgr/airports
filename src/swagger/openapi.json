@@ -568,6 +568,30 @@
         "x-mounted-when": "--debug"
       }
     },
+    "/api/debug/error500": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_debug_error500",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /api/debug/error500",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
     "/api/debug/goroutines": {
       "get": {
         "description": "Operation generated from the routes active on this server.",
@@ -953,6 +977,48 @@
       }
     },
     "/api/graphql": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_api_graphql",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "variables",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operationName",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /api/graphql",
+        "tags": [
+          "server"
+        ]
+      },
       "post": {
         "description": "Operation generated from the routes active on this server.",
         "operationId": "post_api_graphql",
@@ -1264,6 +1330,30 @@
           }
         ],
         "summary": "GET /debug/db",
+        "tags": [
+          "server"
+        ],
+        "x-mounted-when": "--debug"
+      }
+    },
+    "/debug/error500": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_debug_error500",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "GET /debug/error500",
         "tags": [
           "server"
         ],
@@ -2120,6 +2210,48 @@
       }
     },
     "/server/graphql": {
+      "get": {
+        "description": "Operation generated from the routes active on this server.",
+        "operationId": "get_server_graphql",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "variables",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operationName",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        },
+        "summary": "GET /server/graphql",
+        "tags": [
+          "server"
+        ]
+      },
       "post": {
         "description": "Operation generated from the routes active on this server.",
         "operationId": "post_server_graphql",

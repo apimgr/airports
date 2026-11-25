@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -82,6 +82,7 @@ func (r *maintenanceRecovery) run(ctx context.Context) {
 	var active *server.MaintenanceHealthInfo
 	var attempts int
 	var entered time.Time
+	var exhaustionReported bool
 
 	for {
 		cfg := r.currentConfig()
@@ -106,6 +107,7 @@ func (r *maintenanceRecovery) run(ctx context.Context) {
 						Enabled: true,
 					},
 				}
+				exhaustionReported = false
 				server.SetHealthMaintenance(active)
 				log.Printf("Critical service failure detected (%s): %v; entering read-only maintenance mode", reason, probeErr)
 				logMaintenanceGuidance(reason)
@@ -147,14 +149,33 @@ func (r *maintenanceRecovery) run(ctx context.Context) {
 				active = nil
 				attempts = 0
 			} else if maxAttempts > 0 && attempts >= maxAttempts {
-				active.SelfHealing.NextAttempt = nil
+				active.SelfHealing = server.SelfHealingHealthStatus{Enabled: false, Exhausted: true, Attempts: attempts, LastAttempt: active.SelfHealing.LastAttempt, NextAttempt: nil}
 				server.SetHealthMaintenance(active)
+				if !exhaustionReported {
+					exhaustionReported = true
+					if r.logManager != nil {
+						if err := r.logManager.WriteAudit(logging.AuditCategoryServer, fmt.Sprintf("event=server.self_healing_exhausted reason=%q attempts=%d", active.Reason, attempts)); err != nil {
+							log.Printf("Warning: failed to audit exhausted self-healing: %v", err)
+						}
+					}
+					r.sendExhaustedNotification(cfg, active.Reason, attempts)
+				}
 			}
 		}
 
 		if !waitForRecoveryTick(ctx, interval) {
 			return
 		}
+	}
+}
+
+func (r *maintenanceRecovery) sendExhaustedNotification(cfg *config.ApplicationConfig, reason string, attempts int) {
+	if !notify.CanSend(cfg) {
+		return
+	}
+	vars := map[string]string{"reason": reason, "attempts": fmt.Sprint(attempts)}
+	if err := notify.Send(cfg, r.configDir, "maintenance_exhausted", notifyRecipient(cfg), vars); err != nil {
+		log.Printf("Warning: failed to send maintenance_exhausted notification: %v", err)
 	}
 }
 

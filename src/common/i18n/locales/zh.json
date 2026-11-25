@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "离线",
+    "heading": "您当前处于离线状态",
+    "message": "无法加载此页面，也没有可用的缓存副本。请检查网络连接后重试。",
+    "indicator": "您当前处于离线状态，部分功能可能不可用。"
+  },
+  "app_update": {
+    "available": "有新版本可用",
+    "now": "立即更新",
+    "later": "稍后"
+  },
+  "connection": {
+    "reconnecting": "正在重新连接服务器…"
+  },
   "common": {
     "select_language": "选择语言",
     "save": "保存",
@@ -159,7 +173,9 @@
     "self_healing": "自愈",
     "shutting_down": "关闭",
     "since": "自",
-    "text": "纯文本状态"
+    "text": "纯文本状态",
+    "check.unknown": "检查：{key}",
+    "stat.unknown": "统计：{key}"
   },
   "consent": {
     "banner_text": "本网站使用 Cookie 以提供基本功能，若已启用，还用于分析使用情况。",
@@ -247,6 +263,8 @@
     "playground_title": "GraphQL 查询工具",
     "playground_description": "在此服务器上浏览只读机场查询。",
     "err_invalid_body": "无效的 GraphQL 请求正文：{error}",
+    "err_invalid_get_parameter": "不支持的 GraphQL GET 参数：{parameter}",
+    "err_invalid_variables": "GraphQL 变量无效",
     "err_query_required": "需要提供查询",
     "err_airport_not_found": "未找到机场：{code}",
     "err_nearby_requires_lon": "nearby 查询需要 lon 参数",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "已安装更新 - {app_name}",
     "templates.update_installed.body": "已安装更新\n\n来自：{app_name} ({fqdn})\n时间: {timestamp}\n\n{app_name} 已成功更新。\n\n上一版本：{old_version}\n新版本：{new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "更新已分阶段 - {app_name}",
-    "templates.update_staged.body": "更新已分阶段进行\n\n来自：{app_name} ({fqdn})\n时间: {timestamp}\n\n版本 {new_version} 已暂存，需要重新启动才能应用。\n\n运行：{manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "更新已分阶段进行\n\n来自：{app_name} ({fqdn})\n时间: {timestamp}\n\n版本 {new_version} 已暂存，需要重新启动才能应用。\n\n运行：{manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "自动恢复已停止 - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} 在 {attempts} 次恢复失败后仍处于只读维护模式。\n\n原因：{reason}\n需要管理员处理。请排除原因并重新启动服务。"
   }
 }

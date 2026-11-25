@@ -24,6 +24,78 @@ func (r *ownerTokenAuditRecorder) WriteAudit(_ logging.AuditCategory, line strin
 	return nil
 }
 
+func TestLegacyOwnerCookieMigratesAfterTokenValidation(t *testing.T) {
+	s := newTestServer(t)
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy-cookie.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	s.db = database
+	s.config.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x51}, 32))
+	ownerID, token, err := s.issueOwnerToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerID == "" {
+		t.Fatal("owner token did not create an owner")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: ownerTokenLegacyCookieName, Value: token})
+	response := httptest.NewRecorder()
+	s.ownerTokenCookieLifecycle(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("response status = %d, want 200", response.Code)
+	}
+	var newCookie, legacyCleared bool
+	for _, cookie := range response.Result().Cookies() {
+		switch cookie.Name {
+		case ownerTokenCookieName:
+			newCookie = cookie.Value == token && cookie.MaxAge > 0 && cookie.HttpOnly && cookie.Secure && cookie.SameSite == http.SameSiteStrictMode
+		case ownerTokenLegacyCookieName:
+			legacyCleared = cookie.Value == "" && cookie.MaxAge < 0
+		}
+	}
+	if !newCookie || !legacyCleared {
+		t.Fatalf("legacy cookie migration missing: new=%t legacy_cleared=%t", newCookie, legacyCleared)
+	}
+}
+
+func TestOwnerCookieNamePrefersCompliantName(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: ownerTokenLegacyCookieName, Value: "legacy"})
+	r.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: "current"})
+	cookie, err := s.ownerTokenCookie(r)
+	if err != nil || cookie.Name != ownerTokenCookieName || cookie.Value != "current" {
+		t.Fatalf("ownerTokenCookie() = %#v, %v; want current cookie", cookie, err)
+	}
+}
+
+func TestLegacyOwnerCookieFallbackExpiresAfterConfiguredMaxAge(t *testing.T) {
+	s := newTestServer(t)
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "expired-legacy-cookie.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	s.db = database
+	if err := s.ensureOwnerTokenSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`UPDATE owner_cookie_migrations SET started_at = 1 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: ownerTokenLegacyCookieName, Value: "legacy"})
+	if cookie, err := s.ownerTokenCookie(r); err == nil || cookie != nil {
+		t.Fatalf("expired legacy cookie fallback = %#v, %v; want no cookie", cookie, err)
+	}
+}
+
 func TestOwnerTokenViewCookieRevealsOnlyOwnedCardOnce(t *testing.T) {
 	s := newTestServer(t)
 	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "token-view.db"))

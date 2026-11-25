@@ -11,6 +11,216 @@ function appPath(path) {
     return BASE_URL + path;
 }
 
+let hasDirtyForm = false;
+let buildReloadScheduled = false;
+let serviceWorkerUpdateAccepted = false;
+let serviceWorkerReloading = false;
+const bootRecoveryKey = 'airports_recovered';
+const buildRecoveryKey = 'airports_build_recovered';
+let bootRecoveryTimer = setTimeout(function() {
+    let recovered = false;
+    try { recovered = sessionStorage.getItem(bootRecoveryKey) === '1'; } catch (_) { recovered = false; }
+    if (recovered) {
+        showBootRecoveryError();
+        return;
+    }
+    try { sessionStorage.setItem(bootRecoveryKey, '1'); } catch (_) {}
+    const clearSite = Promise.all([
+        navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            return Promise.all(registrations.map(function(registration) { return registration.unregister(); }));
+        }) : Promise.resolve(),
+        window.caches ? caches.keys().then(function(keys) { return Promise.all(keys.map(function(key) { return caches.delete(key); })); }) : Promise.resolve()
+    ]);
+    let reloadStarted = false;
+    const reload = function() {
+        if (reloadStarted) return;
+        reloadStarted = true;
+        window.location.reload();
+    };
+    clearSite.catch(function() {}).finally(reload);
+    setTimeout(reload, 2000);
+}, 10000);
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { clearTimeout(bootRecoveryTimer); }, {once: true});
+} else {
+    clearTimeout(bootRecoveryTimer);
+}
+document.addEventListener('input', function(event) {
+    if (event.target && event.target.closest('form')) hasDirtyForm = true;
+}, true);
+document.addEventListener('change', function(event) {
+    if (event.target && event.target.closest('form')) hasDirtyForm = true;
+}, true);
+
+function metaText(name, fallback) {
+    const element = document.querySelector('meta[name="' + name + '"]');
+    return element && element.content ? element.content : fallback;
+}
+
+function showBootRecoveryError() {
+    const defaults = {
+        title: 'Offline',
+        heading: 'Unable to load the application',
+        message: 'The application could not start. Check your connection and try again.'
+    };
+    const strings = window.caches
+        ? caches.open('airports-offline-strings').then(function(cache) {
+            return cache.match('/offline-strings.json').then(function(response) {
+                return response ? response.json() : defaults;
+            });
+        }).catch(function() { return defaults; })
+        : Promise.resolve(defaults);
+    strings.then(function(value) {
+        const panel = document.createElement('main');
+        panel.className = 'app-recovery-panel';
+        panel.setAttribute('role', 'alert');
+        const headingElement = document.createElement('h1');
+        headingElement.textContent = value.heading || defaults.heading;
+        const messageElement = document.createElement('p');
+        messageElement.textContent = value.message || defaults.message;
+        const reload = document.createElement('a');
+        reload.href = window.location.href;
+        reload.textContent = value.reload || 'Reload';
+        panel.append(headingElement, messageElement, reload);
+        document.title = value.title || defaults.title;
+        document.body.replaceChildren(panel);
+    });
+}
+
+function showConnectionBanner() {
+    let banner = document.getElementById('connection-status-banner');
+    if (banner) return;
+    banner = document.createElement('div');
+    banner.id = 'connection-status-banner';
+    banner.className = 'app-status-banner';
+    banner.setAttribute('role', 'status');
+    banner.setAttribute('aria-live', 'polite');
+    banner.textContent = metaText('connection-reconnecting', 'Reconnecting to the server…');
+    document.body.appendChild(banner);
+}
+
+function clearConnectionBanner() {
+    document.getElementById('connection-status-banner')?.remove();
+}
+
+window.addEventListener('offline', function() {
+    let banner = document.getElementById('connection-status-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'connection-status-banner';
+        banner.className = 'app-status-banner';
+        banner.setAttribute('role', 'status');
+        banner.setAttribute('aria-live', 'polite');
+        document.body.appendChild(banner);
+    }
+    banner.textContent = metaText('offline-indicator', 'You are offline. Some features may be unavailable.');
+});
+window.addEventListener('online', clearConnectionBanner);
+
+function showUpdateNotification() {
+    if (document.getElementById('app-update-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'app-update-banner';
+    banner.className = 'app-status-banner';
+    banner.setAttribute('role', 'status');
+    const label = document.createElement('span');
+    label.textContent = metaText('app-update-available', 'A new version is available');
+    const actions = document.createElement('div');
+    actions.className = 'app-status-actions';
+    const update = document.createElement('button');
+    update.type = 'button';
+    update.className = 'btn btn-primary';
+    update.textContent = metaText('app-update-now', 'Update Now');
+    update.addEventListener('click', function() {
+        serviceWorkerUpdateAccepted = true;
+        applyServiceWorkerUpdate();
+    });
+    const later = document.createElement('button');
+    later.type = 'button';
+    later.className = 'btn btn-secondary';
+    later.textContent = metaText('app-update-later', 'Later');
+    later.addEventListener('click', function() { banner.remove(); });
+    actions.append(update, later);
+    banner.append(label, actions);
+    document.body.appendChild(banner);
+}
+
+function reloadOnce() {
+    if (serviceWorkerReloading) return;
+    serviceWorkerReloading = true;
+    window.location.reload();
+}
+
+function applyServiceWorkerUpdate() {
+    navigator.serviceWorker.ready.then(function(registration) {
+        if (registration.waiting) {
+            registration.waiting.postMessage({type: 'SKIP_WAITING'});
+            setTimeout(reloadOnce, 5000);
+        } else {
+            reloadOnce();
+        }
+    }).catch(reloadOnce);
+}
+
+function handleBuildStamp(response) {
+    const nextStamp = response.headers.get('X-Build');
+    const pageStamp = document.documentElement.dataset.buildStamp;
+    if (!nextStamp || !pageStamp || nextStamp === pageStamp || buildReloadScheduled) return;
+    if (hasDirtyForm) {
+        showUpdateNotification();
+        return;
+    }
+    let recovered = false;
+    try { recovered = sessionStorage.getItem(buildRecoveryKey) === nextStamp; } catch (_) {}
+    if (recovered) return;
+    buildReloadScheduled = true;
+    try { sessionStorage.setItem(buildRecoveryKey, nextStamp); } catch (_) {}
+    setTimeout(function() { window.location.reload(); }, 250);
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async function(input, init) {
+    init = init || {};
+    const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const safeToRetry = method === 'GET' || method === 'HEAD';
+    for (let attempt = 0; ; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(function() { controller.abort(); }, 30000);
+        const parentSignal = init.signal || (input instanceof Request ? input.signal : null);
+        const abortParent = function() { controller.abort(); };
+        if (parentSignal) {
+            if (parentSignal.aborted) controller.abort();
+            else parentSignal.addEventListener('abort', abortParent, {once: true});
+        }
+        let response;
+        try {
+            response = await nativeFetch(input, Object.assign({}, init, {signal: controller.signal}));
+        } catch (error) {
+            showConnectionBanner();
+            throw error;
+        } finally {
+            clearTimeout(timeout);
+            if (parentSignal) parentSignal.removeEventListener('abort', abortParent);
+        }
+        if (response.status === 503) {
+            showConnectionBanner();
+            if (safeToRetry && attempt < 5) {
+                const retryAfter = response.headers.get('Retry-After');
+                const seconds = Number(retryAfter);
+                const dateDelay = Number.isFinite(seconds) ? seconds * 1000 : Math.max(0, Date.parse(retryAfter || '') - Date.now());
+                const backoff = Math.min(30000, 1000 * Math.pow(2, attempt));
+                const delay = Math.min(30000, dateDelay || backoff) + Math.floor(Math.random() * 250);
+                await new Promise(function(resolve) { setTimeout(resolve, delay); });
+                continue;
+            }
+        } else if (response.ok) {
+            clearConnectionBanner();
+        }
+        handleBuildStamp(response);
+        return response;
+    }
+};
+
 // escapeHtml escapes a string for safe interpolation into an innerHTML
 // template literal. Used wherever user-supplied input (as opposed to
 // hardcoded markup) is inserted via innerHTML instead of textContent.
@@ -259,9 +469,42 @@ function formatCoordinates(lat, lon) {
 }
 
 // Service worker registration
+if ('caches' in window) {
+    const metaValue = function(name) {
+        const element = document.querySelector('meta[name="' + name + '"]');
+        return element ? element.content : '';
+    };
+    const offlineStrings = {
+        lang: document.documentElement.lang || 'en',
+        dir: document.documentElement.dir || 'ltr',
+        title: metaValue('offline-title'),
+        heading: metaValue('offline-heading'),
+        message: metaValue('offline-message'),
+        reload: metaValue('app-update-now')
+    };
+    caches.open('airports-offline-strings').then(function(cache) {
+        return cache.put('/offline-strings.json', new Response(JSON.stringify(offlineStrings), {
+            headers: {'Content-Type': 'application/json'}
+        }));
+    }).catch(function() {});
+}
+
 if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (serviceWorkerUpdateAccepted) reloadOnce();
+    });
     window.addEventListener('load', function() {
-        navigator.serviceWorker.register(appPath('/sw.js')).catch(function() {});
+        navigator.serviceWorker.register(appPath('/sw.js')).then(function(registration) {
+            setInterval(function() { registration.update().catch(function() {}); }, 60 * 60 * 1000);
+            registration.addEventListener('updatefound', function() {
+                const worker = registration.installing;
+                if (!worker) return;
+                worker.addEventListener('statechange', function() {
+                    if (worker.state === 'installed' && navigator.serviceWorker.controller) showUpdateNotification();
+                });
+            });
+            if (registration.waiting && navigator.serviceWorker.controller) showUpdateNotification();
+        }).catch(function() {});
     });
 }
 

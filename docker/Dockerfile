@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=linux GOARCH=amd64 go run ./src/s
 RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build \
         -trimpath \
-        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+        -ldflags "-s -w -X 'github.com/apimgr/airports/src/app.Version=${VERSION}' -X 'github.com/apimgr/airports/src/app.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${OFFICIAL_SITE}'" \
         -o /out/airports ./src && \
     if [ -d src/client ]; then \
         CGO_ENABLED=0 GOFLAGS=-buildvcs=false GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

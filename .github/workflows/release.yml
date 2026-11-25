@@ -71,7 +71,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          LDFLAGS="-s -w -X 'github.com/apimgr/airports/src/app.Version=${{ env.VERSION }}' -X 'github.com/apimgr/airports/src/app.CommitID=${{ env.COMMIT_ID }}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${{ env.PROJECT_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./src
 
       # CLI build - only if src/client/ directory exists

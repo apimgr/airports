@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -305,7 +306,7 @@ func (s *Server) renderOwnerTokensPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if hasOwner {
 		s.setOwnerCookie(w, r, cookieToken)
-	} else if _, err := r.Cookie(ownerTokenCookieName); err == nil {
+	} else if _, err := s.ownerTokenCookie(r); err == nil {
 		s.clearOwnerCookie(w, r)
 	}
 	items := []ownerTokenRecord{}
@@ -995,55 +996,79 @@ func (s *Server) handleServerAboutAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleServerHealthz is implemented in healthz.go per AI.md PART 13.
 
-// handleAutodiscover returns server settings, configuration schema, and CLI/agent
-// options per AI.md PART 14 (/api/autodiscover — unversioned endpoint).
-//
-// Response includes: server version, API versions, primary URL, cluster URLs,
-// cli_versions (per-platform tarball info), and cli_min_version.
+// handleAutodiscover returns the public discovery contract from AI.md PART 14.
 func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
-	primaryURL := s.publicBaseURL(r)
-	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
-	base := s.APIBasePath()
-
 	resp := map[string]interface{}{
-		"server": map[string]interface{}{
-			"name":         "Airports API",
-			"version":      Version,
-			"commit":       CommitID,
-			"build_date":   BuildDate,
-			"primary_url":  primaryURL,
-			"cluster_urls": []string{},
-		},
+		"name":    "airports",
+		"version": Version,
 		"api": map[string]interface{}{
-			"versions":        []string{s.config.Server.APIVersion},
 			"current_version": s.config.Server.APIVersion,
-			"base_path":       baseURL + "/api",
 		},
 		// cli_versions maps os/arch → {version, url, sha256} from the matching GitHub release.
 		"cli_versions": s.cliReleaseVersions(r),
 		// cli_min_version is the oldest CLI that this server still supports.
 		"cli_min_version": s.config.Server.Update.CLIMinVersion,
-		"endpoints": map[string]string{
-			"healthz":      primaryURL + base + "/server/healthz",
-			"about":        primaryURL + base + "/server/about",
-			"swagger":      primaryURL + base + "/server/swagger",
-			"graphql":      primaryURL + base + "/server/graphql",
-			"airports":     primaryURL + base + "/airports",
-			"search":       primaryURL + base + "/airports/search",
-			"nearby":       primaryURL + base + "/airports/nearby",
-			"within":       primaryURL + base + "/airports/within",
-			"autocomplete": primaryURL + base + "/airports/autocomplete",
-			"geoip":        primaryURL + base + "/geoip",
-			"stats":        primaryURL + base + "/stats",
-		},
-		"features": map[string]bool{
-			"geoip":          true,
-			"graphql":        true,
-			"metrics":        true,
-			"tor":            false,
-			"authentication": false,
-		},
+		"urls":            s.autodiscoverURLs(r),
+	}
+	if s.config.Server.Tor.Expose && s.tor != nil && s.tor.IsTorEnabled() {
+		if address := strings.TrimSpace(s.tor.OnionAddress()); address != "" {
+			resp["onion"] = address
+		}
+	}
+	if s.config.Server.I2P.Expose && s.i2p != nil && s.config.Server.I2P.Enabled {
+		if address := strings.TrimSpace(s.i2p.EepsiteAddress()); address != "" {
+			resp["i2p"] = address
+		}
 	}
 
 	s.respondItem(w, http.StatusOK, resp)
+}
+
+func (s *Server) autodiscoverURLs(r *http.Request) []string {
+	proto, host, port := urlvars.GetRequestURLVariables(r)
+	if s.urlResolver != nil {
+		proto, host, port = s.urlResolver.GetRequestURLVariables(r)
+	}
+	urls := make([]string, 0)
+	seen := make(map[string]struct{})
+	appendOrigin := func(candidateHost, candidatePort string) {
+		candidateHost = strings.Trim(strings.TrimSpace(candidateHost), "[]")
+		if candidateHost == "" || strings.HasSuffix(strings.ToLower(candidateHost), ".onion") || strings.HasSuffix(strings.ToLower(candidateHost), ".i2p") {
+			return
+		}
+		if ip := net.ParseIP(candidateHost); ip != nil && ip.To4() == nil {
+			candidateHost = "[" + ip.String() + "]"
+		}
+		if candidatePort != "" && candidatePort != "80" && candidatePort != "443" {
+			candidateHost = net.JoinHostPort(strings.Trim(candidateHost, "[]"), candidatePort)
+		}
+		origin := proto + "://" + candidateHost
+		if _, ok := seen[origin]; !ok {
+			seen[origin] = struct{}{}
+			urls = append(urls, origin)
+		}
+	}
+	appendOrigin(host, port)
+	for _, domain := range strings.Split(os.Getenv("DOMAIN"), ",") {
+		domain = strings.TrimSpace(domain)
+		if domain == "" {
+			continue
+		}
+		parsed, err := url.Parse("//" + domain)
+		if err != nil || parsed.Host == "" || parsed.Path != "" || parsed.User != nil {
+			continue
+		}
+		domainHost, domainPort, err := net.SplitHostPort(parsed.Host)
+		if err != nil {
+			domainHost = parsed.Hostname()
+			domainPort = parsed.Port()
+		}
+		appendOrigin(domainHost, domainPort)
+	}
+	if s.urlResolver != nil {
+		for _, learnedHost := range s.urlResolver.GetLearnedHosts() {
+			appendOrigin(learnedHost, "")
+		}
+	}
+	return urls
 }

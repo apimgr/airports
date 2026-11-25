@@ -1,0 +1,6 @@
+Subject: Self-healing stopped - {app_name}
+---
+{app_name} remains in read-only maintenance mode after {attempts} failed recovery attempts.
+
+Cause: {reason}
+Operator action is required. Remove the cause and restart the service.

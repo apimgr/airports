@@ -6,10 +6,13 @@ variables:
   GIT_DEPTH: "0"
 
 stages:
+  - lint
+  - security
   - build
   - test
-  - security
+  - package
   - release
+  - docker
 
 build:
   stage: build
@@ -24,11 +27,12 @@ build:
     - BUILD_EPOCH="$(date -u +%s)"
     - BUILD_DATE="$(date -u -d "@$BUILD_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")"
     - OFFICIAL_SITE="${OFFICIAL_SITE:-}"
-    - LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
+    - LDFLAGS="-s -w -X 'github.com/apimgr/airports/src/app.Version=${VERSION}' -X 'github.com/apimgr/airports/src/app.CommitID=${COMMIT_ID}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${BUILD_EPOCH}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${OFFICIAL_SITE}'"
+    - CLI_LDFLAGS="-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'"
     - EXT=""; if [ "$GOOS" = windows ]; then EXT=".exe"; fi
     - GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen
     - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-${GOOS}-${GOARCH}${EXT}" ./src
-    - go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "${PROJECT_NAME}-cli-${GOOS}-${GOARCH}${EXT}" ./src/client
+    - go build -buildvcs=false -trimpath -ldflags "$CLI_LDFLAGS" -o "${PROJECT_NAME}-cli-${GOOS}-${GOARCH}${EXT}" ./src/client
   artifacts:
     paths:
       - airports-*
@@ -42,7 +46,13 @@ test:
   stage: test
   image: $BUILD_IMAGE
   script:
-    - go test -coverprofile=coverage.out ./...
+    - mkdir -p "/tmp/${CI_PROJECT_NAMESPACE}"
+    - COVDIR=$(mktemp -d "/tmp/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}-XXXXXX")
+    - trap 'rm -rf "$COVDIR"' EXIT
+    - go test -coverprofile="$COVDIR/coverage.out" ./...
+    - PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+    - if [ "$PCT" -lt 60 ]; then echo "coverage ${PCT}% is below the 60% threshold"; exit 1; fi
+    - cp "$COVDIR/coverage.out" coverage.out
   artifacts:
     paths:
       - coverage.out
@@ -53,7 +63,7 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 lint:
-  stage: test
+  stage: lint
   image: $BUILD_IMAGE
   script:
     - go vet ./...
@@ -93,6 +103,42 @@ vuln-scan:
     - if: $CI_COMMIT_TAG
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "schedule"
+
+workflow-policy:
+  stage: security
+  image: $BUILD_IMAGE
+  script:
+    - |
+      bad=$(grep -RnE '^[[:space:]]*uses:' .github/ .gitea/ .forgejo/ 2>/dev/null | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' || true)
+      if [ -n "$bad" ]; then echo "unpinned actions found:"; echo "$bad"; exit 1; fi
+
+image-build:
+  stage: security
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker build -t local/scan-target:ci -f docker/Dockerfile .
+    - docker save local/scan-target:ci -o image.tar
+  artifacts:
+    paths:
+      - image.tar
+    expire_in: 1 hour
+  rules:
+    - exists:
+        - docker/Dockerfile
+
+image-scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  needs: [image-build]
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL,HIGH --input image.tar
+  rules:
+    - exists:
+        - docker/Dockerfile
 
 release:
   stage: release

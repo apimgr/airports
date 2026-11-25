@@ -32,8 +32,6 @@ import (
 // per-IP rejection counter rather than accumulating forever.
 const requestFloodWindow = time.Minute
 
-const redisFallbackMarkerKey = "v1:backend:redis_fallback"
-
 // ipLimiter holds a rate limiter and the last-seen time for an IP, plus the
 // request-flood abuse-detection rejection counter.
 type ipLimiter struct {
@@ -44,7 +42,7 @@ type ipLimiter struct {
 	floodTriggered bool
 }
 
-// RateLimiter is a per-IP rate limiter store. When cfg/blockStore are set
+// RateLimiter is a per-identity rate limiter store. When cfg/blockStore are set
 // (via NewRateLimiter) it also implements the request-flood abuse-detection
 // auto-block/auto-alert trigger from AI.md PART 11 "Abuse Detection".
 type RateLimiter struct {
@@ -61,28 +59,20 @@ type RateLimiter struct {
 	authFailures config.RateLimitBucket
 	global       int
 
-	cfg                *config.ApplicationConfig
-	configDir          string
-	blockStore         *BlockStore
-	metrics            *appMetrics
-	db                 dbmetrics.Handle
-	dbPending          map[string]pendingRateCounter
-	dbFlushStarted     bool
-	dbFlushStop        chan struct{}
-	cache              cachepkg.RateLimitStore
-	configuredCache    cachepkg.RateLimitStore
-	fallbackFromRedis  bool
-	lastStorageWarning time.Time
-	debugLogCache      atomic.Bool
-	debugLogDB         func(string, []any, time.Duration, int64, error)
+	cfg                     *config.ApplicationConfig
+	configDir               string
+	blockStore              *BlockStore
+	metrics                 *appMetrics
+	db                      dbmetrics.Handle
+	cache                   cachepkg.RateLimitStore
+	externalCacheConfigured bool
+	externalCacheFallback   bool
+	storageWarningLogged    bool
+	debugLogCache           atomic.Bool
+	debugLogDB              func(string, []any, time.Duration, int64, error)
 }
 
-type pendingRateCounter struct {
-	count int
-	start int64
-}
-
-// NewConfiguredRateLimiter builds per-IP sliding-window buckets from
+// NewConfiguredRateLimiter builds weighted sliding-window buckets from
 // server.rate_limit. Persistence is attached by Server.New.
 func NewConfiguredRateLimiter(cfg *config.ApplicationConfig, configDir string, blockStore *BlockStore) *RateLimiter {
 	defaults := config.DefaultApplicationConfig().Server.RateLimit
@@ -126,131 +116,40 @@ func NewConfiguredRateLimiter(cfg *config.ApplicationConfig, configDir string, b
 	return rl
 }
 
-// SetPersistence uses the configured durable cache when it supports atomic
-// rate-limit operations, otherwise it persists counters in server.db.
+// SetPersistence selects the external cache when configured, otherwise server.db.
+// An unavailable external cache falls back to process-local counters until restart.
 func (rl *RateLimiter) SetPersistence(database dbmetrics.Handle, cache cachepkg.Cache, cacheConfigured bool) error {
-	var databaseErr error
-	databaseReady := false
-	retention := rl.maxRateLimitWindow()
-	if database != nil {
-		if err := ensureRateLimitSchema(database); err != nil {
-			databaseErr = err
-		} else {
-			databaseReady = true
-			rl.mu.Lock()
-			rl.db = database
-			rl.dbPending = make(map[string]pendingRateCounter)
-			rl.mu.Unlock()
-			rl.startRateLimitFlushLoop()
-			if err := cleanupRateLimitRows(database, time.Now().Add(-retention).Unix(), 500); err != nil {
-				databaseErr = err
-			}
-		}
-	}
-	fallbackActive := false
-	if databaseReady {
-		active, err := redisFallbackIsActive(database, time.Now(), retention, nil)
-		if err != nil {
-			databaseErr = err
-			fallbackActive = true
-		} else {
-			fallbackActive = active
-		}
-	}
-	if fallbackActive {
-		rl.mu.Lock()
-		rl.fallbackFromRedis = true
-		rl.mu.Unlock()
-	}
+	rl.mu.Lock()
+	rl.externalCacheConfigured = cacheConfigured
 	if cacheConfigured {
-		if store, ok := cache.(cachepkg.RateLimitStore); ok {
-			rl.mu.Lock()
-			rl.configuredCache = store
-			rl.mu.Unlock()
-			if !fallbackActive {
-				rl.mu.Lock()
-				rl.cache = store
-				rl.mu.Unlock()
-				return nil
-			}
-		}
-	}
-	if databaseReady {
-		return nil
-	}
-	return databaseErr
-}
-
-func (rl *RateLimiter) startRateLimitFlushLoop() {
-	rl.mu.Lock()
-	if rl.dbFlushStarted {
+		store, ok := cache.(cachepkg.RateLimitStore)
+		rl.cache = store
+		rl.db = nil
+		rl.externalCacheFallback = !ok
 		rl.mu.Unlock()
-		return
-	}
-	rl.dbFlushStarted = true
-	rl.dbFlushStop = make(chan struct{})
-	stop := rl.dbFlushStop
-	rl.mu.Unlock()
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := rl.FlushRateLimitCounters(); err != nil {
-					log.Printf("Warning: rate-limit counter flush failed (%s)", rateLimitStorageErrorKind(err))
-				}
-			case <-stop:
-				return
-			}
-		}
-	}()
-}
-
-// FlushRateLimitCounters persists all pending database counters atomically.
-// Failed flushes leave the in-memory map intact for the next attempt.
-func (rl *RateLimiter) FlushRateLimitCounters() error {
-	rl.dbRateMu.Lock()
-	defer rl.dbRateMu.Unlock()
-	rl.mu.Lock()
-	database := rl.db
-	rl.mu.Unlock()
-	if database == nil || len(rl.dbPending) == 0 {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err := dbmetrics.Transaction(ctx, database, func(tx *dbmetrics.TransactionHandle) error {
-		for key, counter := range rl.dbPending {
-			var err error
-			if key == redisFallbackMarkerKey {
-				_, err = tx.ExecContext(ctx, `INSERT INTO rate_limits (key,count,window_start,updated_at) VALUES (?,1,?,?) ON CONFLICT(key) DO UPDATE SET count=1,window_start=excluded.window_start,updated_at=excluded.updated_at`, key, counter.start, counter.start)
-			} else {
-				_, err = tx.ExecContext(ctx, `INSERT INTO rate_limits (key,count,window_start,updated_at) VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET count=count+excluded.count,updated_at=excluded.updated_at`, key, counter.count, counter.start, counter.start)
-			}
-			if err != nil {
-				return err
-			}
+		if !ok {
+			rl.warnStorageFallback("cache", errors.New("rate-limit operations unavailable"))
 		}
 		return nil
-	})
-	if err != nil {
+	}
+	rl.cache = nil
+	rl.externalCacheFallback = false
+	rl.db = database
+	rl.mu.Unlock()
+	if database == nil {
+		return nil
+	}
+	if err := ensureRateLimitSchema(database); err != nil {
+		rl.warnStorageFallback("database", err)
+		rl.mu.Lock()
+		rl.db = nil
+		rl.mu.Unlock()
 		return err
 	}
-	clear(rl.dbPending)
-	return nil
-}
-
-// ShutdownRateLimitCounters stops periodic flushing and performs the final flush.
-func (rl *RateLimiter) ShutdownRateLimitCounters() error {
-	rl.mu.Lock()
-	stop := rl.dbFlushStop
-	rl.dbFlushStop = nil
-	rl.mu.Unlock()
-	if stop != nil {
-		close(stop)
+	if err := cleanupRateLimitRows(database, time.Now().Add(-rl.maxRateLimitWindow()).Unix(), 500); err != nil {
+		rl.warnStorageFallback("database", err)
 	}
-	return rl.FlushRateLimitCounters()
+	return nil
 }
 
 func (rl *RateLimiter) maxRateLimitWindow() time.Duration {
@@ -263,35 +162,23 @@ func (rl *RateLimiter) maxRateLimitWindow() time.Duration {
 	return maxWindow
 }
 
-func redisFallbackIsActive(database dbmetrics.Handle, now time.Time, maxWindow time.Duration, debugLog func(string, []any, time.Duration, int64, error)) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	var lastFallback int64
-	started := time.Now()
-	err := database.QueryRowContext(ctx, `SELECT window_start FROM rate_limits WHERE key=?`, redisFallbackMarkerKey).Scan(&lastFallback)
-	dbmetrics.ObserveQuery("select", "rate_limits", started, err)
-	if debugLog != nil {
-		rows := int64(0)
-		if err == nil {
-			rows = 1
-		}
-		debugLog(`SELECT window_start FROM rate_limits WHERE key=?`, []any{redisFallbackMarkerKey}, time.Since(started), rows, err)
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	// The marker is second-granular, so retain DB authority for one extra
-	// second to avoid resuming Redis before a live fallback bucket expires.
-	return now.Sub(time.Unix(lastFallback, 0)) <= maxWindow+time.Second, nil
+// ShutdownRateLimitCounters remains for server lifecycle compatibility; each
+// database decision is written immediately and has no pending flush.
+func (rl *RateLimiter) ShutdownRateLimitCounters() error { return nil }
+
+// ExternalCacheDegraded reports external-cache rate limiting has fallen back
+// to process-local counters; healthz uses this to expose cache status degraded.
+func (rl *RateLimiter) ExternalCacheDegraded() bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return rl.externalCacheConfigured && rl.externalCacheFallback
 }
 
 func ensureRateLimitSchema(database dbmetrics.Handle) error {
 	query := `CREATE TABLE IF NOT EXISTS rate_limits (
 		key TEXT PRIMARY KEY,
 		count INTEGER NOT NULL DEFAULT 1,
+		prev_count INTEGER NOT NULL DEFAULT 0,
 		window_start INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
 		updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 	)`
@@ -300,6 +187,19 @@ func ensureRateLimitSchema(database dbmetrics.Handle) error {
 	logRateLimitSQL(query, 0, started, result, err)
 	if err != nil {
 		return fmt.Errorf("rate limit: create schema: %w", err)
+	}
+	columns, columnErr := database.Query(`SELECT prev_count FROM rate_limits LIMIT 0`)
+	if columnErr == nil {
+		columnErr = columns.Close()
+	}
+	if columnErr != nil {
+		query = `ALTER TABLE rate_limits ADD COLUMN prev_count INTEGER NOT NULL DEFAULT 0`
+		started = time.Now()
+		result, columnErr = database.Exec(query)
+		logRateLimitSQL(query, 0, started, result, columnErr)
+		if columnErr != nil {
+			return fmt.Errorf("rate limit: migrate previous-window counter: %w", columnErr)
+		}
 	}
 	query = `CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)`
 	started = time.Now()
@@ -369,7 +269,7 @@ func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	return entry.limiter
 }
 
-// allowConfigured applies the route-class bucket and the absolute per-IP
+// allowConfigured applies the route-class bucket and the absolute per-identity
 // ceiling, returning the active limit, remaining requests, and reset time.
 func (rl *RateLimiter) allowConfigured(ip, method, requestPath string, now time.Time) (bool, int, int, time.Time, string) {
 	class, bucket := "read", rl.read
@@ -384,70 +284,49 @@ func (rl *RateLimiter) allowConfigured(ip, method, requestPath string, now time.
 func (rl *RateLimiter) allowConfiguredBucket(ip, class string, bucket config.RateLimitBucket, now time.Time) (bool, int, int, time.Time, string) {
 	window := time.Duration(bucket.Window) * time.Second
 	rl.mu.Lock()
-	cacheStore, database, fallbackFromRedis := rl.cache, rl.db, rl.fallbackFromRedis
+	cacheStore, database := rl.cache, rl.db
+	externalFallback := rl.externalCacheFallback
 	rl.mu.Unlock()
-	if cacheStore == nil && fallbackFromRedis && database != nil {
-		rl.dbRateMu.Lock()
-		fallbackPending := rl.dbPending[redisFallbackMarkerKey].count > 0
-		rl.dbRateMu.Unlock()
-		active := fallbackPending
-		var err error
-		if !fallbackPending {
-			active, err = redisFallbackIsActive(database, now, rl.maxRateLimitWindow(), rl.debugLogDB)
-		}
-		if err == nil && !active {
-			rl.mu.Lock()
-			if rl.cache == nil {
-				rl.cache = rl.configuredCache
-				rl.fallbackFromRedis = false
-			}
-			cacheStore, fallbackFromRedis = rl.cache, rl.fallbackFromRedis
-			rl.mu.Unlock()
-		}
-	}
 	if cacheStore != nil {
 		identity := fmt.Sprintf("%x", sha256.Sum256([]byte(ip)))
 		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 		started := time.Now()
-		allowed, classCount, globalCount, classOldest, globalOldest, err := cacheStore.AllowRateLimit(ctx, identity, class, now, window, time.Minute, bucket.Requests, rl.global)
+		allowed, classCount, globalCount, classReset, globalReset, err := cacheStore.AllowRateLimit(ctx, identity, class, now, window, time.Minute, bucket.Requests, rl.global)
 		cancel()
 		rl.logRateLimitCache(identity, class, allowed, time.Since(started), err)
 		if err == nil {
 			if allowed {
+				rl.mirrorSecurityCounter(ip, class, now)
 				return true, bucket.Requests, bucket.Requests - classCount, now.Add(window), "per_ip"
 			}
-			limit, interval, limitType := bucket.Requests, window, "per_ip"
-			oldest := classOldest
+			limit, limitType := bucket.Requests, "per_ip"
+			reset := classReset
 			if globalCount >= rl.global {
-				limit, interval, limitType, oldest = rl.global, time.Minute, "global", globalOldest
+				limit, reset, limitType = rl.global, globalReset, "global"
 			}
-			reset := now.Add(interval)
-			if !oldest.IsZero() {
-				reset = oldest.Add(interval)
+			if reset.IsZero() {
+				reset = now.Add(window)
 			}
 			return false, limit, 0, reset, limitType
 		}
 		rl.warnStorageFallback("cache", err)
 		rl.mu.Lock()
 		rl.cache = nil
-		rl.fallbackFromRedis = true
+		rl.externalCacheFallback = true
 		rl.mu.Unlock()
-		fallbackFromRedis = true
-		if database != nil {
-			rl.dbRateMu.Lock()
-			if rl.dbPending == nil {
-				rl.dbPending = make(map[string]pendingRateCounter)
-			}
-			rl.dbPending[redisFallbackMarkerKey] = pendingRateCounter{count: 1, start: now.Unix()}
-			rl.dbRateMu.Unlock()
-		}
 	}
-	if database != nil {
-		allowed, limit, remaining, reset, limitType, err := rl.allowConfiguredDatabase(database, rl.global, ip, class, bucket, window, now, fallbackFromRedis, rl.debugLogDB)
+	if database != nil && !externalFallback {
+		allowed, limit, remaining, reset, limitType, err := rl.allowConfiguredDatabase(database, rl.global, ip, class, bucket, window, now, rl.debugLogDB)
 		if err == nil {
+			if allowed {
+				rl.mirrorSecurityCounter(ip, class, now)
+			}
 			return allowed, limit, remaining, reset, limitType
 		}
 		rl.warnStorageFallback("database", err)
+		rl.mu.Lock()
+		rl.db = nil
+		rl.mu.Unlock()
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -480,6 +359,21 @@ func (rl *RateLimiter) allowConfiguredBucket(ip, class string, bucket config.Rat
 	return false, limit, 0, reset, limitType
 }
 
+func (rl *RateLimiter) mirrorSecurityCounter(ip, class string, now time.Time) {
+	if class != "strict" && class != "auth_failures" {
+		return
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	byClass := rl.windows[ip]
+	if byClass == nil {
+		byClass = make(map[string][]time.Time)
+		rl.windows[ip] = byClass
+	}
+	byClass[class] = append(byClass[class], now)
+	byClass["global"] = append(byClass["global"], now)
+}
+
 // authFailureLocked reports whether the IP has reached the failed-auth
 // threshold, without recording another request in that bucket.
 func (rl *RateLimiter) authFailureLocked(ip string, now time.Time) (bool, time.Time) {
@@ -495,39 +389,34 @@ func (rl *RateLimiter) authFailureLocked(ip string, now time.Time) (bool, time.T
 	if cacheStore != nil {
 		if status, ok := cacheStore.(cachepkg.RateLimitStatusStore); ok {
 			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-			count, oldest, err := status.CheckRateLimit(ctx, identity, "auth_failures", now, window)
+			count, reset, err := status.CheckRateLimit(ctx, identity, "auth_failures", now, window, bucket.Requests)
 			cancel()
 			if err == nil {
-				return count >= bucket.Requests, oldest.Add(window)
+				return count >= bucket.Requests, reset
 			}
 			rl.warnStorageFallback("cache", err)
+			rl.mu.Lock()
+			rl.cache = nil
+			rl.externalCacheFallback = true
+			rl.mu.Unlock()
+			database = nil
 		}
 	}
 	if database != nil {
-		rl.dbRateMu.Lock()
-		cutoff := rateLimitCutoffUnix(now, window)
-		var count int
-		var oldest sql.NullInt64
-		err := database.QueryRow(`SELECT COALESCE(SUM(count),0), MIN(window_start) FROM rate_limits WHERE key LIKE ? AND window_start > ?`,
-			"v1:"+identity+":auth_failures:%", cutoff).Scan(&count, &oldest)
-		if err == nil {
-			for key, counter := range rl.dbPending {
-				if strings.HasPrefix(key, "v1:"+identity+":auth_failures:") && counter.start > cutoff {
-					count += counter.count
-					if !oldest.Valid || counter.start < oldest.Int64 {
-						oldest.Int64, oldest.Valid = counter.start, true
-					}
-				}
-			}
-			reset := time.Time{}
-			if oldest.Valid {
-				reset = time.Unix(oldest.Int64, 0).Add(window)
-			}
-			rl.dbRateMu.Unlock()
-			return count >= bucket.Requests, reset
+		var count, previous int
+		var start int64
+		err := database.QueryRow(`SELECT count,prev_count,window_start FROM rate_limits WHERE key=?`, "v1:"+identity+":auth_failures").Scan(&count, &previous, &start)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, time.Time{}
 		}
-		rl.dbRateMu.Unlock()
+		if err == nil {
+			counter, _ := loadRateCounterValue(count, previous, start, now, window)
+			return counter.weighted(now, window) >= float64(bucket.Requests), counter.resetTime(now, window, bucket.Requests)
+		}
 		rl.warnStorageFallback("database", err)
+		rl.mu.Lock()
+		rl.db = nil
+		rl.mu.Unlock()
 	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -566,19 +455,12 @@ func (rl *RateLimiter) setDebugLogCache(enabled bool) {
 }
 
 func (rl *RateLimiter) warnStorageFallback(backend string, err error) {
-	now := time.Now()
 	rl.mu.Lock()
-	shouldLog := rl.lastStorageWarning.IsZero() || now.Sub(rl.lastStorageWarning) >= time.Minute
-	if shouldLog {
-		rl.lastStorageWarning = now
-	}
+	shouldLog := !rl.storageWarningLogged
+	rl.storageWarningLogged = true
 	rl.mu.Unlock()
 	if shouldLog {
-		scope := "cross-process"
-		if backend == "cache" {
-			scope = "cross-instance"
-		}
-		log.Printf("Warning: persistent %s rate-limit operation failed (%s); %s protection is unavailable during fallback", backend, rateLimitStorageErrorKind(err), scope)
+		slog.Warn("persistent rate-limit backend unavailable; using process-local counters until restart", "backend", backend, "error", rateLimitStorageErrorKind(err))
 	}
 }
 
@@ -593,99 +475,129 @@ func rateLimitStorageErrorKind(err error) string {
 	return "storage_error"
 }
 
-func (rl *RateLimiter) allowConfiguredDatabase(database dbmetrics.Handle, globalLimit int, ip, class string, bucket config.RateLimitBucket, window time.Duration, now time.Time, persistFallbackMarker bool, debugLog func(string, []any, time.Duration, int64, error)) (bool, int, int, time.Time, string, error) {
+func (rl *RateLimiter) allowConfiguredDatabase(database dbmetrics.Handle, globalLimit int, ip, class string, bucket config.RateLimitBucket, window time.Duration, now time.Time, debugLog func(string, []any, time.Duration, int64, error)) (bool, int, int, time.Time, string, error) {
 	rl.dbRateMu.Lock()
 	defer rl.dbRateMu.Unlock()
 	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(ip)))
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	// The request path reads durable counters and pending in-memory increments;
-	// it never writes rate-limit rows. dbRateMu serializes the decision and
-	// increment with flushes, so a pending increment cannot be counted twice.
-	if persistFallbackMarker {
-		rl.dbPending[redisFallbackMarkerKey] = pendingRateCounter{count: 1, start: now.Unix()}
-	}
-	// SQLite stores one-second buckets. Retain the preceding second when
-	// rounding cutoffs so precision can only conservatively extend a limit.
-	cutoff := func(d time.Duration) int64 { return rateLimitCutoffUnix(now, d) }
-	second := now.Unix()
-	keys := make([]string, 0, 2)
-	for _, trackedClass := range []string{class, "global"} {
-		key := fmt.Sprintf("v1:%s:%s:%d", identity, trackedClass, second)
-		keys = append(keys, key)
-	}
-	classCount, err := persistedRateCountDB(ctx, database, identity, class, cutoff(window), debugLog)
+	allowed := false
+	limitType := "per_ip"
+	remaining := 0
+	reset := now.Add(window)
+	limit := bucket.Requests
+	err := dbmetrics.Transaction(ctx, database, func(tx *dbmetrics.TransactionHandle) error {
+		classKey := "v1:" + identity + ":" + class
+		globalKey := "v1:" + identity + ":global"
+		classCounter, err := loadRateCounter(tx, ctx, classKey, now, window)
+		if err != nil {
+			return err
+		}
+		globalCounter, err := loadRateCounter(tx, ctx, globalKey, now, time.Minute)
+		if err != nil {
+			return err
+		}
+		classTotal := classCounter.weighted(now, window)
+		globalTotal := globalCounter.weighted(now, time.Minute)
+		allowed = classTotal < float64(bucket.Requests) && globalTotal < float64(globalLimit)
+		if globalTotal >= float64(globalLimit) {
+			limitType, limit, reset = "global", globalLimit, globalCounter.resetTime(now, time.Minute, globalLimit)
+		} else {
+			reset = classCounter.resetTime(now, window, bucket.Requests)
+		}
+		if allowed {
+			classCounter.count++
+			globalCounter.count++
+			remaining = bucket.Requests - int(math.Ceil(classTotal)) - 1
+		}
+		if err := saveRateCounter(tx, ctx, classKey, classCounter, now); err != nil {
+			return err
+		}
+		return saveRateCounter(tx, ctx, globalKey, globalCounter, now)
+	})
 	if err != nil {
 		return false, 0, 0, time.Time{}, "", err
 	}
-	globalCount, err := persistedRateCountDB(ctx, database, identity, "global", cutoff(time.Minute), debugLog)
-	if err != nil {
-		return false, 0, 0, time.Time{}, "", err
+	if !allowed {
+		return false, limit, 0, reset, limitType, nil
 	}
-	for key, counter := range rl.dbPending {
-		if strings.HasPrefix(key, "v1:"+identity+":"+class+":") && counter.start > cutoff(window) {
-			classCount += counter.count
-		}
-		if strings.HasPrefix(key, "v1:"+identity+":global:") && counter.start > cutoff(time.Minute) {
-			globalCount += counter.count
-		}
-	}
-	allowed := classCount < bucket.Requests && globalCount < globalLimit
-	limit, interval, limitType, oldestClass := bucket.Requests, window, "per_ip", class
-	if globalCount >= globalLimit {
-		limit, interval, limitType, oldestClass = globalLimit, time.Minute, "global", "global"
-	}
-	if allowed {
-		for _, key := range keys {
-			counter := rl.dbPending[key]
-			counter.count++
-			counter.start = second
-			rl.dbPending[key] = counter
-		}
-		return true, bucket.Requests, bucket.Requests - classCount - 1, now.Add(window), limitType, nil
-	}
-	var oldest sql.NullInt64
-	started := time.Now()
-	query := `SELECT MIN(window_start) FROM rate_limits WHERE key LIKE ? AND window_start > ?`
-	err = database.QueryRowContext(ctx, query,
-		"v1:"+identity+":"+oldestClass+":%", cutoff(interval)).Scan(&oldest)
-	dbmetrics.ObserveQuery("select", "rate_limits", started, err)
-	if debugLog != nil {
-		rows := int64(0)
-		if err == nil {
-			rows = 1
-		}
-		debugLog(query, []any{"v1:" + identity + ":" + oldestClass + ":%", cutoff(interval)}, time.Since(started), rows, err)
-	}
-	if err != nil {
-		return false, 0, 0, time.Time{}, "", err
-	}
-	reset := now.Add(interval)
-	if oldest.Valid {
-		reset = time.Unix(oldest.Int64, 0).Add(interval)
-	}
-	for key, counter := range rl.dbPending {
-		if strings.HasPrefix(key, "v1:"+identity+":"+oldestClass+":") && counter.start > cutoff(interval) && (!oldest.Valid || counter.start < oldest.Int64) {
-			reset = time.Unix(counter.start, 0).Add(interval)
-		}
-	}
-	return false, limit, 0, reset, limitType, nil
+	return true, bucket.Requests, remaining, now.Add(window), limitType, nil
 }
 
-func persistedRateCountDB(ctx context.Context, database dbmetrics.Handle, identity, class string, cutoff int64, debugLog func(string, []any, time.Duration, int64, error)) (int, error) {
-	var count int
-	started := time.Now()
-	query := `SELECT COALESCE(SUM(count),0) FROM rate_limits WHERE key LIKE ? AND window_start > ?`
-	err := database.QueryRowContext(ctx, query, "v1:"+identity+":"+class+":%", cutoff).Scan(&count)
-	dbmetrics.ObserveQuery("select", "rate_limits", started, err)
-	if debugLog != nil {
-		debugLog(query, []any{"v1:" + identity + ":" + class + ":%", cutoff}, time.Since(started), 1, err)
-	}
-	return count, err
+type rateWindowCounter struct {
+	count    int
+	previous int
+	start    int64
 }
 
-func rateLimitCutoffUnix(now time.Time, window time.Duration) int64 {
-	return now.Add(-window).Unix() - 1
+func loadRateCounter(tx *dbmetrics.TransactionHandle, ctx context.Context, key string, now time.Time, window time.Duration) (rateWindowCounter, error) {
+	counter := rateWindowCounter{start: now.Unix()}
+	err := tx.QueryRowContext(ctx, `SELECT count,prev_count,window_start FROM rate_limits WHERE key=?`, key).Scan(&counter.count, &counter.previous, &counter.start)
+	if errors.Is(err, sql.ErrNoRows) {
+		return counter, nil
+	}
+	if err != nil {
+		return rateWindowCounter{}, err
+	}
+	return loadRateCounterValue(counter.count, counter.previous, counter.start, now, window)
+}
+
+func loadRateCounterValue(count, previous int, start int64, now time.Time, window time.Duration) (rateWindowCounter, error) {
+	counter := rateWindowCounter{count: count, previous: previous, start: start}
+	windowSeconds := int64(window / time.Second)
+	if windowSeconds <= 0 {
+		windowSeconds = 1
+	}
+	elapsed := now.Unix() - counter.start
+	if elapsed >= windowSeconds {
+		periods := elapsed / windowSeconds
+		if periods == 1 {
+			counter.previous = counter.count
+		} else {
+			counter.previous = 0
+		}
+		counter.count = 0
+		counter.start += periods * windowSeconds
+	}
+	return counter, nil
+}
+
+func (c rateWindowCounter) weighted(now time.Time, window time.Duration) float64 {
+	seconds := window.Seconds()
+	if seconds <= 0 {
+		return float64(c.count)
+	}
+	elapsed := float64(now.Unix() - c.start)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if elapsed > seconds {
+		elapsed = seconds
+	}
+	return float64(c.previous)*(1-elapsed/seconds) + float64(c.count)
+}
+
+func (c rateWindowCounter) resetTime(now time.Time, window time.Duration, limit int) time.Time {
+	boundary := time.Unix(c.start, 0).Add(window)
+	if c.count < limit && c.previous > 0 {
+		elapsed := float64(now.Unix() - c.start)
+		needed := 1 - (float64(limit-c.count) / float64(c.previous))
+		if needed <= elapsed/window.Seconds() {
+			return now.Add(time.Nanosecond)
+		}
+		if needed < 1 {
+			return time.Unix(c.start, 0).Add(time.Duration(needed*window.Seconds()*float64(time.Second)) + time.Nanosecond)
+		}
+	}
+	if c.count >= limit && c.count > 0 {
+		boundary = boundary.Add(time.Duration((1 - float64(limit)/float64(c.count)) * window.Seconds() * float64(time.Second)))
+	}
+	return boundary.Add(time.Nanosecond)
+}
+
+func saveRateCounter(tx *dbmetrics.TransactionHandle, ctx context.Context, key string, counter rateWindowCounter, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO rate_limits (key,count,prev_count,window_start,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET count=excluded.count,prev_count=excluded.prev_count,window_start=excluded.window_start,updated_at=excluded.updated_at`, key, counter.count, counter.previous, counter.start, now.Unix())
+	return err
 }
 
 func recentRateLimitTimes(times []time.Time, after time.Time) []time.Time {

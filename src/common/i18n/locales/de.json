@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "Offline",
+    "heading": "Du bist offline",
+    "message": "Diese Seite konnte nicht geladen werden und es ist keine zwischengespeicherte Kopie verfügbar. Prüfe deine Verbindung und versuche es erneut.",
+    "indicator": "Sie sind offline. Einige Funktionen sind möglicherweise nicht verfügbar."
+  },
+  "app_update": {
+    "available": "Eine neue Version ist verfügbar",
+    "now": "Jetzt aktualisieren",
+    "later": "Später"
+  },
+  "connection": {
+    "reconnecting": "Verbindung zum Server wird wiederhergestellt…"
+  },
   "common": {
     "select_language": "Sprache auswählen",
     "save": "Speichern",
@@ -159,7 +173,9 @@
     "self_healing": "Selbstheilend",
     "shutting_down": "Herunterfahren",
     "since": "Seit",
-    "text": "Nur-Text-Status"
+    "text": "Nur-Text-Status",
+    "check.unknown": "Prüfung: {key}",
+    "stat.unknown": "Statistik: {key}"
   },
   "consent": {
     "banner_text": "Diese Website verwendet Cookies für wesentliche Funktionen und, falls aktiviert, zur Nutzungsanalyse.",
@@ -247,6 +263,8 @@
     "playground_title": "GraphQL-Spielwiese",
     "playground_description": "Erkunden Sie schreibgeschützte Flughafenabfragen auf diesem Server.",
     "err_invalid_body": "ungültiger GraphQL-Anfragetext: {error}",
+    "err_invalid_get_parameter": "nicht unterstützter GraphQL-GET-Parameter: {parameter}",
+    "err_invalid_variables": "ungültige GraphQL-Variablen",
     "err_query_required": "eine Abfrage ist erforderlich",
     "err_airport_not_found": "Flughafen nicht gefunden: {code}",
     "err_nearby_requires_lon": "die nearby-Abfrage erfordert lon",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "Update installiert – {app_name}",
     "templates.update_installed.body": "UPDATE INSTALLIERT\n\nVon: {app_name} ({fqdn})\nZeit: {timestamp}\n\n{app_name} wurde erfolgreich aktualisiert.\n\nVorherige Version: {old_version}\nNeue Version: {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "Update bereitgestellt – {app_name}",
-    "templates.update_staged.body": "UPDATE DURCHGEFÜHRT\n\nVon: {app_name} ({fqdn})\nZeit: {timestamp}\n\nDie Version {new_version} ist bereitgestellt und erfordert einen Neustart, bevor sie angewendet werden kann.\n\nAusführen: {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "UPDATE DURCHGEFÜHRT\n\nVon: {app_name} ({fqdn})\nZeit: {timestamp}\n\nDie Version {new_version} ist bereitgestellt und erfordert einen Neustart, bevor sie angewendet werden kann.\n\nAusführen: {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "Selbstheilung gestoppt - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} bleibt nach {attempts} fehlgeschlagenen Wiederherstellungsversuchen im schreibgeschützten Wartungsmodus.\n\nUrsache: {reason}\nEin Eingriff durch den Betreiber ist erforderlich. Beheben Sie die Ursache und starten Sie den Dienst neu."
   }
 }

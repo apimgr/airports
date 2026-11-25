@@ -23,13 +23,16 @@ import (
 
 type cliRelease struct {
 	Version string `json:"version"`
-	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
 }
 
 type cliAutodiscover struct {
 	Versions   map[string]cliRelease `json:"cli_versions"`
 	MinVersion string                `json:"cli_min_version"`
+}
+
+type cliAutodiscoverEnvelope struct {
+	Data cliAutodiscover `json:"data"`
 }
 
 func checkCLIRelease(ctx context.Context, c *client) (cliAutodiscover, cliRelease, error) {
@@ -58,9 +61,11 @@ func checkCLIRelease(ctx context.Context, c *client) (cliAutodiscover, cliReleas
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result, cliRelease{}, fmt.Errorf("autodiscover returned HTTP %d", resp.StatusCode)
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&result); err != nil {
+	var envelope cliAutodiscoverEnvelope
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&envelope); err != nil {
 		return result, cliRelease{}, fmt.Errorf("decode autodiscover response: %w", err)
 	}
+	result = envelope.Data
 	release := result.Versions[runtime.GOOS+"-"+runtime.GOARCH]
 	return result, release, nil
 }
@@ -93,28 +98,9 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 	if err != nil || len(expected) != sha256.Size {
 		return errors.New("server provided an invalid SHA-256 checksum; update refused")
 	}
-	base, err := url.Parse(c.baseURL)
+	binaryURL, base, err := cliBinaryDownloadURL(c.baseURL)
 	if err != nil {
 		return err
-	}
-	if !strings.EqualFold(base.Scheme, "https") {
-		return errors.New("CLI updates require an HTTPS server URL")
-	}
-	binaryURL := release.URL
-	if binaryURL == "" {
-		base.Path = strings.TrimRight(base.Path, "/") + "/cli/binaries/airports-cli-" + runtime.GOOS + "-" + runtime.GOARCH
-		base.RawQuery, base.Fragment = "", ""
-		binaryURL = base.String()
-	} else {
-		parsed, parseErr := url.Parse(binaryURL)
-		if parseErr != nil {
-			return fmt.Errorf("invalid CLI download URL: %w", parseErr)
-		}
-		parsed = base.ResolveReference(parsed)
-		if !strings.EqualFold(parsed.Scheme, "https") || !strings.EqualFold(parsed.Host, base.Host) {
-			return errors.New("CLI download URL must use HTTPS on the configured server")
-		}
-		binaryURL = parsed.String()
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, binaryURL, nil)
@@ -192,6 +178,19 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 		return fmt.Errorf("replace CLI binary: %w", err)
 	}
 	return reexecCLI(currentPath, os.Args, withCLIUpdateRestartMarker(os.Environ(), Version, release.Version))
+}
+
+func cliBinaryDownloadURL(serverURL string) (string, *url.URL, error) {
+	base, err := url.Parse(serverURL)
+	if err != nil {
+		return "", nil, err
+	}
+	if !strings.EqualFold(base.Scheme, "https") {
+		return "", nil, errors.New("CLI updates require an HTTPS server URL")
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/cli/binaries/airports-cli-" + runtime.GOOS + "-" + runtime.GOARCH
+	base.RawQuery, base.Fragment = "", ""
+	return base.String(), base, nil
 }
 
 func promptForCLIUpdate(version string) bool {
@@ -290,6 +289,7 @@ func checkAndMaybeUpdateCLI(c *client, cfg *cliConfig, action string) error {
 	}
 	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	writeCLIAudit("cli.update_started", "old_version="+strconv.Quote(Version)+" new_version="+strconv.Quote(release.Version)+" os_arch="+strconv.Quote(runtime.GOOS+"-"+runtime.GOARCH))
 	return downloadAndReplaceCLI(ctx, c, release)
 }
 

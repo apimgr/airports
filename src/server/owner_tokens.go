@@ -31,7 +31,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const ownerTokenCookieName = "airports_owner_token_6kP9qV2x"
+const ownerTokenCookieName = "airports_owner_token_qwhzkfta"
+const ownerTokenLegacyCookieName = "airports_owner_token_6kP9qV2x"
 const ownerTokenViewCookieName = "airports_token_view"
 const ownerTokenNoticeCookieName = "airports_token_notice"
 const ownerTokenAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -96,6 +97,10 @@ func ensureOwnerTokenSchema(db dbpkg.Handle) error {
 			revoked_at INTEGER,
 			revoked_reason TEXT
 		)`,
+		`CREATE TABLE IF NOT EXISTS owner_cookie_migrations (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			started_at INTEGER NOT NULL
+		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_primary ON api_tokens(owner_id) WHERE kind = 'primary' AND revoked_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix ON api_tokens(token_prefix)`,
@@ -107,6 +112,9 @@ func ensureOwnerTokenSchema(db dbpkg.Handle) error {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("create owner token schema: %w", err)
 		}
+	}
+	if _, err := db.Exec(`INSERT INTO owner_cookie_migrations(id, started_at) VALUES(1, ?) ON CONFLICT(id) DO NOTHING`, time.Now().Unix()); err != nil {
+		return fmt.Errorf("record owner cookie migration start: %w", err)
 	}
 	if _, err := db.Exec(`ALTER TABLE api_tokens ADD COLUMN token_suffix TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		return fmt.Errorf("add owner token suffix metadata: %w", err)
@@ -356,7 +364,7 @@ func (s *Server) rateLimitBearerIdentity(r *http.Request) string {
 }
 
 func (s *Server) ownerTokenFromCookie(r *http.Request) (*ownerTokenIdentity, string, bool) {
-	cookie, err := r.Cookie(ownerTokenCookieName)
+	cookie, err := s.ownerTokenCookie(r)
 	if err != nil || cookie.Value == "" {
 		return nil, "", false
 	}
@@ -727,6 +735,7 @@ func (s *Server) setOwnerCookie(w http.ResponseWriter, r *http.Request, raw stri
 
 func (s *Server) clearOwnerCookie(w http.ResponseWriter, r *http.Request) {
 	replaceOwnerCookie(w, &http.Cookie{Name: ownerTokenCookieName, Value: "", Path: "/", MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+	s.clearLegacyOwnerCookie(w)
 }
 
 func (s *Server) setOwnerTokenViewCookie(w http.ResponseWriter, card string, clear bool) {
@@ -753,7 +762,7 @@ func replaceOwnerCookie(w http.ResponseWriter, cookie *http.Cookie) {
 	values := w.Header().Values("Set-Cookie")
 	w.Header().Del("Set-Cookie")
 	for _, value := range values {
-		if !strings.HasPrefix(value, ownerTokenCookieName+"=") {
+		if !strings.HasPrefix(value, ownerTokenCookieName+"=") && !strings.HasPrefix(value, ownerTokenLegacyCookieName+"=") {
 			w.Header().Add("Set-Cookie", value)
 		}
 	}
@@ -786,23 +795,60 @@ func (w *ownerTokenLifecycleWriter) apply(status int) {
 		return
 	}
 	w.done = true
-	if _, err := w.request.Cookie(ownerTokenCookieName); err != nil || hasOwnerCookieResponse(w.Header()) {
+	cookie, err := w.server.ownerTokenCookie(w.request)
+	if err != nil || hasOwnerCookieResponse(w.Header()) {
+		if requestHasLegacyOwnerCookie(w.request) && !w.server.legacyOwnerCookieMigrationActive() {
+			w.server.clearLegacyOwnerCookie(w)
+		}
 		return
 	}
-	cookie, _ := w.request.Cookie(ownerTokenCookieName)
 	_, kind, valid := w.server.validateOwnerToken(cookie.Value)
 	if valid && kind == "primary" {
 		if status != http.StatusTooManyRequests {
 			w.server.setOwnerCookie(w, w.request, cookie.Value)
+			if cookie.Name == ownerTokenLegacyCookieName || requestHasLegacyOwnerCookie(w.request) {
+				w.server.clearLegacyOwnerCookie(w)
+			}
 		}
 		return
 	}
 	w.server.clearOwnerCookie(w, w.request)
 }
 
+func (s *Server) ownerTokenCookie(r *http.Request) (*http.Cookie, error) {
+	if cookie, err := r.Cookie(ownerTokenCookieName); err == nil {
+		return cookie, nil
+	}
+	cookie, err := r.Cookie(ownerTokenLegacyCookieName)
+	if err != nil || !s.legacyOwnerCookieMigrationActive() {
+		return nil, http.ErrNoCookie
+	}
+	return cookie, nil
+}
+
+func (s *Server) legacyOwnerCookieMigrationActive() bool {
+	if s == nil || s.db == nil || s.ensureOwnerTokenSchema() != nil {
+		return false
+	}
+	var startedAt int64
+	if err := s.db.QueryRow(`SELECT started_at FROM owner_cookie_migrations WHERE id = 1`).Scan(&startedAt); err != nil {
+		return false
+	}
+	return time.Now().Unix() <= startedAt+int64(ownerCookieMaxAge(s.config.Server.Tokens.CookieMaxAge))
+}
+
+func requestHasLegacyOwnerCookie(r *http.Request) bool {
+	_, err := r.Cookie(ownerTokenLegacyCookieName)
+	return err == nil
+}
+
+func (s *Server) clearLegacyOwnerCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: ownerTokenLegacyCookieName, Value: "", Path: "/", MaxAge: -1, Expires: time.Unix(1, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+}
+
 func hasOwnerCookieResponse(header http.Header) bool {
 	for _, value := range header.Values("Set-Cookie") {
-		if strings.HasPrefix(value, ownerTokenCookieName+"=") {
+		if strings.HasPrefix(value, ownerTokenCookieName+"=") || strings.HasPrefix(value, ownerTokenLegacyCookieName+"=") {
 			return true
 		}
 	}
@@ -988,7 +1034,7 @@ func (s *Server) enforceOwnerTokenAuthFailure(w http.ResponseWriter, r *http.Req
 		return false
 	}
 	if bearerCredential(r) == "" {
-		cookie, err := r.Cookie(ownerTokenCookieName)
+		cookie, err := s.ownerTokenCookie(r)
 		if err != nil || cookie.Value == "" {
 			return false
 		}

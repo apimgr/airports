@@ -54,7 +54,9 @@ type CLIConfig struct {
 }
 
 type CLIBinaryDownloadConfig struct {
-	RequireAuth bool `yaml:"require_auth"`
+	// Dir defaults to {data_dir}/cli when empty.
+	Dir         string `yaml:"dir,omitempty"`
+	RequireAuth bool   `yaml:"require_auth"`
 }
 
 // OutputConfig controls terminal colors and emoji output. Nil booleans mean
@@ -915,7 +917,6 @@ type ConsentConfig struct {
 	Message               string `yaml:"message"`         // Shown when Data.Sold = false
 	MessageIfSold         string `yaml:"message_if_sold"` // Shown when Data.Sold = true
 	ShowUntilAcknowledged bool   `yaml:"show_until_acknowledged"`
-	DefaultEnabled        bool   `yaml:"default_enabled"`
 	Policy                struct {
 		Text    string `yaml:"text"`
 		URL     string `yaml:"url"`
@@ -1860,6 +1861,7 @@ func migrateLegacyAreaSections(serverPath string, data []byte) ([]byte, error) {
 	} {
 		pull(section.file, "server", section.name)
 	}
+	pull("maintenance.yml", "cli")
 	pull("security.yml", "data")
 	pull("tor.yml", "tor")
 	pull("branding.yml", "web", "ui")
@@ -2700,6 +2702,7 @@ func collectConfigAreas(cfg *ApplicationConfig) (map[string]map[string]interface
 	} {
 		pull(section.file, "server", section.name)
 	}
+	pull("maintenance.yml", "cli")
 	pull("security.yml", "data")
 	pull("tor.yml", "tor")
 	pull("branding.yml", "server", "branding")
@@ -2714,7 +2717,7 @@ func collectConfigAreas(cfg *ApplicationConfig) (map[string]map[string]interface
 		}
 	}
 	if cli, ok := takeConfigPath(root, "cli"); ok {
-		setConfigPath(ensureArea("app.yml"), cli, "cli")
+		setConfigPath(ensureArea("maintenance.yml"), cli, "cli")
 	}
 	if output, ok := takeConfigPath(root, "output"); ok {
 		setConfigPath(ensureArea("app.yml"), output, "output")
@@ -2824,11 +2827,6 @@ output:
   # Set true/false to override terminal color detection; omit for automatic behavior
 %s  # Set true to keep emojis enabled when NO_COLOR is set
 %s
-
-cli:
-  binary_download:
-    # Require the server operator token to download CLI release assets
-    require_auth: %t
 
 server:
   # Single port (HTTP) or dual port (8090,64453 - second is HTTPS)
@@ -3342,7 +3340,6 @@ data:
 `,
 		outputColor,
 		outputEmoji,
-		cfg.CLI.BinaryDownload.RequireAuth,
 		cfg.Server.Port,
 		cfg.Server.FQDN,
 		cfg.Server.Address,
@@ -3939,8 +3936,8 @@ func formatServerPublicSettings(cfg ContactConfig, page ContactPageConfig, help 
 	fmt.Fprintf(&out, "    retention:\n      period: %s\n      export_available: %t\n      deletion_available: %t\n",
 		strconv.Quote(privacy.Retention.Period), privacy.Retention.ExportAvailable, privacy.Retention.DeletionAvailable)
 	consent := privacy.Consent
-	fmt.Fprintf(&out, "    consent:\n      show_until_acknowledged: %t\n      default_enabled: %t\n      message: %s\n      message_if_sold: %s\n      policy:\n        text: %s\n        url: %s\n        version: %s\n      buttons:\n        decline: %s\n        accept: %s\n      position: %s\n      show_preferences: %t\n      preferences_text: %s\n",
-		consent.ShowUntilAcknowledged, consent.DefaultEnabled,
+	fmt.Fprintf(&out, "    consent:\n      show_until_acknowledged: %t\n      message: %s\n      message_if_sold: %s\n      policy:\n        text: %s\n        url: %s\n        version: %s\n      buttons:\n        decline: %s\n        accept: %s\n      position: %s\n      show_preferences: %t\n      preferences_text: %s\n",
+		consent.ShowUntilAcknowledged,
 		strconv.Quote(consent.Message), strconv.Quote(consent.MessageIfSold),
 		strconv.Quote(consent.Policy.Text), strconv.Quote(consent.Policy.URL), strconv.Quote(consent.Policy.Version),
 		strconv.Quote(consent.Buttons.Decline), strconv.Quote(consent.Buttons.Accept),

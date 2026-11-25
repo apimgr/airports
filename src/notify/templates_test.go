@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
 )
 
@@ -45,7 +46,7 @@ func TestLoadTemplateAllDefaultsParse(t *testing.T) {
 		"ssl_expiring", "ssl_renewed", "ssl_renewal_failed",
 		"scheduler_error", "startup", "shutdown", "disk_low", "database_error",
 		"update_available", "update_failed", "update_staged", "update_installed",
-		"maintenance_entered", "maintenance_recovered", "contact_submission",
+		"maintenance_entered", "maintenance_recovered", "maintenance_exhausted", "contact_submission",
 		"security_report_received", "security_report_acknowledgment", "security_report_status", "test",
 	}
 	for _, name := range names {
@@ -85,6 +86,21 @@ func TestPreviewEmailTemplatesIncludesBuiltInsAndRendersSampleValues(t *testing.
 func TestTestEmailSubjectPrefix(t *testing.T) {
 	if got := TestEmailSubject("Test Email"); got != "[TEST] Test Email" {
 		t.Errorf("TestEmailSubject() = %q", got)
+	}
+}
+
+func TestMaintenanceExhaustedEmailTranslations(t *testing.T) {
+	variables := map[string]string{"app_name": "Airports", "attempts": "5", "reason": "database unavailable"}
+	for _, language := range i18n.RegisteredLanguageCodes() {
+		subject, body := TranslateEmailTemplate("", "maintenance_exhausted", "fallback subject", "fallback body", language, variables)
+		if strings.Contains(subject, "email.templates.maintenance_exhausted") || strings.Contains(body, "email.templates.maintenance_exhausted") {
+			t.Errorf("%s maintenance exhaustion email fell back to a translation key", language)
+		}
+		for _, value := range []string{"Airports", "5", "database unavailable"} {
+			if !strings.Contains(subject+body, value) {
+				t.Errorf("%s maintenance exhaustion email omitted %q", language, value)
+			}
+		}
 	}
 }
 

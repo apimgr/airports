@@ -36,6 +36,11 @@ OFFICIAL_SITE   ?= $(shell cat site.txt 2>/dev/null || echo "")
 
 # BuildDate is NOT embedded - it is derived from BuildEpoch at process start
 LDFLAGS         := -s -w \
+                   -X 'github.com/apimgr/airports/src/app.Version=$(VERSION)' \
+                   -X 'github.com/apimgr/airports/src/app.CommitID=$(COMMIT_ID)' \
+                   -X 'github.com/apimgr/airports/src/app.BuildEpoch=$(BUILD_EPOCH)' \
+                   -X 'github.com/apimgr/airports/src/app.OfficialSite=$(OFFICIAL_SITE)'
+CLI_LDFLAGS     := -s -w \
                    -X 'main.Version=$(VERSION)' \
                    -X 'main.CommitID=$(COMMIT_ID)' \
                    -X 'main.BuildEpoch=$(BUILD_EPOCH)' \
@@ -97,7 +102,7 @@ dev:
 		$(GO_IMAGE) sh -c '\
 			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
 			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
-			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
+			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
 		'; \
 	echo "Build dir: $$DEV_DIR"
 
@@ -116,7 +121,7 @@ local: clean
 		$(GO_IMAGE) sh -c '\
 			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
 			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
-			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
+			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
 		'
 	@echo "Built: binaries/$(PROJECT_NAME)"
 
@@ -137,14 +142,14 @@ build: clean
 			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
 			hostext=""; [ "$(HOSTOS)" = "windows" ] && hostext=".exe"; \
 			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)$$hostext ./src; \
-			if [ -d src/client ]; then GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)$$hostext ./src/client; fi; \
+			if [ -d src/client ]; then GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME)$$hostext ./src/client; fi; \
 			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \
 				echo "  -> $$os/$$arch"; \
 				GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
 				if [ -d src/client ]; then \
-					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
+					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
 				fi; \
 			done \
 		'

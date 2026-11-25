@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -270,92 +269,114 @@ func (c *redisCache) Delete(ctx context.Context, key string) error {
 
 const rateLimitScript = `
 local now = tonumber(ARGV[1])
-local member = ARGV[2]
-local class_cutoff = tonumber(ARGV[3])
-local global_cutoff = tonumber(ARGV[4])
-local class_ttl = tonumber(ARGV[5])
-local global_ttl = tonumber(ARGV[6])
-local class_limit = tonumber(ARGV[7])
-local global_limit = tonumber(ARGV[8])
-local sequence = redis.call('INCR', KEYS[3])
-local unique_member = member .. ':' .. tostring(sequence)
-redis.call('PEXPIRE', KEYS[3], global_ttl)
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', class_cutoff)
-redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', global_cutoff)
-local class_count = redis.call('ZCARD', KEYS[1])
-local global_count = redis.call('ZCARD', KEYS[2])
-local class_oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-local global_oldest = redis.call('ZRANGE', KEYS[2], 0, 0, 'WITHSCORES')
+local class_window = tonumber(ARGV[2])
+local global_window = tonumber(ARGV[3])
+local class_limit = tonumber(ARGV[4])
+local global_limit = tonumber(ARGV[5])
+local function load_counter(key, window, limit)
+  local values = redis.call('HMGET', key, 'count', 'prev_count', 'window_start')
+  local count = tonumber(values[1]) or 0
+  local previous = tonumber(values[2]) or 0
+  local start = tonumber(values[3]) or now
+  local elapsed = now - start
+  if elapsed >= window then
+    local periods = math.floor(elapsed / window)
+    if periods == 1 then previous = count else previous = 0 end
+    count = 0
+    start = start + periods * window
+  end
+  local elapsed_window = now - start
+  local weighted = previous * (1 - elapsed_window / window) + count
+  local reset = start + window + 1
+  if count < limit and previous > 0 then
+    local needed = window * (1 - (limit - count) / previous)
+    if needed <= elapsed_window then reset = now + 1
+    elseif needed < window then reset = start + needed + 1 end
+  elseif count >= limit and count > 0 then
+    reset = start + window + window * (1 - limit / count) + 1
+  end
+  redis.call('HSET', key, 'count', count, 'prev_count', previous, 'window_start', start)
+  redis.call('PEXPIRE', key, math.max(window * 3, 60000))
+  return count, weighted, reset
+end
+local class_count, class_weight, class_reset = load_counter(KEYS[1], class_window, class_limit)
+local global_count, global_weight, global_reset = load_counter(KEYS[2], global_window, global_limit)
 local allowed = 0
-if class_count < class_limit and global_count < global_limit then
-  redis.call('ZADD', KEYS[1], now, unique_member)
-  redis.call('ZADD', KEYS[2], now, unique_member)
-  redis.call('PEXPIRE', KEYS[1], class_ttl)
-  redis.call('PEXPIRE', KEYS[2], global_ttl)
+if class_weight < class_limit and global_weight < global_limit then
   class_count = class_count + 1
   global_count = global_count + 1
+  redis.call('HSET', KEYS[1], 'count', class_count)
+  redis.call('HSET', KEYS[2], 'count', global_count)
+  class_weight = class_weight + 1
+  global_weight = global_weight + 1
   allowed = 1
 end
-return {allowed, class_count, global_count, tonumber(class_oldest[2]) or 0, tonumber(global_oldest[2]) or 0}
+return {allowed, math.ceil(class_weight), math.ceil(global_weight), class_reset, global_reset}
 `
 
-// AllowRateLimit atomically enforces both the route-class and global sliding
-// windows with Redis sorted sets. Keys contain only a SHA-256 IP pseudonym.
+// AllowRateLimit atomically enforces weighted current/previous windows in Redis.
+// Keys contain only a SHA-256 identity pseudonym.
 func (c *redisCache) AllowRateLimit(ctx context.Context, identity, class string, now time.Time, classWindow, globalWindow time.Duration, classLimit, globalLimit int) (bool, int, int, time.Time, time.Time, error) {
 	classKey := c.fullKey("ratelimit:{" + identity + "}:" + class)
 	globalKey := c.fullKey("ratelimit:{" + identity + "}:global")
-	sequenceKey := c.fullKey("ratelimit:{" + identity + "}:sequence")
 	nowMillis := now.UnixMilli()
-	member := fmt.Sprintf("%d", now.UnixNano())
-	// Redis scores use millisecond precision; retaining the preceding
-	// millisecond at the cutoff avoids prematurely expiring a live event.
-	classCutoff := now.Add(-classWindow).UnixMilli() - 1
-	globalCutoff := now.Add(-globalWindow).UnixMilli() - 1
-	classTTL := classWindow.Milliseconds() + time.Minute.Milliseconds()
-	globalTTL := globalWindow.Milliseconds() + time.Minute.Milliseconds()
-	values, err := c.client.Eval(ctx, rateLimitScript, []string{classKey, globalKey, sequenceKey}, nowMillis, member, classCutoff, globalCutoff, classTTL, globalTTL, classLimit, globalLimit).Int64Slice()
+	values, err := c.client.Eval(ctx, rateLimitScript, []string{classKey, globalKey}, nowMillis, classWindow.Milliseconds(), globalWindow.Milliseconds(), classLimit, globalLimit).Int64Slice()
 	if err != nil {
 		return false, 0, 0, time.Time{}, time.Time{}, err
 	}
 	if len(values) != 5 {
 		return false, 0, 0, time.Time{}, time.Time{}, fmt.Errorf("cache: unexpected rate-limit script result")
 	}
-	oldest := func(value int64) time.Time {
+	reset := func(value int64) time.Time {
 		if value == 0 {
 			return time.Time{}
 		}
 		return time.UnixMilli(value)
 	}
-	return values[0] == 1, int(values[1]), int(values[2]), oldest(values[3]), oldest(values[4]), nil
+	return values[0] == 1, int(values[1]), int(values[2]), reset(values[3]), reset(values[4]), nil
 }
 
-// CheckRateLimit reads the live window without adding a request event.
-func (c *redisCache) CheckRateLimit(ctx context.Context, identity, class string, now time.Time, window time.Duration) (int, time.Time, error) {
+const rateLimitStatusScript = `
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local values = redis.call('HMGET', KEYS[1], 'count', 'prev_count', 'window_start')
+local count = tonumber(values[1]) or 0
+local previous = tonumber(values[2]) or 0
+local start = tonumber(values[3]) or now
+local elapsed = now - start
+if elapsed >= window then
+  local periods = math.floor(elapsed / window)
+  if periods == 1 then previous = count else previous = 0 end
+  count = 0
+  start = start + periods * window
+end
+local elapsed_window = now - start
+local weighted = previous * (1 - elapsed_window / window) + count
+local reset = start + window + 1
+if count < limit and previous > 0 then
+  local needed = window * (1 - (limit - count) / previous)
+  if needed <= elapsed_window then reset = now + 1
+  elseif needed < window then reset = start + needed + 1 end
+elseif count >= limit and count > 0 then
+  reset = start + window + window * (1 - limit / count) + 1
+end
+redis.call('HSET', KEYS[1], 'count', count, 'prev_count', previous, 'window_start', start)
+redis.call('PEXPIRE', KEYS[1], math.max(window * 3, 60000))
+return {math.floor(weighted), reset}
+`
+
+// CheckRateLimit reads the weighted window without adding an attempt.
+func (c *redisCache) CheckRateLimit(ctx context.Context, identity, class string, now time.Time, window time.Duration, limit int) (int, time.Time, error) {
 	key := c.fullKey("ratelimit:{" + identity + "}:" + class)
-	cutoff := now.Add(-window).UnixMilli() - 1
-	pipe := c.client.Pipeline()
-	trim := pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(cutoff, 10))
-	count := pipe.ZCard(ctx, key)
-	oldest := pipe.ZRangeWithScores(ctx, key, 0, 0)
-	_, err := pipe.Exec(ctx)
+	values, err := c.client.Eval(ctx, rateLimitStatusScript, []string{key}, now.UnixMilli(), window.Milliseconds(), limit).Int64Slice()
 	if err != nil {
 		return 0, time.Time{}, err
 	}
-	if err := trim.Err(); err != nil {
-		return 0, time.Time{}, err
+	if len(values) != 2 {
+		return 0, time.Time{}, fmt.Errorf("cache: unexpected rate-limit status result")
 	}
-	n, err := count.Result()
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	events, err := oldest.Result()
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	if len(events) == 0 {
-		return int(n), time.Time{}, nil
-	}
-	return int(n), time.UnixMilli(int64(events[0].Score)), nil
+	return int(values[0]), time.UnixMilli(values[1]), nil
 }
 
 func (c *redisCache) GetOrSet(ctx context.Context, key string, ttl time.Duration, loader func() ([]byte, error)) ([]byte, error) {

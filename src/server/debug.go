@@ -1,10 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"crypto/subtle"
+	"encoding/json"
 	"expvar"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -45,7 +50,7 @@ func (s *Server) registerDebugRouteGroup(router chi.Router, prefix string, debug
 		}
 		if debugConfig.Pprof {
 			r.Get("/pprof/", pprof.Index)
-			r.Get("/pprof/cmdline", pprof.Cmdline)
+			r.Get("/pprof/cmdline", s.handleDebugPprofCmdline)
 			r.Get("/pprof/profile", pprof.Profile)
 			r.Get("/pprof/symbol", pprof.Symbol)
 			r.Get("/pprof/trace", pprof.Trace)
@@ -58,7 +63,7 @@ func (s *Server) registerDebugRouteGroup(router chi.Router, prefix string, debug
 		}
 
 		if debugConfig.RuntimeEndpoints {
-			r.Get("/vars", expvar.Handler().ServeHTTP)
+			r.Get("/vars", s.handleDebugVars)
 		}
 
 		// Custom debug endpoints.
@@ -69,7 +74,91 @@ func (s *Server) registerDebugRouteGroup(router chi.Router, prefix string, debug
 		r.Get("/scheduler", s.handleDebugScheduler)
 		r.Get("/memory", s.handleDebugMemory)
 		r.Get("/goroutines", s.handleDebugGoroutines)
+		r.Get("/error500", s.handleDebugError500)
 	})
+}
+
+// debugBinaryName returns only the executable name, never its command-line arguments.
+func debugBinaryName() string {
+	if executable, err := os.Executable(); err == nil {
+		if name := filepath.Base(executable); name != "." && name != string(filepath.Separator) && name != "" {
+			return name
+		}
+	}
+	if len(os.Args) > 0 {
+		if name := filepath.Base(os.Args[0]); name != "." && name != string(filepath.Separator) && name != "" {
+			return name
+		}
+	}
+	return "airports"
+}
+
+// handleDebugPprofCmdline preserves pprof's NUL-terminated response format while
+// ensuring process arguments (which may contain credentials) are never exposed.
+func (s *Server) handleDebugPprofCmdline(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = fmt.Fprint(w, debugBinaryName(), "\x00")
+}
+
+// handleDebugVars serves expvar's JSON document with its unsafe cmdline value
+// replaced by the binary name before any bytes are sent to the client.
+func (s *Server) handleDebugVars(w http.ResponseWriter, r *http.Request) {
+	buffer := &debugResponseBuffer{header: make(http.Header)}
+	request := r.Clone(r.Context())
+	urlCopy := *r.URL
+	urlCopy.RawQuery = ""
+	request.URL = &urlCopy
+	expvar.Handler().ServeHTTP(buffer, request)
+
+	values := map[string]json.RawMessage{}
+	if err := json.Unmarshal(buffer.body.Bytes(), &values); err != nil {
+		http.Error(w, "Unable to encode runtime variables", http.StatusInternalServerError)
+		return
+	}
+	cmdline, err := json.Marshal(debugBinaryName())
+	if err != nil {
+		http.Error(w, "Unable to encode runtime variables", http.StatusInternalServerError)
+		return
+	}
+	values["cmdline"] = cmdline
+	body, err := json.Marshal(values)
+	if err != nil {
+		http.Error(w, "Unable to encode runtime variables", http.StatusInternalServerError)
+		return
+	}
+	for name, entries := range buffer.header {
+		if strings.EqualFold(name, "Content-Length") {
+			continue
+		}
+		for _, entry := range entries {
+			w.Header().Add(name, entry)
+		}
+	}
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+	status := buffer.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}
+
+type debugResponseBuffer struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (b *debugResponseBuffer) Header() http.Header            { return b.header }
+func (b *debugResponseBuffer) WriteHeader(status int)         { b.status = status }
+func (b *debugResponseBuffer) Write(data []byte) (int, error) { return b.body.Write(data) }
+
+// handleDebugError500 uses the themed renderer to provide a deterministic
+// 500 response for the E2E error-page check.
+func (s *Server) handleDebugError500(w http.ResponseWriter, r *http.Request) {
+	s.renderErrorPage(w, r, http.StatusInternalServerError)
 }
 
 func (s *Server) requireOperatorToken(next http.Handler) http.Handler {

@@ -10,6 +10,7 @@ import (
 // I2PConfig controls the optional I2P eepsite.
 type I2PConfig struct {
 	Enabled          bool   `yaml:"enabled" json:"enabled"`
+	Expose           bool   `yaml:"expose" json:"expose"`
 	Binary           string `yaml:"binary" json:"binary"`
 	SAMAddress       string `yaml:"sam_address" json:"sam_address"`
 	VirtualPort      int    `yaml:"virtual_port" json:"virtual_port"`

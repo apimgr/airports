@@ -63,7 +63,7 @@ func TestRenderTemplatePrefixesURLsForBaseURL(t *testing.T) {
 	body := response.Body.String()
 	for _, want := range []string{
 		`data-api-base="/myproject/api/v1"`,
-		`href="/myproject/static/css/common.css"`,
+		`href="/myproject/static/css/common.css?v=`,
 		`href="/myproject/airports/search"`,
 		`href="/myproject/stats"`,
 	} {
@@ -82,7 +82,7 @@ func TestGeneratedResourcesHonorBaseURL(t *testing.T) {
 		want    []string
 	}{
 		{name: "manifest", handler: s.handleManifest, want: []string{`"start_url": "/myproject/"`, `"scope": "/myproject/"`, `"src": "/myproject/static/icons/icon-192.png"`}},
-		{name: "service worker", handler: s.handleServiceWorker, want: []string{`const BASE_URL = "/myproject";`, `BASE_URL + '/static/css/common.css'`, `BASE_URL + '/static/offline.html'`}},
+		{name: "service worker", handler: s.handleServiceWorker, want: []string{`const BASE_URL = "/myproject";`, `BASE_URL + '/static/css/common.css?v=`, `offlineFallbackResponse`, `CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000`}},
 		{name: "API discovery", handler: s.handleAPIInfo, want: []string{`/myproject/api/v1/airports`, `/myproject/api/autodiscover`, `/myproject/server/docs/swagger`}},
 	}
 	for _, tc := range tests {
@@ -103,8 +103,8 @@ func TestGeneratedResourcesHonorBaseURL(t *testing.T) {
 		path string
 		want []string
 	}{
-		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/v1/server/swagger"`, `href="/myproject/static/css/common.css"`, `href="/myproject/server/docs/graphql"`}},
-		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/static/vendor/graphiql/react.production.min.js"`, `src="/myproject/static/js/docs-graphql.js"`, `href="/myproject/server/docs/swagger"`}},
+		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/v1/server/swagger"`, `href="/myproject/static/css/common.css?v=`, `href="/myproject/server/docs/graphql"`}},
+		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/static/vendor/graphiql/react.production.min.js?v=`, `src="/myproject/static/js/docs-graphql.js?v=`, `href="/myproject/server/docs/swagger"`}},
 		{path: "/api/swagger", want: []string{`"url": "/myproject/api/v1"`}},
 	}
 	for _, tc := range routes {

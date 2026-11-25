@@ -225,7 +225,13 @@ for path in /robots.txt /server/healthz.txt "/api/${API_VERSION}/airports/search
 done
 cp "/usr/local/bin/${PROJECT_NAME}" "$REMOTE_TEMP_DIR/renamed-server"
 chmod +x "$REMOTE_TEMP_DIR/renamed-server"
-"$REMOTE_TEMP_DIR/renamed-server" --help 2>&1 | grep -q renamed-server && pass "renamed binary reports its name" || fail "renamed binary name is missing"
+renamed_server_help="$("$REMOTE_TEMP_DIR/renamed-server" --help 2>&1)"
+if [[ "$renamed_server_help" == *renamed-server* ]]; then
+  pass "renamed binary reports its name"
+else
+  printf '%s\n' "$renamed_server_help" >&2
+  fail "renamed binary name is missing"
+fi
 if [[ -x "/usr/local/bin/${PROJECT_NAME}-cli" ]]; then
   "${PROJECT_NAME}-cli" --version
   "${PROJECT_NAME}-cli" --help >/dev/null

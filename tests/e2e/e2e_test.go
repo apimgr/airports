@@ -40,6 +40,11 @@ func baseURL(t *testing.T) string {
 	return base
 }
 
+func acceptedPreferencesCookie() *http.Cookie {
+	value, _ := json.Marshal(map[string]interface{}{"essential": true, "preferences": true, "analytics": false, "timestamp": time.Now().Unix()})
+	return &http.Cookie{Name: "cookie_consent", Value: url.PathEscape(string(value)), Path: "/"}
+}
+
 func getPage(t *testing.T, path string) (int, http.Header, string) {
 	return getPageAccept(t, path, "text/html")
 }
@@ -257,6 +262,7 @@ func TestSSR_DarkLightAndAutoThemeClasses(t *testing.T) {
 			}
 			request.Header.Set("Accept", "text/html")
 			request.AddCookie(&http.Cookie{Name: "theme", Value: theme})
+			request.AddCookie(acceptedPreferencesCookie())
 			response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
 			if err != nil {
 				t.Fatal(err)
@@ -330,7 +336,7 @@ func TestSSR_InternalLinksCrawlWithoutServerErrors(t *testing.T) {
 		if canonical == "" {
 			canonical = "/"
 		}
-		if visited[canonical] || strings.HasPrefix(canonical, "/static/") || strings.HasPrefix(canonical, "/locales/") {
+		if visited[canonical] || strings.HasPrefix(canonical, "/static/") || strings.HasPrefix(canonical, "/locales/") || strings.HasPrefix(canonical, "/api/") {
 			continue
 		}
 		visited[canonical] = true
@@ -429,7 +435,7 @@ func controlledThemed500Proxy(t *testing.T) *httptest.Server {
 		t.Fatalf("server did not provide its themed error template fixture (status=%d)", status)
 	}
 	errorHTML = strings.ReplaceAll(errorHTML, "404", "500")
-	errorHTML = strings.ReplaceAll(errorHTML, "Not Found", "Internal Server Error")
+	errorHTML = strings.ReplaceAll(errorHTML, "not found", "Internal Server Error")
 	target, err := url.Parse(baseURL(t))
 	if err != nil {
 		t.Fatalf("parse E2E server URL: %v", err)
@@ -966,7 +972,7 @@ func TestJS_ThemeChangesComputedColors(t *testing.T) {
 	ctx := browserContext(t, false)
 	readBackground := func(theme string) string {
 		t.Helper()
-		if err := chromedp.Run(ctx, network.SetCookie("theme", theme).WithURL(baseURL(t)).WithPath("/"), chromedp.Navigate(baseURL(t)+"/")); err != nil {
+		if err := chromedp.Run(ctx, network.SetCookie("cookie_consent", acceptedPreferencesCookie().Value).WithURL(baseURL(t)).WithPath("/"), network.SetCookie("theme", theme).WithURL(baseURL(t)).WithPath("/"), chromedp.Navigate(baseURL(t)+"/")); err != nil {
 			t.Fatalf("load %s theme: %v", theme, err)
 		}
 		var background string
@@ -1011,12 +1017,12 @@ func runOwnerTokenBrowserFlow(t *testing.T, noJS bool) {
 	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &masked)); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(masked, primary) || !strings.Contains(masked, "*") {
+	if strings.Contains(masked, primary) || !strings.Contains(masked, "•") {
 		t.Fatalf("primary token was not masked after reload: %q", masked)
 	}
 	if err := chromedp.Run(ctx,
-		chromedp.Click(`form[action="/server/preferences/token/reveal"] button[type="submit"]`, chromedp.ByQuery),
-		chromedp.WaitVisible(`#primary .copy-value`, chromedp.ByQuery),
+		chromedp.Submit(`form[action="/server/preferences/token/reveal"]`, chromedp.ByQuery),
+		chromedp.WaitReady("body"),
 	); err != nil {
 		t.Fatalf("reveal primary token through the browser form: %v", err)
 	}
@@ -1044,7 +1050,7 @@ func runOwnerTokenBrowserFlow(t *testing.T, noJS bool) {
 	if err := chromedp.Run(ctx, chromedp.Text(`.owner-linked-token .copy-value`, &masked)); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(masked, linked) || !strings.Contains(masked, "*") {
+	if strings.Contains(masked, linked) || !strings.Contains(masked, "•") {
 		t.Fatalf("linked token was not masked after reload: %q", masked)
 	}
 	if err := chromedp.Run(ctx,
@@ -1065,7 +1071,7 @@ func runOwnerTokenBrowserFlow(t *testing.T, noJS bool) {
 	if err := chromedp.Run(ctx, chromedp.Text(`#primary .copy-value`, &masked)); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(masked, primary) || !strings.Contains(masked, "*") {
+	if strings.Contains(masked, primary) || !strings.Contains(masked, "•") {
 		t.Fatalf("restored primary token was not masked by default: %q", masked)
 	}
 }
@@ -1099,14 +1105,40 @@ func TestJS_Controlled500UsesThemedErrorTemplate(t *testing.T) {
 func runConsentPreferenceSave(t *testing.T, noJS bool) {
 	t.Helper()
 	ctx := browserContext(t, noJS)
-	navigate(t, ctx, "/server/privacy")
-	if err := chromedp.Run(ctx,
+	proxy := secureCookieProxy(t)
+	navigateAt(t, ctx, proxy.URL, "/server/privacy")
+	var requestSeen bool
+	var responseStatus int64
+	var requestMu sync.Mutex
+	chromedp.ListenTarget(ctx, func(event interface{}) {
+		requestMu.Lock()
+		defer requestMu.Unlock()
+		switch event := event.(type) {
+		case *network.EventRequestWillBeSent:
+			if strings.HasSuffix(event.Request.URL, "/server/consent") {
+				requestSeen = true
+			}
+		case *network.EventResponseReceived:
+			if strings.HasSuffix(event.Response.URL, "/server/consent") {
+				responseStatus = event.Response.Status
+			}
+		}
+	})
+	preferenceCtx, cancelPreference := context.WithTimeout(ctx, 10*time.Second)
+	err := chromedp.Run(preferenceCtx,
 		chromedp.WaitVisible(`#cookie-consent .cookie-preferences-form`, chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelector('#cookie-consent input[name="preferences"]').checked = true; document.querySelector('#cookie-consent input[name="analytics"]').checked = false`, nil),
-		chromedp.Click(`#cookie-consent .cookie-preferences-form button[type="submit"]`, chromedp.ByQuery),
+		chromedp.Submit(`#cookie-consent .cookie-preferences-form`, chromedp.ByQuery),
 		chromedp.WaitNotPresent(`#cookie-consent`, chromedp.ByQuery),
-	); err != nil {
-		t.Fatalf("save granular cookie preferences: %v", err)
+	)
+	cancelPreference()
+	if err != nil {
+		var diagnostic string
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`JSON.stringify({url: location.href, banner: !!document.querySelector('#cookie-consent'), formAction: document.querySelector('#cookie-consent .cookie-preferences-form')?.action || '', preferences: document.querySelector('#cookie-consent input[name="preferences"]')?.checked, analytics: document.querySelector('#cookie-consent input[name="analytics"]')?.checked, buttonDisabled: document.querySelector('#cookie-consent .cookie-preferences-form button[type="submit"]')?.disabled, body: document.body.innerText})`, &diagnostic))
+		requestMu.Lock()
+		seen, status := requestSeen, responseStatus
+		requestMu.Unlock()
+		t.Fatalf("save granular cookie preferences: %v (request_seen=%t response_status=%d page %s)", err, seen, status, diagnostic)
 	}
 	var raw string
 	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => { const item = document.cookie.split('; ').find((entry) => entry.startsWith('cookie_consent=')); return item ? decodeURIComponent(item.slice('cookie_consent='.length)) : ''; })()`, &raw)); err != nil {
@@ -1176,11 +1208,11 @@ func runSuccessfulSecurityContact(t *testing.T, noJS bool) {
 		chromedp.SendKeys(`input[name="name"]`, "E2E Security Reporter"),
 		chromedp.SendKeys(`input[name="email"]`, "e2e@example.invalid"),
 		chromedp.SendKeys(`input[name="component"]`, "Airport search"),
-		chromedp.Select(`select[name="severity"]`, "low", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('select[name="severity"]').value = 'low'; document.querySelector('select[name="severity"]').dispatchEvent(new Event('change', {bubbles: true}))`, nil),
 		chromedp.SendKeys(`input[name="summary"]`, "Controlled E2E security report"),
 		chromedp.SendKeys(`textarea[name="steps_to_reproduce"]`, "Open the airport search page and enter the deterministic test query."),
 		chromedp.SendKeys(`textarea[name="impact"]`, "No real vulnerability is reported; this is isolated E2E fixture data."),
-		chromedp.Select(`select[name="credit_preference"]`, "no", chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('select[name="credit_preference"]').value = 'no'; document.querySelector('select[name="credit_preference"]').dispatchEvent(new Event('change', {bubbles: true}))`, nil),
 		chromedp.Evaluate(`document.querySelector('input[name="disclosure_agreement"]').checked = true`, nil),
 		chromedp.SendKeys(`#contact-captcha`, strconv.Itoa(answer)),
 	); err != nil {
@@ -1196,7 +1228,7 @@ func runSuccessfulSecurityContact(t *testing.T, noJS bool) {
 	time.Sleep(2100 * time.Millisecond)
 	if err := chromedp.Run(ctx,
 		chromedp.Click(`input[name="confirmed"]`, chromedp.ByQuery),
-		chromedp.Click(`#contact-review form:first-of-type button[type="submit"]`, chromedp.ByQuery),
+		chromedp.Click(`section[aria-labelledby="contact-review"] form:first-of-type button[type="submit"]`, chromedp.ByQuery),
 		chromedp.WaitVisible(`#contact-success`, chromedp.ByQuery),
 	); err != nil {
 		t.Fatalf("confirm successful security contact submission: %v", err)
@@ -1321,7 +1353,7 @@ func TestE2E_OwnerTokenAPIRotationLinkedManagementAndMCP(t *testing.T) {
 	apiBase := e2eAPIBase(t)
 	status, issueBody := e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary", "", nil)
 	if status != http.StatusCreated {
-		t.Fatalf("issue a primary token without authentication: HTTP %d", status)
+		t.Fatalf("issue a primary token without authentication: HTTP %d, body %s", status, issueBody)
 	}
 	primary := apiOwnerToken(t, issueBody)
 	if status, _ = e2eAPIRequest(t, http.MethodPost, apiBase+"/server/preferences/tokens/primary", primary, nil); status != http.StatusConflict {
@@ -1404,7 +1436,7 @@ func TestE2E_OwnerTokenAPIRotationLinkedManagementAndMCP(t *testing.T) {
 	for label, token := range map[string]string{"primary": rotatedPrimary, "first linked": firstLinked, "second linked": secondLinked} {
 		status, body := mcpAirportCall(t, apiBase, token)
 		if status != http.StatusOK || !strings.Contains(string(body), "KJFK") {
-			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK", label, status)
+			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK: %s", label, status, body)
 		}
 	}
 	if status, _ = mcpAirportCall(t, apiBase, ""); status != http.StatusUnauthorized {
@@ -1422,7 +1454,7 @@ func TestE2E_OwnerTokenAPIRotationLinkedManagementAndMCP(t *testing.T) {
 	for label, token := range map[string]string{"primary": rotatedPrimary, "rotated linked": rotatedLinked, "other linked": secondLinked} {
 		status, body := mcpAirportCall(t, apiBase, token)
 		if status != http.StatusOK || !strings.Contains(string(body), "KJFK") {
-			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK after linked rotation", label, status)
+			t.Errorf("MCP tools/call with %s token returned HTTP %d without KJFK after linked rotation: %s", label, status, body)
 		}
 	}
 

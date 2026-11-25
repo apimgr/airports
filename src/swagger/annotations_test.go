@@ -108,6 +108,27 @@ func TestBuildSpecWithRoutesAddsRequestSchemas(t *testing.T) {
 	}
 }
 
+func TestBuildSpecGraphQLGetDocumentsQueryParameters(t *testing.T) {
+	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{
+		{Method: "GET", Path: "/server/graphql", Summary: "GET /server/graphql"},
+	})
+	paths := spec["paths"].(map[string]interface{})
+	operation := paths["/server/graphql"].(map[string]interface{})["get"].(map[string]interface{})
+	parameters, ok := operation["parameters"].([]map[string]interface{})
+	if !ok || len(parameters) != 3 {
+		t.Fatalf("GraphQL GET parameters = %#v, want query, variables, operationName", operation["parameters"])
+	}
+	want := []string{"query", "variables", "operationName"}
+	for i, parameter := range parameters {
+		if parameter["name"] != want[i] || parameter["in"] != "query" {
+			t.Errorf("parameter %d = %#v, want %s in query", i, parameter, want[i])
+		}
+	}
+	if parameters[0]["required"] != true || parameters[1]["required"] != false || parameters[2]["required"] != false {
+		t.Errorf("GraphQL GET required flags = %#v", parameters)
+	}
+}
+
 func TestFilterMountedRoutesRemovesDisabledSupersetOperations(t *testing.T) {
 	route := OpenAPIRoute{Method: "GET", Path: "/server/metrics", Summary: "metrics", Auth: true, MountedWhen: "server.metrics.enabled", Mounted: false}
 	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{route})

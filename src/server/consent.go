@@ -40,7 +40,7 @@ func readConsentCookie(r *http.Request) (*ConsentState, bool) {
 	if err != nil || c.Value == "" {
 		return nil, false
 	}
-	raw, err := url.QueryUnescape(c.Value)
+	raw, err := url.PathUnescape(c.Value)
 	if err != nil {
 		return nil, false
 	}
@@ -68,10 +68,7 @@ func consentFromRequest(r *http.Request, cfg *config.ApplicationConfig) *Consent
 		}
 		return state
 	}
-	enabled := cfg != nil && cfg.Server.Privacy.Consent.DefaultEnabled
-	preferences := enabled && cfg.Server.Privacy.Cookies.Preferences.Enabled
-	analytics := enabled && cfg.Server.Privacy.Cookies.Analytics.Enabled
-	return &ConsentState{Essential: true, Preferences: preferences, Analytics: analytics}
+	return &ConsentState{Essential: true}
 }
 
 // ConsentMiddleware puts the effective consent state in the request context.
@@ -165,7 +162,7 @@ func writeConsentCookie(w http.ResponseWriter, state ConsentState) {
 	body, _ := json.Marshal(state)
 	http.SetCookie(w, &http.Cookie{
 		Name:     consentCookieName,
-		Value:    url.QueryEscape(string(body)),
+		Value:    url.PathEscape(string(body)),
 		Path:     "/",
 		MaxAge:   365 * 24 * 60 * 60,
 		SameSite: http.SameSiteLaxMode,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -184,6 +185,61 @@ func TestQueryHandler_AirportQuery(t *testing.T) {
 				t.Error("expected data, got nil")
 			}
 		})
+	}
+}
+
+func TestQueryHandler_GetQueryAndVariables(t *testing.T) {
+	values := url.Values{
+		"query":         {`query Airport($code: String!) { airport(code: $code) { icao name } }`},
+		"operationName": {"Airport"},
+		"variables":     {`{"code":"KJFK"}`},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/graphql?"+values.Encode(), nil)
+	rec := httptest.NewRecorder()
+	QueryHandler(newFakeSource(), newFakeGeoIPSource()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var resp response
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Data == nil || len(resp.Errors) != 0 {
+		t.Fatalf("GET response = %+v, want query data", resp)
+	}
+}
+
+func TestApplyGraphQLVariablesPreservesDeclarationsCommentsAndStrings(t *testing.T) {
+	query := "query Airport($code: String!, $unused: Boolean = false) { airport(code: $code) { icao } } # $comment\n"
+	query += `query Literal { airport(code: "$not_a_variable") { icao } }`
+	got, err := applyGraphQLVariables(query, map[string]interface{}{"code": "KJFK"})
+	if err != nil {
+		t.Fatalf("apply variables: %v", err)
+	}
+	for _, want := range []string{
+		"query Airport($code: String!, $unused: Boolean = false)",
+		`airport(code: "KJFK")`,
+		"# $comment",
+		`airport(code: "$not_a_variable")`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("bound query %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestApplyGraphQLVariablesRejectsMissingUsedVariable(t *testing.T) {
+	if _, err := applyGraphQLVariables(`{ airport(code: $code) { icao } }`, nil); err == nil {
+		t.Fatal("missing used variable was accepted")
+	}
+}
+
+func TestQueryHandler_GetMissingQueryReturnsUsageError(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/graphql", nil)
+	rec := httptest.NewRecorder()
+	QueryHandler(newFakeSource(), newFakeGeoIPSource()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "errors") {
+		t.Fatalf("GET without query = %d %s, want a short usage error", rec.Code, rec.Body.String())
 	}
 }
 

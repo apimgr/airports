@@ -1410,6 +1410,32 @@ func TestGenerateConfigYAMLContainsOnlyNodeSettings(t *testing.T) {
 	}
 }
 
+func TestCLIReleaseSettingsBelongToMaintenanceArea(t *testing.T) {
+	cfg := DefaultApplicationConfig()
+	cfg.CLI.BinaryDownload.Dir = "/srv/airports/cli"
+	cfg.CLI.BinaryDownload.RequireAuth = true
+	areas, err := collectConfigAreas(cfg)
+	if err != nil {
+		t.Fatalf("collectConfigAreas: %v", err)
+	}
+	maintenance, ok := areas["maintenance.yml"]
+	if !ok {
+		t.Fatal("CLI settings were not assigned to maintenance.yml")
+	}
+	encoded, err := yaml.Marshal(maintenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "binary_download:") || !strings.Contains(string(encoded), "dir: /srv/airports/cli") || !strings.Contains(string(encoded), "require_auth: true") {
+		t.Fatalf("maintenance.yml area does not contain CLI settings: %s", encoded)
+	}
+	if appArea := areas["app.yml"]; appArea != nil {
+		if _, ok := appArea["cli"]; ok {
+			t.Fatal("CLI release settings were assigned to app.yml instead of maintenance.yml")
+		}
+	}
+}
+
 func TestComplianceModeRequiresAtLeastOneStandard(t *testing.T) {
 	if (ComplianceConfig{}).IsEnabled() {
 		t.Fatal("compliance mode is enabled with no standards")

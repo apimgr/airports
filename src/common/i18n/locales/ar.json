@@ -6,6 +6,20 @@
     "direction": "rtl",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "غير متصل",
+    "heading": "أنت غير متصل بالإنترنت",
+    "message": "تعذر تحميل هذه الصفحة ولا توجد نسخة مخزنة مؤقتًا. تحقق من اتصالك وحاول مرة أخرى.",
+    "indicator": "أنت غير متصل بالإنترنت. قد لا تتوفر بعض الميزات."
+  },
+  "app_update": {
+    "available": "يتوفر إصدار جديد",
+    "now": "حدّث الآن",
+    "later": "لاحقًا"
+  },
+  "connection": {
+    "reconnecting": "جارٍ إعادة الاتصال بالخادم…"
+  },
   "common": {
     "select_language": "اختر اللغة",
     "save": "حفظ",
@@ -159,7 +173,9 @@
     "self_healing": "الشفاء الذاتي",
     "shutting_down": "إيقاف تشغيل",
     "since": "منذ",
-    "text": "حالة النص العادي"
+    "text": "حالة النص العادي",
+    "check.unknown": "فحص: {key}",
+    "stat.unknown": "إحصائية: {key}"
   },
   "consent": {
     "banner_text": "يستخدم هذا الموقع ملفات تعريف الارتباط لتوفير الوظائف الأساسية، وإذا تم تفعيلها، لفهم كيفية الاستخدام.",
@@ -247,6 +263,8 @@
     "playground_title": "ساحة GraphQL",
     "playground_description": "استكشف استعلامات المطارات للقراءة فقط على هذا الخادم.",
     "err_invalid_body": "نص طلب GraphQL غير صالح: {error}",
+    "err_invalid_get_parameter": "معلمة GET غير مدعومة في GraphQL: {parameter}",
+    "err_invalid_variables": "متغيرات GraphQL غير صالحة",
     "err_query_required": "الاستعلام مطلوب",
     "err_airport_not_found": "لم يتم العثور على المطار: {code}",
     "err_nearby_requires_lon": "استعلام nearby يتطلب lon",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "تم تثبيت التحديث - {app_name}",
     "templates.update_installed.body": "تم تثبيت التحديث\n\nمن: {app_name} ({fqdn})\nالوقت: {timestamp}\n\nتم تحديث {app_name} بنجاح.\n\nالإصدار السابق: {old_version}\nالإصدار الجديد: {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "التحديث المرحلي - {app_name}",
-    "templates.update_staged.body": "تم التحديث\n\nمن: {app_name} ({fqdn})\nالوقت: {timestamp}\n\nالإصدار {new_version} تم تنظيمه ويحتاج إلى إعادة التشغيل قبل أن يتم تطبيقه.\n\nتشغيل: {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "تم التحديث\n\nمن: {app_name} ({fqdn})\nالوقت: {timestamp}\n\nالإصدار {new_version} تم تنظيمه ويحتاج إلى إعادة التشغيل قبل أن يتم تطبيقه.\n\nتشغيل: {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "توقف الإصلاح التلقائي - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} لا يزال في وضع الصيانة للقراءة فقط بعد فشل {attempts} محاولات للاسترداد.\n\nالسبب: {reason}\nيلزم تدخل المشغل. أزل السبب ثم أعد تشغيل الخدمة."
   }
 }

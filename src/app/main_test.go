@@ -1,6 +1,7 @@
-package main
+package app
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1012,13 +1014,68 @@ func TestServiceFlagParsesCanonicalFlagSubcommands(t *testing.T) {
 // invalid value returns an error deterministically without side effects
 // beyond setting server.Version/Commit/BuildDate package vars.
 func TestRunInvalidColor(t *testing.T) {
-	err := run("", "", "", "", "", "", "", "", "", false, "bogus", "", false, false, false, false)
+	err := run(context.Background(), runConfig{Color: "bogus"})
 	if err == nil {
 		t.Fatal("run() with invalid --color: expected error, got nil")
 	}
 	want := "invalid --color value: bogus (must be auto, yes, or no)"
 	if err.Error() != want {
 		t.Errorf("run() error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestRunClosesInjectedListenerOnEarlyError(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := run(context.Background(), runConfig{Color: "bogus", Listener: listener}); err == nil {
+		t.Fatal("run() with invalid color: expected error")
+	}
+	if _, err := listener.Accept(); err == nil {
+		t.Fatal("injected listener remained open after run returned")
+	}
+}
+
+func TestServeHTTPServerReadyRequestAndCancellation(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := make(chan struct{})
+	finished := make(chan error, 1)
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ready")
+	})}
+	go func() { finished <- serveHTTPServer(ctx, srv, listener, false, ready) }()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("server did not signal readiness")
+	}
+	response, err := http.Get("http://" + listener.Addr().String())
+	if err != nil {
+		t.Fatalf("GET ready listener: %v", err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read response body: %v", readErr)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != "ready" {
+		t.Fatalf("response = %d %q, want 200 ready", response.StatusCode, body)
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("server returned after cancellation: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not stop after context cancellation")
 	}
 }
 
@@ -1740,6 +1797,27 @@ func TestExtractEmailFlag(t *testing.T) {
 				if remaining[i] != tt.wantRemain[i] {
 					t.Errorf("remaining[%d] = %q, want %q", i, remaining[i], tt.wantRemain[i])
 				}
+			}
+		})
+	}
+}
+
+func TestNormalizeMaintenanceSubcommands(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"email", []string{"--maintenance", "email", "test", "--dry-run"}, []string{"email", "test", "--dry-run"}},
+		{"tor", []string{"--maintenance", "tor", "status"}, []string{"tor", "status"}},
+		{"inline", []string{"--maintenance=email", "test"}, []string{"email", "test"}},
+		{"other maintenance action", []string{"--maintenance", "backup"}, []string{"--maintenance", "backup"}},
+		{"other option", []string{"--debug", "email", "test"}, []string{"--debug", "email", "test"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeMaintenanceSubcommands(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("normalizeMaintenanceSubcommands(%v) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
 	}

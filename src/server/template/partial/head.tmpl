@@ -3,6 +3,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="{{.Description}}">
+    <meta name="offline-title" content="{{.OfflineStrings.Title}}">
+    <meta name="offline-heading" content="{{.OfflineStrings.Heading}}">
+    <meta name="offline-message" content="{{.OfflineStrings.Message}}">
+    <meta name="offline-indicator" content="{{.OfflineStrings.Indicator}}">
+    <meta name="app-update-available" content="{{.OfflineStrings.UpdateAvailable}}">
+    <meta name="app-update-now" content="{{.OfflineStrings.UpdateNow}}">
+    <meta name="app-update-later" content="{{.OfflineStrings.UpdateLater}}">
+    <meta name="connection-reconnecting" content="{{.OfflineStrings.Reconnecting}}">
     {{if .Keywords}}<meta name="keywords" content="{{.Keywords}}">{{end}}
     {{if .SEOAuthor}}<meta name="author" content="{{.SEOAuthor}}">{{end}}
     <meta name="robots" content="{{.Robots}}">
@@ -26,12 +34,12 @@
     {{if .TwitterHandle}}<meta name="twitter:site" content="{{.TwitterHandle}}">{{end}}
     {{if .TwitterCreator}}<meta name="twitter:creator" content="{{.TwitterCreator}}">{{end}}
     {{end}}
-    <link rel="stylesheet" href="{{.BaseURL}}/static/css/common.css">
-    <link rel="stylesheet" href="{{.BaseURL}}/static/css/components.css">
-    <link rel="stylesheet" href="{{.BaseURL}}/static/css/public.css">
-    {{if .SwaggerUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/swagger-ui/swagger-ui.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/swagger/theme.css">{{end}}
-    {{if .GraphiQLUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/graphiql/graphiql.min.css"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/graphql/theme.css">{{end}}
-    {{if .AccentCSS}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/accent.css">{{end}}
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/common.css?v={{.AssetStamp}}">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/components.css?v={{.AssetStamp}}">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/public.css?v={{.AssetStamp}}">
+    {{if .SwaggerUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css?v={{.AssetStamp}}"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/swagger-ui/swagger-ui.css?v={{.AssetStamp}}"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/swagger/theme.css">{{end}}
+    {{if .GraphiQLUI}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/docs.css?v={{.AssetStamp}}"><link rel="stylesheet" href="{{.BaseURL}}/static/vendor/graphiql/graphiql.min.css?v={{.AssetStamp}}"><link rel="stylesheet" href="{{.BaseURL}}/server/docs/graphql/theme.css">{{end}}
+    {{if .AccentCSS}}<link rel="stylesheet" href="{{.BaseURL}}/static/css/accent.css?v={{.AssetStamp}}">{{end}}
     <link rel="icon" type="image/png" href="{{.Favicon16URL}}" sizes="16x16">
     <link rel="icon" type="image/png" href="{{.FaviconURL}}" sizes="32x32">
     <link rel="icon" type="image/png" href="{{.Favicon48URL}}" sizes="48x48">

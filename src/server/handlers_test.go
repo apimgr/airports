@@ -600,6 +600,29 @@ func TestHandleServiceWorker(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/javascript" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/javascript")
 	}
+	worker := w.Body.String()
+	for _, required := range []string{
+		"X-Offline-Cache",
+		"cache.delete(request)",
+		"request.method !== 'GET' || url.origin !== self.location.origin",
+		"NAV_TIMEOUT_MS = 8000",
+		"FETCH_TIMEOUT_MS = 30000",
+		"status: 504",
+		"caches.keys()",
+		"const CACHE_PREFIX = 'airports-cache-'",
+		"const CACHE_NAME = CACHE_PREFIX + '" + Version + "-" + CommitID + "'",
+		"MAX_CACHE_BYTES = 50 * 1024 * 1024",
+		"CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000",
+		"offlineFallbackResponse",
+		"SKIP_WAITING",
+	} {
+		if !strings.Contains(worker, required) {
+			t.Errorf("service worker missing %q", required)
+		}
+	}
+	if strings.Contains(worker, "static/offline.html") {
+		t.Error("service worker must synthesize its offline page instead of using a static offline asset")
+	}
 }
 
 // TestHandleServerHealthzContentNegotiation covers the 3-way Accept-header
@@ -635,6 +658,7 @@ func TestHandleServerHealthzContentNegotiation(t *testing.T) {
 
 // TestHandleAutodiscover covers the unversioned /api/autodiscover endpoint.
 func TestHandleAutodiscover(t *testing.T) {
+	t.Setenv("DOMAIN", "airports.example.com,api.example.com")
 	s := newTestServer(t)
 	s.config.Server.Update.CLIMinVersion = "1.2.3"
 	r := httptest.NewRequest(http.MethodGet, "/api/autodiscover", nil)
@@ -664,8 +688,20 @@ func TestHandleAutodiscover(t *testing.T) {
 	if api["current_version"] != s.config.Server.APIVersion {
 		t.Errorf("api[current_version] = %v, want %q", api["current_version"], s.config.Server.APIVersion)
 	}
+	if data["name"] != "airports" || data["version"] != Version {
+		t.Errorf("name/version = %v/%v", data["name"], data["version"])
+	}
 	if data["cli_min_version"] != "1.2.3" {
 		t.Errorf("cli_min_version = %v, want %q", data["cli_min_version"], "1.2.3")
+	}
+	for _, forbidden := range []string{"server", "endpoints", "features", "settings", "config", "options"} {
+		if _, ok := data[forbidden]; ok {
+			t.Errorf("autodiscover unexpectedly includes %q", forbidden)
+		}
+	}
+	urls, ok := data["urls"].([]interface{})
+	if !ok || len(urls) != 2 || urls[0] != "http://airports.example.com" || urls[1] != "http://api.example.com" {
+		t.Errorf("urls = %v, want current origin first then configured domain origins", data["urls"])
 	}
 }
 

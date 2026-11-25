@@ -42,7 +42,7 @@ func TestAPIRouteDrift(t *testing.T) {
 	for _, route := range []string{
 		"GET /healthz", "GET /metrics", "GET /metrics/prometheus", "GET /metrics/grafana", "GET /metrics/loki",
 		"GET /llms.txt", "GET /.well-known/security.txt", "GET /.well-known/llms.txt", "GET /.well-known/pgp-key.asc",
-		"GET /api/swagger", "GET /api/healthz", "GET /api/healthz.txt", "POST /api/graphql", "POST /api/mcp", "POST /mcp", "GET /api/autodiscover",
+		"GET /api/swagger", "GET /api/healthz", "GET /api/healthz.txt", "POST /api/graphql", "GET /api/graphql", "POST /api/mcp", "POST /mcp", "GET /api/autodiscover",
 		"GET /api/metrics", "GET /api/metrics/prometheus", "GET /api/metrics/grafana", "GET /api/metrics/loki",
 	} {
 		expectedSuperset[route] = struct{}{}

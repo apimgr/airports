@@ -169,6 +169,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	r.Get("/api/healthz", s.handleServerHealthz)
 	r.Get("/api/healthz.txt", s.handleServerHealthz)
 	r.Post("/api/graphql", graphqlQuery)
+	r.Get("/api/graphql", graphqlQuery)
 	// AI.md note: "Old paths removed: /openapi, /openapi.json, /graphql (GET and POST
 	// at root) are no longer served." The deprecated legacy aliases have therefore
 	// been deleted from both the root and the versioned tree.
@@ -237,6 +238,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 		r.Post("/server/contact", s.handleContactSubmission)
 		r.Get("/server/swagger", swaggerSpec)
 		r.Post("/server/graphql", graphqlQuery)
+		r.Get("/server/graphql", graphqlQuery)
 
 		// Airport endpoints - JSON responses
 		r.Get("/airports", s.handleGetAirports)
@@ -388,6 +390,7 @@ func (s *Server) openAPIRouteSuperset() []swaggerpkg.OpenAPIRoute {
 		{Method: http.MethodGet, Path: "/api/healthz", Summary: "GET /api/healthz"},
 		{Method: http.MethodGet, Path: "/api/healthz.txt", Summary: "GET /api/healthz.txt"},
 		{Method: http.MethodPost, Path: "/api/graphql", Summary: "POST /api/graphql"},
+		{Method: http.MethodGet, Path: "/api/graphql", Summary: "GET /api/graphql"},
 		{Method: http.MethodPost, Path: "/api/mcp", Summary: "POST /api/mcp", Auth: true},
 		{Method: http.MethodPost, Path: "/mcp", Summary: "POST /mcp", Auth: true},
 		{Method: http.MethodGet, Path: "/api/autodiscover", Summary: "GET /api/autodiscover"},
@@ -418,8 +421,8 @@ func (s *Server) openAPIRouteSuperset() []swaggerpkg.OpenAPIRoute {
 	}
 	debugMounted := mode.ShouldShowDebugEndpoints()
 	debugPaths := []string{
-		"/debug/config", "/debug/routes", "/debug/cache", "/debug/db",
-		"/debug/scheduler", "/debug/memory", "/debug/goroutines",
+		"/debug/config", "/debug/routes", "/debug/cache", "/debug/db", "/debug/error500",
+		"/debug/scheduler", "/debug/memory", "/debug/goroutines", "/debug/error500",
 		"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/profile", "/debug/pprof/symbol",
 		"/debug/pprof/trace", "/debug/pprof/heap", "/debug/pprof/goroutine", "/debug/pprof/allocs",
 		"/debug/pprof/block", "/debug/pprof/mutex", "/debug/pprof/threadcreate", "/debug/vars",

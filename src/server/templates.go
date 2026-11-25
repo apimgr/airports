@@ -19,6 +19,7 @@ import (
 	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/mode"
+	xhtml "golang.org/x/net/html"
 )
 
 //go:embed template/layout/*.tmpl template/partial/*.tmpl template/partial/public/*.tmpl template/page/*.tmpl template/component/*.tmpl
@@ -271,6 +272,8 @@ func initTemplates() error {
 // clock so footer copyright text never hardcodes a stale year (CLAUDE.md
 // "Hardcode dev values -> Detect at runtime").
 func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, page string, data interface{}) {
+	w.Header().Del("X-Offline-Cache")
+	w.Header().Set("Cache-Control", "no-store")
 	robotValue := s.robotsDirective(r)
 	s.configMu.RLock()
 	noIndex := s.config != nil && s.config.Server.SEO.NoIndex
@@ -286,6 +289,87 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, page str
 		log.Printf("renderTemplate: %q failed before write: %v", page, err)
 		s.renderErrorPage(w, r, http.StatusInternalServerError)
 	}
+}
+
+var offlineCachePublicPages = map[string]struct{}{
+	"home": {}, "airport_list": {}, "search": {}, "nearby": {}, "airport": {}, "stats": {}, "geoip": {},
+	"server_about": {}, "server_help": {}, "server_help_mcp": {}, "server_docs_swagger": {}, "server_docs_graphql": {},
+	"server_terms": {}, "server_dpo": {}, "server_security_policy": {}, "server_healthz": {},
+}
+
+var offlineCacheOwnerTokenPattern = regexp.MustCompile(`\bown_[A-Za-z0-9]{32}\b`)
+
+func offlineCacheEligible(r *http.Request, page string, status int, contentType string, body []byte, response http.Header, csrfCookieName string) bool {
+	if r == nil || r.Method != http.MethodGet || status != http.StatusOK || !strings.HasPrefix(contentType, "text/html") || hasNonOfflineCacheCookie(response, csrfCookieName) {
+		return false
+	}
+	if _, ok := offlineCachePublicPages[page]; !ok {
+		return false
+	}
+	for _, cookie := range r.Cookies() {
+		if !offlineCacheCookieName(cookie.Name, csrfCookieName) {
+			return false
+		}
+	}
+	return !offlineCacheOwnerTokenPattern.Match(body) && offlineCacheSharedFormsOnly(body)
+}
+
+func offlineCacheCookieName(name, csrfCookieName string) bool {
+	return name == buildStampCookieName || (csrfCookieName != "" && name == csrfCookieName)
+}
+
+func hasNonOfflineCacheCookie(header http.Header, csrfCookieName string) bool {
+	for _, value := range header.Values("Set-Cookie") {
+		name, _, ok := strings.Cut(value, "=")
+		if !ok || !offlineCacheCookieName(strings.TrimSpace(name), csrfCookieName) {
+			return true
+		}
+	}
+	return false
+}
+
+func offlineCacheSharedFormsOnly(body []byte) bool {
+	root, err := xhtml.Parse(bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	var visit func(*xhtml.Node, bool) bool
+	visit = func(node *xhtml.Node, inSharedForm bool) bool {
+		if node.Type == xhtml.ElementNode && node.Data == "form" {
+			inSharedForm = hasHTMLClass(node, "theme-toggle-form") || hasHTMLClass(node, "cookie-consent-form")
+			if !inSharedForm {
+				return false
+			}
+		}
+		if node.Type == xhtml.ElementNode && node.Data == "input" && !inSharedForm {
+			for _, attr := range node.Attr {
+				if attr.Key == "name" && attr.Val == "csrf_token" {
+					return false
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if !visit(child, inSharedForm) {
+				return false
+			}
+		}
+		return true
+	}
+	return visit(root, false)
+}
+
+func hasHTMLClass(node *xhtml.Node, class string) bool {
+	for _, attr := range node.Attr {
+		if attr.Key != "class" {
+			continue
+		}
+		for _, value := range strings.Fields(attr.Val) {
+			if value == class {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // injectCommonTemplateData populates the layout-wide fields public.tmpl expects
@@ -441,6 +525,16 @@ func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interfac
 		m["ConsentAnalytics"] = state.Analytics
 	}
 	lang := i18n.FromContext(r.Context())
+	m["OfflineStrings"] = map[string]string{
+		"Title":           i18n.TranslateText(lang, "offline.title"),
+		"Heading":         i18n.TranslateText(lang, "offline.heading"),
+		"Message":         i18n.TranslateText(lang, "offline.message"),
+		"Indicator":       i18n.TranslateText(lang, "offline.indicator"),
+		"UpdateAvailable": i18n.TranslateText(lang, "app_update.available"),
+		"UpdateNow":       i18n.TranslateText(lang, "app_update.now"),
+		"UpdateLater":     i18n.TranslateText(lang, "app_update.later"),
+		"Reconnecting":    i18n.TranslateText(lang, "connection.reconnecting"),
+	}
 	privacy := cfg.Server.Privacy
 	privacyText := localizedPrivacyDisplayText(privacy, lang)
 	m["EssentialCookieDescription"] = privacyText.EssentialCookieDescription
@@ -459,6 +553,12 @@ func (s *Server) injectCommonTemplateData(r *http.Request, m map[string]interfac
 		m["Lang"] = lang
 		m["Dir"] = i18n.Direction(lang)
 		m["AvailableLanguages"] = i18n.AvailableLanguages()
+	}
+	if _, exists := m["BuildStamp"]; !exists {
+		m["BuildStamp"] = currentBuildStamp()
+	}
+	if _, exists := m["AssetStamp"]; !exists {
+		m["AssetStamp"] = currentBuildStamp()
 	}
 	if _, exists := m["Announcements"]; !exists {
 		m["Announcements"] = s.announcementViews(r)
@@ -667,10 +767,7 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 			if translated != translationKey {
 				return translated
 			}
-			if kind, id, ok := strings.Cut(key, "_"); ok {
-				return strings.ToUpper(kind[:1]) + kind[1:] + ": " + strings.ReplaceAll(id, "_", " ")
-			}
-			return humanizePrivacyLabel(key)
+			return i18n.TranslateFormattedText(lang, "health.check.unknown", key)
 		},
 		"t": func(key string) string {
 			return i18n.TranslateText(lang, key)
@@ -770,6 +867,17 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 		body = []byte(noJS)
 	}
 	w.Header().Set("Content-Type", contentType)
+	applyBuildStampResponse(w, r, status, contentType)
+	csrfCookieName := "csrf_token"
+	s.configMu.RLock()
+	if s.config != nil && strings.TrimSpace(s.config.Server.CSRF.CookieName) != "" {
+		csrfCookieName = strings.TrimSpace(s.config.Server.CSRF.CookieName)
+	}
+	s.configMu.RUnlock()
+	if offlineCacheEligible(r, page, status, contentType, body, w.Header(), csrfCookieName) {
+		w.Header().Set("X-Offline-Cache", "public")
+		w.Header().Add("Vary", "Accept-Language")
+	}
 	if r.Method == http.MethodGet && status >= http.StatusOK && status < http.StatusMultipleChoices &&
 		strings.HasPrefix(contentType, "text/html") && !s.isTorRequest(r) && s.config.Server.Tor.OnionAddress != "" {
 		onionURL := url.URL{

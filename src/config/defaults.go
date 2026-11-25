@@ -253,7 +253,6 @@ func DefaultApplicationConfig() *ApplicationConfig {
 					Message:               "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data is stored on our servers and is never sold.",
 					MessageIfSold:         "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data may be shared with or sold to third parties as described in our Privacy Policy.",
 					ShowUntilAcknowledged: true,
-					DefaultEnabled:        true,
 					Position:              "bottom",
 					ShowPreferences:       true,
 					PreferencesText:       "Manage Preferences",

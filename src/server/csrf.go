@@ -87,6 +87,10 @@ func csrfPathExempt(p string, patterns []string) bool {
 	return false
 }
 
+func isBackendAPIPath(p string) bool {
+	return p == "/api" || strings.HasPrefix(p, "/api/")
+}
+
 // csrfMiddleware implements the stateless double-submit CSRF check from
 // AI.md PART 16 "CSRF Protection". Every request gets/keeps a csrf_token
 // cookie (SameSite=Strict, Secure per config, NOT HttpOnly so a
@@ -98,6 +102,10 @@ func csrfPathExempt(p string, patterns []string) bool {
 // bypass.
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isBackendAPIPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		cfg := s.config.Server.CSRF
 		if !cfg.Enabled {
 			next.ServeHTTP(w, r)

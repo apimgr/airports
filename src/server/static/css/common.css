@@ -102,6 +102,27 @@
   --consent-text: #ffffff;
 }
 
+.app-recovery-panel {
+  align-items: start;
+  background: var(--color-bg);
+  color: var(--color-text);
+  display: grid;
+  gap: var(--space-md);
+  justify-items: start;
+  margin: 10vh auto;
+  max-width: 40rem;
+  padding: var(--space-xl);
+}
+
+.app-recovery-panel h1,
+.app-recovery-panel p {
+  margin: 0;
+}
+
+.app-recovery-panel a {
+  color: var(--color-primary);
+}
+
 /* Light theme overrides */
 html.theme-light {
   --color-bg: #ffffff;
@@ -177,6 +198,25 @@ html.theme-light {
 .skip-link:focus {
   top: var(--space-sm);
 }
+
+.app-status-banner {
+  position: fixed;
+  inset-block-start: var(--space-3);
+  inset-inline: var(--space-3);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+}
+
+.app-status-actions { display: flex; gap: var(--space-2); }
 
 .skip-link[href="#main-navigation"]:focus {
   top: var(--space-12);

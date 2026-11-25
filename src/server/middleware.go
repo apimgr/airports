@@ -12,11 +12,45 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+const buildStampCookieName = "airports_build"
+
+func currentBuildStamp() string {
+	return Version + "-" + CommitID
+}
+
+func applyBuildStampResponse(w http.ResponseWriter, r *http.Request, status int, contentType string) {
+	if w == nil || r == nil || !strings.HasPrefix(contentType, "text/html") {
+		return
+	}
+	stamp := currentBuildStamp()
+	if r.Method == http.MethodGet && status == http.StatusOK {
+		if cookie, err := r.Cookie(buildStampCookieName); err == nil && cookie.Value != stamp && isTopLevelDocumentRequest(r) {
+			w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
+		}
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: buildStampCookieName, Value: stamp, Path: "/", MaxAge: 31536000,
+		Expires: time.Now().Add(365 * 24 * time.Hour), Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func isTopLevelDocumentRequest(r *http.Request) bool {
+	destination := r.Header.Get("Sec-Fetch-Dest")
+	mode := r.Header.Get("Sec-Fetch-Mode")
+	return (destination == "" && mode == "") || (destination == "document" && mode == "navigate")
+}
+
 // registerMiddleware installs the global middleware chain in its required order.
 func (s *Server) registerMiddleware(r chi.Router) {
 	// Request paths are normalized before request IDs and traversal checks.
 	r.Use(URLNormalizeMiddleware)
 	r.Use(RequestIDMiddleware)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Build", Version+"-"+CommitID)
+			next.ServeHTTP(w, r)
+		})
+	})
 	r.Use(PathSecurityMiddleware)
 	r.Use(gzipCompressionMiddleware(func() config.CompressionConfig {
 		s.configMu.RLock()
@@ -118,11 +152,11 @@ func (s *Server) registerMiddleware(r chi.Router) {
 	})
 
 	// Stateless double-submit CSRF protection per AI.md PART 16 "CSRF
-	// Protection" — issues/refreshes the csrf_token cookie on every request
-	// (so server-rendered forms always have a token to embed) and validates
-	// it on mutating browser requests without a bearer credential. Must run
-	// after i18n.LanguageMiddleware (translated failure message) and before
-	// any route handler.
+	// Protection" — issues/refreshes the csrf_token cookie for frontend
+	// requests (so server-rendered forms always have a token to embed) and
+	// validates mutating browser requests without a bearer credential. The
+	// middleware bypasses backend API paths entirely. It runs after
+	// i18n.LanguageMiddleware and before any route handler.
 	r.Use(s.csrfMiddleware)
 	r.Use(s.accessLogger)
 }

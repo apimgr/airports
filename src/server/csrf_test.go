@@ -190,6 +190,28 @@ func TestCSRFMiddlewareBearerBypassed(t *testing.T) {
 	}
 }
 
+func TestCSRFMiddlewareBackendAPIBypassedWithoutIssuingCookie(t *testing.T) {
+	s := newTestServer(t)
+	handlerCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, target := range []string{"/api", "/api/v1/server/preferences/tokens/primary"} {
+		r := httptest.NewRequest(http.MethodPost, target, nil)
+		w := httptest.NewRecorder()
+		s.csrfMiddleware(next).ServeHTTP(w, r)
+		if w.Code != http.StatusOK || !handlerCalled {
+			t.Fatalf("backend API request %s was blocked: status=%d body=%s", target, w.Code, w.Body.String())
+		}
+		if got := w.Result().Cookies(); len(got) != 0 {
+			t.Errorf("backend API request %s issued CSRF cookies: %v", target, got)
+		}
+		handlerCalled = false
+	}
+}
+
 // TestCSRFMiddlewareExemptPathBypassed covers the operator-declared
 // exempt_paths bypass (AI.md PART 16 "server.csrf.exempt_paths").
 func TestCSRFMiddlewareExemptPathBypassed(t *testing.T) {

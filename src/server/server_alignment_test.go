@@ -121,6 +121,141 @@ func TestTermsPageRendersGoverningLaw(t *testing.T) {
 	}
 }
 
+func TestOfflineCacheEligibilityAllowsSharedFormsAndCSRFOnly(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	request.AddCookie(&http.Cookie{Name: "csrf_token", Value: "shared-token"})
+	request.AddCookie(&http.Cookie{Name: buildStampCookieName, Value: "build"})
+	sharedBody := []byte(`<html><form class="theme-toggle-form"><input name="csrf_token"></form><form class="cookie-consent-form"><input name="csrf_token"></form></html>`)
+	sharedCookies := http.Header{}
+	sharedCookies.Add("Set-Cookie", "csrf_token=shared-token; Path=/")
+	sharedCookies.Add("Set-Cookie", buildStampCookieName+"=build; Path=/")
+	if !offlineCacheEligible(request, "server_about", http.StatusOK, "text/html; charset=utf-8", sharedBody, sharedCookies, "csrf_token") {
+		t.Fatal("plain public GET page was not eligible")
+	}
+	cases := []struct {
+		name        string
+		method      string
+		page        string
+		status      int
+		contentType string
+		body        string
+		cookieName  string
+		setCookie   string
+	}{
+		{name: "non-GET", method: http.MethodPost, page: "server_about", status: http.StatusOK, contentType: "text/html", body: "<html>public</html>"},
+		{name: "token page", method: http.MethodGet, page: "server_owner_tokens", status: http.StatusOK, contentType: "text/html", body: "<html>public</html>"},
+		{name: "page-owned form", method: http.MethodGet, page: "server_about", status: http.StatusOK, contentType: "text/html", body: `<html><form><input name="csrf_token"></form></html>`},
+		{name: "owner cookie", method: http.MethodGet, page: "server_about", status: http.StatusOK, contentType: "text/html", body: "<html>public</html>", cookieName: ownerTokenCookieName},
+		{name: "visitor cookie", method: http.MethodGet, page: "server_about", status: http.StatusOK, contentType: "text/html", body: "<html>public</html>", cookieName: "theme"},
+		{name: "visitor set-cookie", method: http.MethodGet, page: "server_about", status: http.StatusOK, contentType: "text/html", body: "<html>public</html>", setCookie: "theme=dark"},
+		{name: "error", method: http.MethodGet, page: "server_about", status: http.StatusInternalServerError, contentType: "text/html", body: "<html>public</html>"},
+		{name: "non-html", method: http.MethodGet, page: "server_about", status: http.StatusOK, contentType: "application/json", body: "{}"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(tc.method, "/server/about", nil)
+			if tc.cookieName != "" {
+				r.AddCookie(&http.Cookie{Name: tc.cookieName, Value: "value"})
+			}
+			header := http.Header{}
+			if tc.setCookie != "" {
+				header.Add("Set-Cookie", tc.setCookie)
+			}
+			if offlineCacheEligible(r, tc.page, tc.status, tc.contentType, []byte(tc.body), header, "csrf_token") {
+				t.Fatal("private or non-public response was eligible")
+			}
+		})
+	}
+}
+
+func TestBuildStampCookieAndVersionPurgeAreScoped(t *testing.T) {
+	stamp := currentBuildStamp()
+	request := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	request.Header.Set("Sec-Fetch-Dest", "document")
+	request.Header.Set("Sec-Fetch-Mode", "navigate")
+	request.AddCookie(&http.Cookie{Name: buildStampCookieName, Value: "old-build"})
+	response := httptest.NewRecorder()
+	applyBuildStampResponse(response, request, http.StatusOK, "text/html; charset=utf-8")
+	if got := response.Header().Get("Clear-Site-Data"); got != `"cache", "storage"` {
+		t.Fatalf("Clear-Site-Data = %q, want cache and storage only", got)
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("response cookies = %v, want only the build stamp", cookies)
+	}
+	cookie := cookies[0]
+	if cookie.Name != buildStampCookieName || cookie.Value != stamp || cookie.Path != "/" || cookie.MaxAge != 31536000 || !cookie.Secure || cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("build stamp cookie = %+v", cookie)
+	}
+
+	for _, test := range []struct {
+		name        string
+		method      string
+		destination string
+		mode        string
+		status      int
+		contentType string
+		wantPurge   bool
+		wantCookie  bool
+	}{
+		{name: "same build", method: http.MethodGet, destination: "document", mode: "navigate", status: http.StatusOK, contentType: "text/html", wantCookie: true},
+		{name: "iframe", method: http.MethodGet, destination: "iframe", mode: "navigate", status: http.StatusOK, contentType: "text/html", wantCookie: true},
+		{name: "fetch", method: http.MethodGet, destination: "empty", mode: "cors", status: http.StatusOK, contentType: "text/html", wantCookie: true},
+		{name: "redirect", method: http.MethodGet, destination: "document", mode: "navigate", status: http.StatusSeeOther, contentType: "text/html", wantCookie: true},
+		{name: "error", method: http.MethodGet, destination: "document", mode: "navigate", status: http.StatusInternalServerError, contentType: "text/html", wantCookie: true},
+		{name: "head", method: http.MethodHead, destination: "document", mode: "navigate", status: http.StatusOK, contentType: "text/html", wantCookie: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := httptest.NewRequest(test.method, "/server/about", nil)
+			if test.destination != "empty" {
+				r.Header.Set("Sec-Fetch-Dest", test.destination)
+			}
+			if test.mode != "" {
+				r.Header.Set("Sec-Fetch-Mode", test.mode)
+			}
+			if test.name == "same build" {
+				r.AddCookie(&http.Cookie{Name: buildStampCookieName, Value: stamp})
+			} else {
+				r.AddCookie(&http.Cookie{Name: buildStampCookieName, Value: "old-build"})
+			}
+			w := httptest.NewRecorder()
+			applyBuildStampResponse(w, r, test.status, test.contentType)
+			if got := w.Header().Get("Clear-Site-Data"); (got != "") != test.wantPurge {
+				t.Errorf("Clear-Site-Data = %q, want purge %t", got, test.wantPurge)
+			}
+			if got := len(w.Result().Cookies()) > 0; got != test.wantCookie {
+				t.Errorf("build cookie present = %t, want %t", got, test.wantCookie)
+			}
+		})
+	}
+}
+
+func TestRenderedPublicPagesKeepNoStoreAndMarkSharedFormsPublic(t *testing.T) {
+	s := newTestServer(t)
+	r := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	s.renderTemplate(w, r, "server_about", map[string]interface{}{"Title": "About"})
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", w.Header().Get("Cache-Control"))
+	}
+	if !offlineCacheSharedFormsOnly(w.Body.Bytes()) {
+		t.Error("shared public layout contains a form or CSRF field outside the allowed shared forms")
+	}
+	if offlineCacheOwnerTokenPattern.Match(w.Body.Bytes()) {
+		t.Error("shared public page unexpectedly contains an owner token value")
+	}
+	if hasNonOfflineCacheCookie(w.Header(), "csrf_token") {
+		t.Error("shared public page sets a visitor-specific cookie")
+	}
+	if !offlineCacheEligible(r, "server_about", w.Code, w.Header().Get("Content-Type"), w.Body.Bytes(), w.Header(), "csrf_token") {
+		t.Errorf("rendered page inputs rejected: method=%s status=%d type=%q cookies=%d", r.Method, w.Code, w.Header().Get("Content-Type"), len(r.Cookies()))
+	}
+	if got := w.Header().Get("X-Offline-Cache"); got != "public" {
+		t.Errorf("X-Offline-Cache = %q, want public for shared-only forms", got)
+	}
+}
+
 func TestErrorPageStatusTitleIsLocalized(t *testing.T) {
 	s := newTestServer(t)
 	r := httptest.NewRequest(http.MethodGet, "/missing", nil)

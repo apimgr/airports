@@ -257,7 +257,7 @@ func TestCheckCLIRelease(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer token" {
 			t.Errorf("Authorization = %q, want Bearer token", r.Header.Get("Authorization"))
 		}
-		_, _ = fmt.Fprintf(w, `{"cli_versions":{"%s-%s":{"version":"1.2.0","sha256":"%s"}},"cli_min_version":"1.0.0"}`, runtime.GOOS, runtime.GOARCH, strings.Repeat("a", 64))
+		_, _ = fmt.Fprintf(w, `{"ok":true,"data":{"cli_versions":{"%s-%s":{"version":"1.2.0","sha256":"%s"}},"cli_min_version":"1.0.0"}}`, runtime.GOOS, runtime.GOARCH, strings.Repeat("a", 64))
 	}))
 	defer server.Close()
 	c := &client{baseURL: server.URL + "/prefix", token: "token", http: server.Client()}
@@ -267,6 +267,20 @@ func TestCheckCLIRelease(t *testing.T) {
 	}
 	if metadata.MinVersion != "1.0.0" || release.Version != "1.2.0" || len(release.SHA256) != 64 {
 		t.Errorf("metadata/release = %+v / %+v, want minimum 1.0.0, release 1.2.0 with SHA-256", metadata, release)
+	}
+}
+
+func TestCLIBinaryDownloadURLUsesConfiguredServerOrigin(t *testing.T) {
+	got, base, err := cliBinaryDownloadURL("https://server.example/prefix/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://server.example/prefix/cli/binaries/airports-cli-" + runtime.GOOS + "-" + runtime.GOARCH
+	if got != want || base.Host != "server.example" {
+		t.Errorf("cliBinaryDownloadURL() = %q, base host %q; want %q on configured origin", got, base.Host, want)
+	}
+	if _, _, err := cliBinaryDownloadURL("http://server.example"); err == nil {
+		t.Fatal("cliBinaryDownloadURL accepted a non-HTTPS server")
 	}
 }
 

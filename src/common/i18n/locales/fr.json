@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "Hors ligne",
+    "heading": "Vous êtes hors ligne",
+    "message": "Cette page n’a pas pu être chargée et aucune copie en cache n’est disponible. Vérifiez votre connexion et réessayez.",
+    "indicator": "Vous êtes hors ligne. Certaines fonctionnalités peuvent être indisponibles."
+  },
+  "app_update": {
+    "available": "Une nouvelle version est disponible",
+    "now": "Mettre à jour",
+    "later": "Plus tard"
+  },
+  "connection": {
+    "reconnecting": "Reconnexion au serveur…"
+  },
   "common": {
     "select_language": "Choisir la langue",
     "save": "Enregistrer",
@@ -159,7 +173,9 @@
     "self_healing": "Auto-guérison",
     "shutting_down": "Arrêt du",
     "since": "Depuis",
-    "text": "Statut en texte brut"
+    "text": "Statut en texte brut",
+    "check.unknown": "Vérification : {key}",
+    "stat.unknown": "Statistique : {key}"
   },
   "consent": {
     "banner_text": "Ce site utilise des cookies pour fournir des fonctionnalités essentielles et, si activé, pour comprendre l'utilisation.",
@@ -247,6 +263,8 @@
     "playground_title": "Explorateur GraphQL",
     "playground_description": "Explorez les requêtes d’aéroport en lecture seule sur ce serveur.",
     "err_invalid_body": "corps de requête GraphQL invalide : {error}",
+    "err_invalid_get_parameter": "paramètre GET GraphQL non pris en charge : {parameter}",
+    "err_invalid_variables": "variables GraphQL invalides",
     "err_query_required": "une requête est requise",
     "err_airport_not_found": "aéroport introuvable : {code}",
     "err_nearby_requires_lon": "la requête nearby nécessite lon",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "Mise à jour installée - {app_name}",
     "templates.update_installed.body": "MISE À JOUR INSTALLÉE\n\nDe : {app_name} ({fqdn})\nHeure : {timestamp}\n\n{app_name} a été mis à jour avec succès.\n\nVersion précédente : {old_version}\nNouvelle version : {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "Mise à jour étape par étape - {app_name}",
-    "templates.update_staged.body": "MISE À JOUR PAR ÉTAPE\n\nDe : {app_name} ({fqdn})\nHeure : {timestamp}\n\nLa version {new_version} est intermédiaire et nécessite un redémarrage avant de pouvoir être appliquée.\n\nExécuter : {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "MISE À JOUR PAR ÉTAPE\n\nDe : {app_name} ({fqdn})\nHeure : {timestamp}\n\nLa version {new_version} est intermédiaire et nécessite un redémarrage avant de pouvoir être appliquée.\n\nExécuter : {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "Rétablissement automatique arrêté - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} reste en mode maintenance en lecture seule après {attempts} tentatives de récupération infructueuses.\n\nCause : {reason}\nUne intervention de l’opérateur est nécessaire. Corrigez la cause et redémarrez le service."
   }
 }

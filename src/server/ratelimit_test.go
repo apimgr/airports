@@ -95,9 +95,6 @@ func TestConfiguredRateLimitPersistsAcrossLimiterRestartWithoutRawIP(t *testing.
 	if response := request(first); response.Code != http.StatusNoContent {
 		t.Fatalf("first request status = %d, want 204", response.Code)
 	}
-	if err := first.FlushRateLimitCounters(); err != nil {
-		t.Fatalf("flush first limiter: %v", err)
-	}
 	second := NewConfiguredRateLimiter(cfg, "", nil)
 	defer func() { _ = second.ShutdownRateLimitCounters() }()
 	if err := second.SetPersistence(database, nil, false); err != nil {
@@ -137,13 +134,45 @@ func TestEnsureRateLimitSchemaIsIdempotent(t *testing.T) {
 	if err := ensureRateLimitSchema(database); err != nil {
 		t.Fatalf("second ensureRateLimitSchema: %v", err)
 	}
+	var previous int
+	if err := database.QueryRow(`SELECT prev_count FROM rate_limits LIMIT 0`).Scan(&previous); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("prev_count schema probe err = %v, want sql.ErrNoRows", err)
+	}
 }
 
-func TestRateLimitCutoffRetainsFractionalBoundaryBucket(t *testing.T) {
-	now := time.Unix(2000, 900_000_000)
-	cutoff := rateLimitCutoffUnix(now, time.Minute)
-	if cutoff != 1939 {
-		t.Fatalf("rateLimitCutoffUnix() = %d, want 1939 to retain the boundary second conservatively", cutoff)
+func TestEnsureRateLimitSchemaAddsPreviousCounterToExistingTable(t *testing.T) {
+	database, err := sql.Open("sqlite", "file:ratelimit-schema-migration?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+	if _, err := database.Exec(`CREATE TABLE rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 1, window_start INTEGER NOT NULL, updated_at INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create legacy rate_limits table: %v", err)
+	}
+	if err := ensureRateLimitSchema(database); err != nil {
+		t.Fatalf("migrate rate_limits table: %v", err)
+	}
+	var previous int
+	if err := database.QueryRow(`SELECT prev_count FROM rate_limits LIMIT 0`).Scan(&previous); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("migrated prev_count schema probe err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestRateWindowCounterUsesWeightedPreviousWindow(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0)
+	counter := rateWindowCounter{count: 5, previous: 4, start: start.Unix()}
+	if got := counter.weighted(start.Add(30*time.Second), time.Minute); got != 7 {
+		t.Errorf("weighted count halfway through window = %v, want 7", got)
+	}
+	rolled, err := loadRateCounterValue(counter.count, counter.previous, counter.start, start.Add(time.Minute), time.Minute)
+	if err != nil {
+		t.Fatalf("roll counter window: %v", err)
+	}
+	if rolled.count != 0 || rolled.previous != 5 || rolled.start != start.Add(time.Minute).Unix() {
+		t.Errorf("counter after one window = %+v, want count 0, previous 5 and advanced start", rolled)
+	}
+	if got := rolled.weighted(start.Add(90*time.Second), time.Minute); got != 2.5 {
+		t.Errorf("weighted count halfway through previous window = %v, want 2.5", got)
 	}
 }
 
@@ -161,7 +190,7 @@ func (f *fakeRateLimitCache) AllowRateLimit(context.Context, string, string, tim
 	return true, 1, 1, time.Time{}, time.Time{}, nil
 }
 
-func TestRedisFailureFallsBackToDBAndKeepsDBAuthoritativeThroughRecovery(t *testing.T) {
+func TestRedisFailureFallsBackToProcessLocalCounters(t *testing.T) {
 	database, err := dbpkg.Open(config.DatabaseConfig{Driver: "sqlite", URL: "file:ratelimit-failover?mode=memory&cache=shared"}, "airports-test")
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
@@ -190,66 +219,91 @@ func TestRedisFailureFallsBackToDBAndKeepsDBAuthoritativeThroughRecovery(t *test
 		return response
 	}
 	if response := request(); response.Code != http.StatusNoContent {
-		t.Fatalf("fallback request status = %d, want 204", response.Code)
+		t.Fatalf("first local fallback request status = %d, want 204", response.Code)
 	}
-	failing.err = nil
+	if !limiter.ExternalCacheDegraded() {
+		t.Fatal("external cache failure did not mark rate-limit health degraded")
+	}
 	if response := request(); response.Code != http.StatusTooManyRequests {
-		t.Fatalf("recovered-cache request status = %d, want 429 from DB authority", response.Code)
-	}
-	if err := limiter.FlushRateLimitCounters(); err != nil {
-		t.Fatalf("flush fallback counters: %v", err)
+		t.Fatalf("second local fallback request status = %d, want 429", response.Code)
 	}
 	if failing.calls != 1 {
-		t.Errorf("cache calls after in-process recovery = %d, want 1 (sticky DB fallback)", failing.calls)
+		t.Errorf("cache calls after fallback = %d, want 1 (fallback is sticky until restart)", failing.calls)
+	}
+	var persistentTables int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='rate_limits'`).Scan(&persistentTables); err != nil {
+		t.Fatalf("check persistent rate-limit table: %v", err)
+	}
+	if persistentTables != 0 {
+		t.Errorf("external-cache fallback created %d persistent rate-limit tables, want 0", persistentTables)
 	}
 
+	failing.err = nil
 	restarted := NewConfiguredRateLimiter(cfg, "", nil)
 	defer func() { _ = restarted.ShutdownRateLimitCounters() }()
 	if err := restarted.SetPersistence(database, failing, true); err != nil {
 		t.Fatalf("SetPersistence after restart: %v", err)
 	}
-	if restarted.cache != nil {
-		t.Fatal("Redis cache reselected before the persisted fallback window expired")
+	if restarted.ExternalCacheDegraded() || restarted.cache == nil {
+		t.Fatal("available external cache was not selected after process restart")
 	}
-	restartedHandler := restarted.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	handler := restarted.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/airports", nil)
 	req.RemoteAddr = "203.0.113.82:1234"
-	restartedResponse := httptest.NewRecorder()
-	restartedHandler.ServeHTTP(restartedResponse, req)
-	if restartedResponse.Code != http.StatusTooManyRequests {
-		t.Errorf("request after restart during fallback window status = %d, want 429", restartedResponse.Code)
-	}
-	if failing.calls != 1 {
-		t.Errorf("cache calls after restart during fallback window = %d, want 1", failing.calls)
-	}
-
-	if _, err := database.Exec(`UPDATE rate_limits SET window_start=?, updated_at=? WHERE key=?`, time.Now().Add(-2*time.Hour).Unix(), time.Now().Unix(), redisFallbackMarkerKey); err != nil {
-		t.Fatalf("expire fallback marker: %v", err)
-	}
-	recovered := NewConfiguredRateLimiter(cfg, "", nil)
-	defer func() { _ = recovered.ShutdownRateLimitCounters() }()
-	if err := recovered.SetPersistence(database, failing, true); err != nil {
-		t.Fatalf("SetPersistence after fallback window: %v", err)
-	}
-	if recovered.cache == nil {
-		t.Fatal("Redis cache was not reselected after the fallback window expired")
-	}
-	if response := func() *httptest.ResponseRecorder {
-		handler := recovered.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/airports", nil)
-		req.RemoteAddr = "203.0.113.82:1234"
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, req)
-		return response
-	}(); response.Code != http.StatusNoContent {
-		t.Errorf("request after fallback window status = %d, want 204", response.Code)
-	}
-	if failing.calls != 2 {
-		t.Errorf("cache calls after fallback window = %d, want 2", failing.calls)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusNoContent {
+		t.Errorf("request after process restart status = %d, want 204", response.Code)
 	}
 }
 
-func TestDatabaseRateLimitCountersFlushAndRejectedRequestWithdrawsIncrement(t *testing.T) {
+func TestExternalCacheFallbackPreservesMirroredSecurityCounters(t *testing.T) {
+	cache, err := cachepkg.NewCache(config.CacheConfig{Type: "memory"})
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	defer func() { _ = cache.Close() }()
+	fake := &fakeRateLimitCache{Cache: cache}
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.RateLimit.AuthFailures = config.RateLimitBucket{Requests: 1, Window: 900}
+	limiter := NewConfiguredRateLimiter(cfg, "", nil)
+	defer func() { _ = limiter.ShutdownRateLimitCounters() }()
+	if err := limiter.SetPersistence(nil, fake, true); err != nil {
+		t.Fatalf("SetPersistence: %v", err)
+	}
+	now := time.Now()
+	strict := config.RateLimitBucket{Requests: 1, Window: 900}
+	if allowed, _, _, _, _ := limiter.allowConfiguredBucket("owner:abc", "strict", strict, now); !allowed {
+		t.Fatal("first strict action was rejected by external cache")
+	}
+	fake.err = errors.New("cache unavailable")
+	if allowed, _, _, _, _ := limiter.allowConfiguredBucket("owner:abc", "strict", strict, now.Add(time.Second)); allowed {
+		t.Fatal("strict action exceeded limit after external-cache failure")
+	}
+	if !limiter.ExternalCacheDegraded() {
+		t.Fatal("external-cache failure did not report degraded state")
+	}
+
+	// Failed-authentication counters are mirrored too, so fallback cannot lift
+	// a lockout accumulated immediately before the cache became unavailable.
+	limiter = NewConfiguredRateLimiter(cfg, "", nil)
+	defer func() { _ = limiter.ShutdownRateLimitCounters() }()
+	fake.err = nil
+	if err := limiter.SetPersistence(nil, fake, true); err != nil {
+		t.Fatalf("SetPersistence for auth counter: %v", err)
+	}
+	authFailures := config.RateLimitBucket{Requests: 1, Window: 900}
+	if allowed, _, _, _, _ := limiter.allowConfiguredBucket("203.0.113.83", "auth_failures", authFailures, now); !allowed {
+		t.Fatal("first failed-auth attempt was rejected by external cache")
+	}
+	fake.err = errors.New("cache unavailable")
+	limiter.allowConfiguredBucket("203.0.113.83", "read", cfg.Server.RateLimit.Read, now.Add(time.Second))
+	if locked, _ := limiter.authFailureLocked("203.0.113.83", now.Add(time.Second)); !locked {
+		t.Fatal("failed-auth lockout was lifted after external-cache failure")
+	}
+}
+
+func TestDatabaseRateLimitCountersPersistImmediatelyAndRejectedRequestDoesNotIncrement(t *testing.T) {
 	database, err := dbpkg.Open(config.DatabaseConfig{Driver: "sqlite", URL: "file:ratelimit-hot-counter?mode=memory&cache=shared"}, "airports-test")
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
@@ -264,30 +318,24 @@ func TestDatabaseRateLimitCountersFlushAndRejectedRequestWithdrawsIncrement(t *t
 		t.Fatalf("SetPersistence: %v", err)
 	}
 	now := time.Now()
-	allowed, _, _, _, _, err := limiter.allowConfiguredDatabase(database, 20, "203.0.113.99", "read", cfg.Server.RateLimit.Read, time.Minute, now, false, nil)
+	allowed, _, _, _, _, err := limiter.allowConfiguredDatabase(database, 20, "203.0.113.99", "read", cfg.Server.RateLimit.Read, time.Minute, now, nil)
 	if err != nil || !allowed {
 		t.Fatalf("first request allowed=%t err=%v, want allowed", allowed, err)
 	}
-	allowed, _, _, _, _, err = limiter.allowConfiguredDatabase(database, 20, "203.0.113.99", "read", cfg.Server.RateLimit.Read, time.Minute, now.Add(time.Second), false, nil)
+	allowed, _, _, _, _, err = limiter.allowConfiguredDatabase(database, 20, "203.0.113.99", "read", cfg.Server.RateLimit.Read, time.Minute, now.Add(time.Second), nil)
 	if err != nil || allowed {
 		t.Fatalf("second request allowed=%t err=%v, want rejected", allowed, err)
 	}
-	var beforeFlush int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM rate_limits WHERE key LIKE 'v1:%'`).Scan(&beforeFlush); err != nil {
-		t.Fatalf("count before flush: %v", err)
-	}
-	if beforeFlush != 0 {
-		t.Fatalf("database rows before flush = %d, want 0", beforeFlush)
-	}
-	if err := limiter.FlushRateLimitCounters(); err != nil {
-		t.Fatalf("FlushRateLimitCounters: %v", err)
-	}
 	var rows, count int
 	if err := database.QueryRow(`SELECT COUNT(*), COALESCE(SUM(count),0) FROM rate_limits WHERE key LIKE 'v1:%'`).Scan(&rows, &count); err != nil {
-		t.Fatalf("count after flush: %v", err)
+		t.Fatalf("count persisted after requests: %v", err)
 	}
 	if rows != 2 || count != 2 {
-		t.Fatalf("flushed rows/count = %d/%d, want 2/2 (one class and one global increment)", rows, count)
+		t.Fatalf("persisted rows/count = %d/%d, want 2/2 (one class and one global increment)", rows, count)
+	}
+	var previous int
+	if err := database.QueryRow(`SELECT SUM(prev_count) FROM rate_limits WHERE key LIKE 'v1:%'`).Scan(&previous); err != nil || previous != 0 {
+		t.Errorf("previous-window count = %d, err=%v; want 0", previous, err)
 	}
 }
 

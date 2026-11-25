@@ -861,7 +861,7 @@ func (s *Server) handleContactSubmission(w http.ResponseWriter, r *http.Request)
 			Event: "contact.report_received", Subject: "[" + s.config.Server.Branding.Title + " contact] " + values["subject"],
 			Body:     "Sender name: " + values["name"] + "\nSender email: " + values["email"] + "\n" + contactPlainTextBody(values, kind),
 			Severity: "info", Timestamp: time.Now().UTC(), ProjectName: s.config.Server.Branding.Title,
-			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"),
+			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"), Component: "contact",
 		}
 		s.dispatchContactWebhooks(r, webhooks, message)
 	}
@@ -1632,7 +1632,7 @@ func (s *Server) submitSecurityReport(w http.ResponseWriter, r *http.Request, na
 			Event: "security.report_received", Subject: "[" + s.config.Server.Branding.Title + " security] Report received",
 			Body:     "Encrypted security report (" + bodyAlgorithm + "): " + base64.StdEncoding.EncodeToString(ciphertext),
 			Severity: severity, Timestamp: time.Now().UTC(), ProjectName: s.config.Server.Branding.Title,
-			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"), TrackingID: trackingID,
+			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"), TrackingID: trackingID, Component: "security",
 		}
 		s.dispatchContactWebhooks(r, securityWebhookTargets, message)
 	}
@@ -1642,7 +1642,7 @@ func (s *Server) submitSecurityReport(w http.ResponseWriter, r *http.Request, na
 			Event: "security.report_received", Subject: "[" + s.config.Server.Branding.Title + " security] Report received",
 			Body:     "A security report was received. Tracking ID: " + trackingID + "\nSeverity: " + severity,
 			Severity: severity, Timestamp: time.Now().UTC(), ProjectName: s.config.Server.Branding.Title,
-			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"), TrackingID: trackingID,
+			ProjectVersion: Version, AppURL: strings.TrimSuffix(RequestBaseURL(r), "/"), TrackingID: trackingID, Component: "security",
 		}
 		s.dispatchContactWebhooks(r, adminWebhookTargets, message)
 	}

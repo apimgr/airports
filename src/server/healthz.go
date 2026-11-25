@@ -100,9 +100,10 @@ type MaintenanceHealthInfo struct {
 // a path that could expose internal details.
 type SelfHealingHealthStatus struct {
 	Enabled     bool       `json:"enabled"`
+	Exhausted   bool       `json:"exhausted"`
 	Attempts    int        `json:"attempts"`
 	LastAttempt *time.Time `json:"last_attempt,omitempty"`
-	NextAttempt *time.Time `json:"next_attempt,omitempty"`
+	NextAttempt *time.Time `json:"next_attempt"`
 }
 
 // HealthRuntimeState holds lifecycle state that is not derivable from
@@ -348,6 +349,9 @@ func checkCache(cache cachepkg.Cache) string {
 func (s *Server) checkCache() string {
 	if s == nil || s.cache == nil {
 		return "error"
+	}
+	if s.rateLimiter != nil && s.rateLimiter.ExternalCacheDegraded() {
+		return "degraded"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
 	defer cancel()

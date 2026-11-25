@@ -100,7 +100,7 @@ func (s *Server) handleServerPreferencesSave(w http.ResponseWriter, r *http.Requ
 		previous := consentFromRequest(r, s.config)
 		s.applyConsentWithdrawal(w, r, *previous, state, false)
 		if encoded, err := json.Marshal(state); err == nil {
-			s.setPreferenceCookie(w, r, consentCookieName, url.QueryEscape(string(encoded)), preferenceCookieAge)
+			s.setPreferenceCookie(w, r, consentCookieName, url.PathEscape(string(encoded)), preferenceCookieAge)
 		}
 		if s.config.Server.Privacy.Data.Sold {
 			value := r.FormValue("ccpa_opt_out") == "true"
@@ -112,7 +112,7 @@ func (s *Server) handleServerPreferencesSave(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if r.FormValue("action") == "reset" {
-		for _, name := range []string{themeCookieName, i18n.LanguageCookieName, consentCookieName, ccpaOptOutCookieName, "airports_build", dismissedAnnouncementsCookieName} {
+		for _, name := range []string{themeCookieName, i18n.LanguageCookieName, consentCookieName, ccpaOptOutCookieName, buildStampCookieName, dismissedAnnouncementsCookieName} {
 			s.setPreferenceCookie(w, r, name, "", -1)
 		}
 		for _, cookie := range r.Cookies() {

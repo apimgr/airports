@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "Offline",
+    "heading": "You are offline",
+    "message": "This page could not be loaded and no cached copy is available. Check your connection and try again.",
+    "indicator": "You are offline. Some features may be unavailable."
+  },
+  "app_update": {
+    "available": "A new version is available",
+    "now": "Update Now",
+    "later": "Later"
+  },
+  "connection": {
+    "reconnecting": "Reconnecting to the server…"
+  },
   "common": {
     "select_language": "Select language",
     "save": "Save",
@@ -159,7 +173,9 @@
     "self_healing": "Self-healing",
     "shutting_down": "Shutting down",
     "since": "Since",
-    "text": "Plain text status"
+    "text": "Plain text status",
+    "check.unknown": "Check: {key}",
+    "stat.unknown": "Stat: {key}"
   },
   "consent": {
     "banner_text": "This site uses cookies to provide essential functionality and, if enabled, to understand usage.",
@@ -247,6 +263,8 @@
     "playground_title": "GraphQL Playground",
     "playground_description": "Explore read-only airport queries against this server.",
     "err_invalid_body": "invalid GraphQL request body: {error}",
+    "err_invalid_get_parameter": "unsupported GraphQL GET parameter: {parameter}",
+    "err_invalid_variables": "invalid GraphQL variables",
     "err_query_required": "query is required",
     "err_airport_not_found": "airport not found: {code}",
     "err_nearby_requires_lon": "nearby query requires lon",
@@ -976,7 +994,9 @@
     "templates.update_installed.subject": "Update Installed - {app_name}",
     "templates.update_installed.body": "UPDATE INSTALLED\n\nFrom: {app_name} ({fqdn})\nTime: {timestamp}\n\n{app_name} was updated successfully.\n\nPrevious version: {old_version}\nNew version: {new_version}\n\n--\n{app_name}\n{app_url}\n",
     "templates.update_staged.subject": "Update Staged - {app_name}",
-    "templates.update_staged.body": "UPDATE STAGED\n\nFrom: {app_name} ({fqdn})\nTime: {timestamp}\n\nVersion {new_version} is staged and needs a restart before it can be applied.\n\nRun: {manual_command}\n\n--\n{app_name}\n{app_url}\n"
+    "templates.update_staged.body": "UPDATE STAGED\n\nFrom: {app_name} ({fqdn})\nTime: {timestamp}\n\nVersion {new_version} is staged and needs a restart before it can be applied.\n\nRun: {manual_command}\n\n--\n{app_name}\n{app_url}\n",
+    "templates.maintenance_exhausted.subject": "Self-healing stopped - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} remains in read-only maintenance mode after {attempts} failed recovery attempts.\n\nCause: {reason}\nOperator action is required. Remove the cause and restart the service."
   },
   "client": {
     "tui.title": "Airports API",

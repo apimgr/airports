@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "オフライン",
+    "heading": "オフラインです",
+    "message": "このページを読み込めず、キャッシュされたコピーもありません。接続を確認して、もう一度お試しください。",
+    "indicator": "オフラインです。一部の機能を利用できない場合があります。"
+  },
+  "app_update": {
+    "available": "新しいバージョンが利用できます",
+    "now": "今すぐ更新",
+    "later": "後で"
+  },
+  "connection": {
+    "reconnecting": "サーバーに再接続しています…"
+  },
   "common": {
     "select_language": "言語を選択",
     "save": "保存",
@@ -159,7 +173,9 @@
     "self_healing": "自己修復",
     "shutting_down": "シャットダウン中",
     "since": "以来",
-    "text": "プレーンテキストステータス"
+    "text": "プレーンテキストステータス",
+    "check.unknown": "チェック: {key}",
+    "stat.unknown": "統計: {key}"
   },
   "consent": {
     "banner_text": "このサイトは、基本機能の提供と、有効な場合は利用状況の把握のためにクッキーを使用します。",
@@ -247,6 +263,8 @@
     "playground_title": "GraphQL プレイグラウンド",
     "playground_description": "このサーバーで読み取り専用の空港クエリを試せます。",
     "err_invalid_body": "GraphQLリクエストボディが無効です: {error}",
+    "err_invalid_get_parameter": "サポートされていないGraphQL GETパラメータ: {parameter}",
+    "err_invalid_variables": "GraphQL変数が無効です",
     "err_query_required": "クエリが必要です",
     "err_airport_not_found": "空港が見つかりません: {code}",
     "err_nearby_requires_lon": "nearbyクエリにはlonが必要です",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "アップデートがインストールされました - {app_name}",
     "templates.update_installed.body": "アップデートがインストールされました\n\n送信者: {app_name} ({fqdn})\n時間: {timestamp}\n\n{app_name} は正常に更新されました。\n\n前のバージョン: {old_version}\n新しいバージョン: {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "段階的なアップデート - {app_name}",
-    "templates.update_staged.body": "ステージングされたアップデート\n\n送信者: {app_name} ({fqdn})\n時間: {timestamp}\n\nバージョン {new_version} はステージングされているため、適用するには再起動が必要です。\n\n実行: {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "ステージングされたアップデート\n\n送信者: {app_name} ({fqdn})\n時間: {timestamp}\n\nバージョン {new_version} はステージングされているため、適用するには再起動が必要です。\n\n実行: {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "自動復旧を停止しました - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} は {attempts} 回の復旧失敗後も読み取り専用のメンテナンスモードです。\n\n原因: {reason}\n管理者による対応が必要です。原因を取り除いてサービスを再起動してください。"
   }
 }

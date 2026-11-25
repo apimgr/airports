@@ -64,26 +64,22 @@ type Server struct {
 	// PART 13). db and tor may be nil (e.g. in unit tests that don't wire
 	// them up) — every consumer treats that as a hard "error"/"disabled"
 	// state rather than panicking.
-	db                   dbmetrics.Handle
-	dataDir              string
-	tor                  *tor.TorManager
-	i2p                  *i2p.I2PManager
-	stats                *statsCollector
-	startTime            time.Time
-	cliReleaseCacheMu    sync.Mutex
-	cliReleaseCache      *cliReleaseCache
-	cliReleaseAPIBase    string
-	cliReleaseHTTPClient *http.Client
-	securityLog          *logging.LogWriter
-	webhookMu            sync.Mutex
-	webhookQueue         chan webhookDelivery
-	webhookCtx           context.Context
-	webhookCancel        context.CancelFunc
-	webhookWG            sync.WaitGroup
-	webhookStopped       bool
-	accessLog            *logging.LogWriter
-	errorLog             *logging.LogWriter
-	auditLogger          interface {
+	db             dbmetrics.Handle
+	dataDir        string
+	tor            *tor.TorManager
+	i2p            *i2p.I2PManager
+	stats          *statsCollector
+	startTime      time.Time
+	securityLog    *logging.LogWriter
+	webhookMu      sync.Mutex
+	webhookQueue   chan webhookDelivery
+	webhookCtx     context.Context
+	webhookCancel  context.CancelFunc
+	webhookWG      sync.WaitGroup
+	webhookStopped bool
+	accessLog      *logging.LogWriter
+	errorLog       *logging.LogWriter
+	auditLogger    interface {
 		WriteAudit(logging.AuditCategory, string) error
 	}
 }
@@ -147,23 +143,21 @@ func NewServer(airportSvc *airports.AirportDataService, geoipSvc *geoip.GeoIPSer
 	startTime := time.Now()
 
 	s := &Server{
-		airports:             airportSvc,
-		geoip:                geoipSvc,
-		config:               cfg,
-		configDir:            configDir,
-		rateLimiter:          NewConfiguredRateLimiter(cfg, configDir, blockStore),
-		metrics:              newMetrics(cfg.Server.Metrics, buildInfo{version: Version, commit: CommitID, buildDate: BuildDate}, startTime, dataDir),
-		scheduler:            sched,
-		cache:                cache,
-		blockStore:           blockStore,
-		allowlist:            NewAllowlistLookup(cfg.Server.Security.Allowlist),
-		db:                   db,
-		dataDir:              dataDir,
-		tor:                  torMgr,
-		stats:                newStatsCollector(),
-		startTime:            startTime,
-		cliReleaseAPIBase:    "https://api.github.com",
-		cliReleaseHTTPClient: &http.Client{Timeout: 12 * time.Second},
+		airports:    airportSvc,
+		geoip:       geoipSvc,
+		config:      cfg,
+		configDir:   configDir,
+		rateLimiter: NewConfiguredRateLimiter(cfg, configDir, blockStore),
+		metrics:     newMetrics(cfg.Server.Metrics, buildInfo{version: Version, commit: CommitID, buildDate: BuildDate}, startTime, dataDir),
+		scheduler:   sched,
+		cache:       cache,
+		blockStore:  blockStore,
+		allowlist:   NewAllowlistLookup(cfg.Server.Security.Allowlist),
+		db:          db,
+		dataDir:     dataDir,
+		tor:         torMgr,
+		stats:       newStatsCollector(),
+		startTime:   startTime,
 	}
 	if err := RegisterHealthCheck("data_airports", true, func() string {
 		if s.airports == nil || len(s.airports.GetRawData()) == 0 {
@@ -276,8 +270,8 @@ func (s *Server) CloseCache() error {
 	return s.cache.Close()
 }
 
-// ShutdownRateLimitCounters stops periodic persistence and flushes pending
-// rate-limit counters after HTTP requests have drained.
+// ShutdownRateLimitCounters is retained for callers that coordinate server
+// shutdown; rate-limit state is persisted during requests or kept in memory.
 func (s *Server) ShutdownRateLimitCounters() error {
 	if s == nil || s.rateLimiter == nil {
 		return nil
@@ -1040,40 +1034,155 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 // handleServiceWorker returns the PWA service worker
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	baseURL, _ := json.Marshal(strings.TrimSuffix(RequestBaseURL(r), "/"))
+	stamp := currentBuildStamp()
 	sw := `// Service Worker for Airports API
 const BASE_URL = __BASE_URL__;
-const CACHE_NAME = 'airports-v1';
-const urlsToCache = [
-  BASE_URL + '/',
-  BASE_URL + '/static/css/common.css',
-  BASE_URL + '/static/css/components.css',
-  BASE_URL + '/static/css/public.css',
-  BASE_URL + '/static/js/app.js',
-  BASE_URL + '/static/offline.html'
+const ASSET_STAMP = '__ASSET_STAMP__';
+const CACHE_PREFIX = 'airports-cache-';
+const CACHE_NAME = CACHE_PREFIX + '__ASSET_STAMP__';
+const STRINGS_CACHE = 'airports-offline-strings';
+const FETCH_TIMEOUT_MS = 30000;
+const MAX_CACHE_BYTES = 50 * 1024 * 1024;
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PRECACHE_ASSETS = [
+  BASE_URL + '/static/css/common.css?v=__ASSET_STAMP__',
+  BASE_URL + '/static/css/components.css?v=__ASSET_STAMP__',
+  BASE_URL + '/static/css/public.css?v=__ASSET_STAMP__',
+  BASE_URL + '/static/js/app.js?v=__ASSET_STAMP__',
 ];
+const NAV_TIMEOUT_MS = 8000;
+
+async function cacheStaticResponse(cache, request, response) {
+  const size = Number(response.headers.get('Content-Length'));
+  if (!Number.isFinite(size) || size < 0 || size > MAX_CACHE_BYTES) return;
+  if (navigator.storage && navigator.storage.estimate) {
+    const estimate = await navigator.storage.estimate().catch(() => null);
+    if (estimate && estimate.quota && estimate.usage / estimate.quota > 0.9) return;
+  }
+  const entries = await cache.keys();
+  const sizes = await Promise.all(entries.map(async key => {
+    const value = await cache.match(key);
+    return { key, size: Number(value && value.headers.get('Content-Length')) || 0 };
+  }));
+  let total = sizes.reduce((sum, entry) => sum + entry.size, size);
+  for (const entry of sizes) {
+    if (total <= MAX_CACHE_BYTES) break;
+    await cache.delete(entry.key);
+    total -= entry.size;
+  }
+  const headers = new Headers(response.headers);
+  headers.set('X-Airports-Cached-At', String(Date.now()));
+  await cache.put(request, new Response(response.clone().body, { status: response.status, statusText: response.statusText, headers }));
+}
 
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+      .then(async cache => {
+        for (const asset of PRECACHE_ASSETS) {
+          try {
+            const response = await boundedFetch(asset, FETCH_TIMEOUT_MS);
+            if (response.ok && !response.redirected) await cacheStaticResponse(cache, asset, response);
+          } catch (error) {}
+        }
+      })
   );
 });
 
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => response || fetch(event.request)
-        .catch(() => {
-          if (event.request.mode === 'navigate') {
-            return caches.match(BASE_URL + '/static/offline.html');
-          }
-          return Response.error();
-        }))
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+function boundedFetch(request, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(request, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+function offlineFallbackResponse() {
+  return caches.open(STRINGS_CACHE).then(cache => cache.match('/offline-strings.json'))
+    .then(response => response ? response.json() : null)
+    .catch(() => null)
+    .then(strings => {
+      const value = Object.assign({ lang: 'en', dir: 'ltr', title: 'Offline', heading: 'You are offline', message: 'This page could not be loaded and no cached copy is available. Check your connection and try again.' }, strings || {});
+      const escape = text => String(text).replace(/[&<>\"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]));
+      return new Response('<!doctype html><html lang="' + escape(value.lang) + '" dir="' + escape(value.dir) + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(value.title) + '</title></head><body><main><h1>' + escape(value.heading) + '</h1><p>' + escape(value.message) + '</p></main></body></html>', { status: 503, statusText: 'Service Unavailable', headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }).catch(() => new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Offline</title></head><body><main><h1>You are offline</h1><p>This page could not be loaded.</p></main></body></html>', { status: 503, statusText: 'Service Unavailable', headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
+}
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  const basePath = BASE_URL || '';
+  const apiPath = basePath + '/api';
+  if (url.pathname === apiPath || url.pathname.startsWith(apiPath + '/')) return;
+
+  if (request.mode === 'navigate') {
+    let allowCachedFallback = true;
+    event.respondWith(
+      boundedFetch(request, NAV_TIMEOUT_MS).then(async response => {
+        const cache = await caches.open(CACHE_NAME);
+        if (!response.ok || response.redirected) {
+          allowCachedFallback = false;
+          await cache.delete(request).catch(() => {});
+          return offlineFallbackResponse();
+        }
+        if (response.headers.get('X-Offline-Cache') === 'public') {
+          await cacheStaticResponse(cache, request, response);
+        } else {
+          allowCachedFallback = false;
+          await cache.delete(request).catch(() => {});
+        }
+        return response;
+      }).catch(async () => {
+        if (!allowCachedFallback) return offlineFallbackResponse();
+        const cache = await caches.open(CACHE_NAME);
+        const cached = await cache.match(request);
+        if (cached && cached.ok && !cached.redirected && cached.headers.get('X-Offline-Cache') === 'public') return cached;
+        return offlineFallbackResponse();
+      }).catch(() => offlineFallbackResponse())
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith(basePath + '/static/')) {
+    const versionedAsset = url.searchParams.get('v') === ASSET_STAMP;
+    if (!versionedAsset) {
+      event.respondWith(boundedFetch(request, FETCH_TIMEOUT_MS).then(response => response.ok && !response.redirected ? response : new Response('', { status: 504, statusText: 'Gateway Timeout' })).catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' })));
+      return;
+    }
+    event.respondWith(caches.open(CACHE_NAME).then(async cache => {
+      const cached = await cache.match(request);
+      const cachedAt = cached ? Number(cached.headers.get('X-Airports-Cached-At')) : 0;
+      if (cached && cached.ok && !cached.redirected && cachedAt && Date.now() - cachedAt < CACHE_TTL_MS) return cached;
+      if (cached) await cache.delete(request);
+      return boundedFetch(request, FETCH_TIMEOUT_MS).then(response => {
+      if (!response.ok || response.redirected) return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+      event.waitUntil(cacheStaticResponse(cache, request, response).catch(() => {}));
+      return response;
+    });
+    }).catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' })));
+    return;
+  }
+
+  event.respondWith(boundedFetch(request, FETCH_TIMEOUT_MS).then(response => {
+    if (!response.ok || response.redirected) return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+    return response;
+  }).catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' })));
 });
 
 `
 	sw = strings.Replace(sw, "__BASE_URL__", string(baseURL), 1)
+	sw = strings.ReplaceAll(sw, "__ASSET_STAMP__", strings.ReplaceAll(stamp, "'", ""))
 	w.Header().Set("Content-Type", "application/javascript")
 	_, _ = w.Write([]byte(sw))
 }

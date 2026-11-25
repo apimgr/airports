@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"regexp"
@@ -88,25 +89,209 @@ func sortedNameCounts(counts map[string]int) []nameCount {
 	return results
 }
 
+type graphQLToken struct {
+	kind       byte
+	value      string
+	start, end int
+}
+
+type graphQLRange struct{ start, end int }
+
+func tokenizeGraphQL(query string) []graphQLToken {
+	tokens := make([]graphQLToken, 0, len(query)/4)
+	for i := 0; i < len(query); {
+		switch c := query[i]; {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',':
+			i++
+		case c == '#':
+			for i < len(query) && query[i] != '\n' && query[i] != '\r' {
+				i++
+			}
+		case c == '"':
+			start := i
+			if strings.HasPrefix(query[i:], `"""`) {
+				i += 3
+				for i < len(query) {
+					if strings.HasPrefix(query[i:], `\"""`) {
+						i += 4
+						continue
+					}
+					if strings.HasPrefix(query[i:], `"""`) {
+						i += 3
+						break
+					}
+					i++
+				}
+			} else {
+				i++
+				for i < len(query) {
+					if query[i] == '\\' {
+						if i+1 < len(query) {
+							i += 2
+						} else {
+							i++
+						}
+						continue
+					}
+					if query[i] == '"' {
+						i++
+						break
+					}
+					i++
+				}
+			}
+			tokens = append(tokens, graphQLToken{kind: 's', value: query[start:i], start: start, end: i})
+		case isGraphQLNameStart(c):
+			start := i
+			for i < len(query) && isGraphQLNameContinue(query[i]) {
+				i++
+			}
+			tokens = append(tokens, graphQLToken{kind: 'n', value: query[start:i], start: start, end: i})
+		default:
+			tokens = append(tokens, graphQLToken{kind: c, value: string(c), start: i, end: i + 1})
+			i++
+		}
+	}
+	return tokens
+}
+
+func isGraphQLNameStart(c byte) bool {
+	return c == '_' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
+}
+
+func isGraphQLNameContinue(c byte) bool {
+	return isGraphQLNameStart(c) || c >= '0' && c <= '9'
+}
+
+func graphQLVariableDefinitionRanges(tokens []graphQLToken) []graphQLRange {
+	var ranges []graphQLRange
+	braceDepth, parenDepth, bracketDepth := 0, 0, 0
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+		if token.kind == 'n' && braceDepth == 0 && parenDepth == 0 && bracketDepth == 0 &&
+			(token.value == "query" || token.value == "mutation" || token.value == "subscription") {
+			j := i + 1
+			if j < len(tokens) && tokens[j].kind == 'n' {
+				j++
+			}
+			if j < len(tokens) && tokens[j].kind == '(' {
+				depth := 1
+			definition:
+				for k := j + 1; k < len(tokens); k++ {
+					switch tokens[k].kind {
+					case '(':
+						depth++
+					case ')':
+						depth--
+						if depth == 0 {
+							ranges = append(ranges, graphQLRange{start: tokens[j].start, end: tokens[k].end})
+							i = k
+							break definition
+						}
+					}
+				}
+			}
+		}
+		switch token.kind {
+		case '{':
+			braceDepth++
+		case '}':
+			braceDepth--
+		case '(':
+			parenDepth++
+		case ')':
+			parenDepth--
+		case '[':
+			bracketDepth++
+		case ']':
+			bracketDepth--
+		}
+	}
+	return ranges
+}
+
+func applyGraphQLVariables(query string, variables map[string]interface{}) (string, error) {
+	tokens := tokenizeGraphQL(query)
+	definitions := graphQLVariableDefinitionRanges(tokens)
+	var output strings.Builder
+	output.Grow(len(query))
+	last := 0
+	for i := 0; i+1 < len(tokens); i++ {
+		dollar, name := tokens[i], tokens[i+1]
+		if dollar.kind != '$' || name.kind != 'n' || dollar.end != name.start || inGraphQLRange(dollar.start, definitions) {
+			continue
+		}
+		value, ok := variables[name.value]
+		if !ok {
+			return "", fmt.Errorf("missing variable %s", name.value)
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "", fmt.Errorf("invalid variable %s", name.value)
+		}
+		output.WriteString(query[last:dollar.start])
+		output.Write(encoded)
+		last = name.end
+		i++
+	}
+	output.WriteString(query[last:])
+	return output.String(), nil
+}
+
+func inGraphQLRange(position int, ranges []graphQLRange) bool {
+	for _, current := range ranges {
+		if position >= current.start && position < current.end {
+			return true
+		}
+	}
+	return false
+}
+
 // serveQuery is the resolver entry point invoked by QueryHandler.
 func serveQuery(w http.ResponseWriter, r *http.Request, src AirportSource, geo GeoIPSource) {
-	// Cap request body to a sane upper bound — protects against an
-	// attacker streaming an unbounded "query" body to exhaust memory.
-	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
-
 	lang := i18n.FromContext(r.Context())
 
 	var req request
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, response{
-			Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_invalid_body", "error", err.Error())}},
-		})
-		return
+	if r.Method == http.MethodGet {
+		values := r.URL.Query()
+		for key := range values {
+			if key != "query" && key != "variables" && key != "operationName" {
+				writeJSON(w, http.StatusBadRequest, response{Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_invalid_get_parameter", "parameter", key)}}})
+				return
+			}
+		}
+		req.Query = values.Get("query")
+		req.OperationName = values.Get("operationName")
+		if raw := values.Get("variables"); raw != "" {
+			if len(raw) > 64*1024 || json.Unmarshal([]byte(raw), &req.Variables) != nil {
+				writeJSON(w, http.StatusBadRequest, response{Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_invalid_variables")}}})
+				return
+			}
+		}
+	} else {
+		// Cap request bodies to protect against unbounded JSON input.
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, response{
+				Errors: []errorMessage{{Message: i18n.TranslateFormattedText(lang, "graphql.err_invalid_body", "error", err.Error())}},
+			})
+			return
+		}
 	}
 
 	q := strings.TrimSpace(req.Query)
+	if q != "" {
+		var err error
+		q, err = applyGraphQLVariables(q, req.Variables)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, response{
+				Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_invalid_variables")}},
+			})
+			return
+		}
+	}
 	if q == "" {
 		writeJSON(w, http.StatusBadRequest, response{
 			Errors: []errorMessage{{Message: i18n.TranslateText(lang, "graphql.err_query_required")}},

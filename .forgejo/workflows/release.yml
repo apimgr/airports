@@ -52,7 +52,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          LDFLAGS="-s -w -X 'github.com/apimgr/airports/src/app.Version=${{ env.VERSION }}' -X 'github.com/apimgr/airports/src/app.CommitID=${{ env.COMMIT_ID }}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "airports-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

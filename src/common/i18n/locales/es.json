@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "Sin conexión",
+    "heading": "No tienes conexión",
+    "message": "No se pudo cargar esta página y no hay una copia en caché. Comprueba tu conexión e inténtalo de nuevo.",
+    "indicator": "Estás sin conexión. Es posible que algunas funciones no estén disponibles."
+  },
+  "app_update": {
+    "available": "Hay una nueva versión disponible",
+    "now": "Actualizar ahora",
+    "later": "Más tarde"
+  },
+  "connection": {
+    "reconnecting": "Reconectando con el servidor…"
+  },
   "common": {
     "select_language": "Seleccionar idioma",
     "save": "Guardar",
@@ -159,7 +173,9 @@
     "self_healing": "Autorreparable",
     "shutting_down": "Apagando",
     "since": "Desde",
-    "text": "Estado de texto sin formato"
+    "text": "Estado de texto sin formato",
+    "check.unknown": "Comprobación: {key}",
+    "stat.unknown": "Estadística: {key}"
   },
   "consent": {
     "banner_text": "Este sitio usa cookies para ofrecer funcionalidad esencial y, si está habilitado, para entender el uso.",
@@ -247,6 +263,8 @@
     "playground_title": "Explorador de GraphQL",
     "playground_description": "Explora consultas de aeropuertos de solo lectura en este servidor.",
     "err_invalid_body": "cuerpo de solicitud GraphQL no válido: {error}",
+    "err_invalid_get_parameter": "parámetro GET de GraphQL no compatible: {parameter}",
+    "err_invalid_variables": "variables GraphQL no válidas",
     "err_query_required": "se requiere una consulta",
     "err_airport_not_found": "aeropuerto no encontrado: {code}",
     "err_nearby_requires_lon": "la consulta nearby requiere lon",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "Actualización instalada: {app_name}",
     "templates.update_installed.body": "ACTUALIZACIÓN INSTALADA\n\nDe: {app_name} ({fqdn})\nHora: {timestamp}\n\n{app_name} se actualizó correctamente.\n\nVersión anterior: {old_version}\nNueva versión: {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "Actualización preparada: {app_name}",
-    "templates.update_staged.body": "ACTUALIZACIÓN EN ETAPA\n\nDe: {app_name} ({fqdn})\nHora: {timestamp}\n\nLa versión {new_version} está preparada y necesita reiniciarse antes de poder aplicarse.\n\nEjecutar: {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "ACTUALIZACIÓN EN ETAPA\n\nDe: {app_name} ({fqdn})\nHora: {timestamp}\n\nLa versión {new_version} está preparada y necesita reiniciarse antes de poder aplicarse.\n\nEjecutar: {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "Se detuvo la recuperación automática - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} permanece en modo de mantenimiento de solo lectura tras {attempts} intentos de recuperación fallidos.\n\nCausa: {reason}\nSe requiere la intervención del operador. Resuelva la causa y reinicie el servicio."
   }
 }

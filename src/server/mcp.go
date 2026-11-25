@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -300,11 +301,13 @@ func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string
 		body = bytes.NewReader(encoded)
 	}
 	request := r.Clone(r.Context())
+	request = request.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, chi.NewRouteContext()))
 	request.Method = tool.method
 	request.URL, _ = url.Parse(target)
 	request.RequestURI = target
 	request.Body = io.NopCloser(body)
 	request.Header = r.Header.Clone()
+	request.Header.Del("Accept-Encoding")
 	request.Header.Set("Accept", "application/json")
 	if tool.body {
 		request.Header.Set("Content-Type", "application/json")

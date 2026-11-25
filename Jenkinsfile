@@ -74,7 +74,8 @@ pipeline {
                     // OFFICIAL_SITE (optional): site.txt wins; otherwise use Jenkins credentials or leave empty
                     // Never guess or assume - must be explicitly defined by user
                     env.OFFICIAL_SITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIAL_SITE:-}"', returnStdout: true).trim()
-                    env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildEpoch=${env.BUILD_EPOCH}' -X 'main.OfficialSite=${env.OFFICIAL_SITE}'"
+                    env.LDFLAGS = "-s -w -X 'github.com/apimgr/airports/src/app.Version=${env.VERSION}' -X 'github.com/apimgr/airports/src/app.CommitID=${env.COMMIT_ID}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${env.BUILD_EPOCH}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${env.OFFICIAL_SITE}'"
+                    env.CLI_LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildEpoch=${env.BUILD_EPOCH}' -X 'main.OfficialSite=${env.OFFICIAL_SITE}'"
                     env.HAS_CLI = sh(script: '[ -d src/client ] && echo true || echo false', returnStdout: true).trim()
                 }
                 sh 'mkdir -p ${BINDIR} ${RELDIR}'
@@ -267,7 +268,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-amd64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-amd64 ./src/client
                         '''
                     }
                 }
@@ -285,7 +286,7 @@ pipeline {
                                 -e GOOS=linux \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-arm64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-linux-arm64 ./src/client
                         '''
                     }
                 }
@@ -303,7 +304,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-amd64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-amd64 ./src/client
                         '''
                     }
                 }
@@ -321,7 +322,7 @@ pipeline {
                                 -e GOOS=darwin \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-arm64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-darwin-arm64 ./src/client
                         '''
                     }
                 }
@@ -339,7 +340,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-amd64.exe ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-amd64.exe ./src/client
                         '''
                     }
                 }
@@ -357,7 +358,7 @@ pipeline {
                                 -e GOOS=windows \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-arm64.exe ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-windows-arm64.exe ./src/client
                         '''
                     }
                 }
@@ -375,7 +376,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=amd64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-amd64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-amd64 ./src/client
                         '''
                     }
                 }
@@ -393,7 +394,7 @@ pipeline {
                                 -e GOOS=freebsd \
                                 -e GOARCH=arm64 \
                                 casjaysdev/go:latest \
-                                go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-arm64 ./src/client
+                                go build -buildvcs=false -trimpath -ldflags "${CLI_LDFLAGS}" -o ${BINDIR}/${PROJECT_NAME}-cli-freebsd-arm64 ./src/client
                         '''
                     }
                 }

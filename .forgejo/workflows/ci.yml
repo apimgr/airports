@@ -76,9 +76,10 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
-          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/tmp/airports-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src
-          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "/tmp/airports-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src/client
+          SERVER_LDFLAGS="-s -w -X 'github.com/apimgr/airports/src/app.Version=${{ env.VERSION }}' -X 'github.com/apimgr/airports/src/app.CommitID=${{ env.COMMIT_ID }}' -X 'github.com/apimgr/airports/src/app.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'github.com/apimgr/airports/src/app.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          CLI_LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildEpoch=${{ env.BUILD_EPOCH }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
+          go build -buildvcs=false -trimpath -ldflags "$SERVER_LDFLAGS" -o "/tmp/airports-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src
+          go build -buildvcs=false -trimpath -ldflags "$CLI_LDFLAGS" -o "/tmp/airports-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./src/client
 
   secret-scan:
     runs-on: docker

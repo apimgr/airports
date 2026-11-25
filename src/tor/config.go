@@ -3,6 +3,9 @@ package tor
 // TorConfig holds all Tor-related settings sourced from the operator's
 // server.yml `server.tor` section per AI.md PART 31 "Configuration".
 type TorConfig struct {
+	// Expose controls whether autodiscover publishes the onion address.
+	Expose bool `yaml:"expose" json:"expose"`
+
 	// OnionAddress is the configured v3 .onion hostname used for request
 	// detection and Tor-safe absolute URLs. Empty disables explicit detection.
 	OnionAddress string `yaml:"onion_address" json:"onion_address"`

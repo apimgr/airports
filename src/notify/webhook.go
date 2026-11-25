@@ -55,6 +55,8 @@ type WebhookMessage struct {
 	Body           string
 	Severity       string
 	Timestamp      time.Time
+	Component      string
+	ReportURL      string
 	ProjectName    string
 	ProjectVersion string
 	AppURL         string
@@ -73,6 +75,8 @@ type webhookPayload struct {
 	ProjectVersion string    `json:"project_version"`
 	AppURL         string    `json:"app_url"`
 	TrackingID     string    `json:"tracking_id,omitempty"`
+	Component      string    `json:"component,omitempty"`
+	ReportURL      string    `json:"report_url,omitempty"`
 }
 
 // DeliverWebhook sends one webhook attempt and returns the generated UUIDv7
@@ -151,6 +155,7 @@ func deliverWebhookAttempt(ctx context.Context, target WebhookTarget, message We
 	if message.Timestamp.IsZero() {
 		message.Timestamp = time.Now().UTC()
 	}
+	message = normalizeWebhookMessage(message)
 	endpoint, body, contentType, err := buildWebhookRequest(target, message)
 	if err != nil {
 		return newWebhookConfigurationError(err.Error())
@@ -165,7 +170,7 @@ func deliverWebhookAttempt(ctx context.Context, target WebhookTarget, message We
 		request.Header.Set("Content-Type", contentType)
 	}
 	request.Header.Set("X-Webhook-Signature", webhookSignature(target.Secret, body))
-	request.Header.Set("X-Webhook-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
+	request.Header.Set("X-Webhook-Timestamp", fmt.Sprintf("%d", message.Timestamp.Unix()))
 	request.Header.Set("X-Webhook-ID", deliveryID)
 	request.Header.Set("X-Webhook-Event", message.Event)
 	request.Header.Set("User-Agent", webhookUserAgent(message))
@@ -192,6 +197,7 @@ func deliverWebhookAttempt(ctx context.Context, target WebhookTarget, message We
 }
 
 func buildWebhookRequest(target WebhookTarget, message WebhookMessage) (endpoint string, body []byte, contentType string, err error) {
+	message = normalizeWebhookMessage(message)
 	transport := strings.ToLower(strings.TrimSpace(target.Transport))
 	parsed, err := parseWebhookURL(target.URL)
 	if err != nil {
@@ -256,9 +262,10 @@ func buildWebhookRequest(target WebhookTarget, message WebhookMessage) (endpoint
 	case "generic":
 		payload = webhookPayload{
 			Role: target.Role, Event: message.Event, Subject: message.Subject,
-			Body: message.Body, Severity: message.Severity, Timestamp: message.Timestamp,
+			Body: webhookSummary(message), Severity: message.Severity, Timestamp: message.Timestamp,
 			ProjectName: message.ProjectName, ProjectVersion: message.ProjectVersion,
 			AppURL: message.AppURL, TrackingID: message.TrackingID,
+			Component: message.Component, ReportURL: message.ReportURL,
 		}
 	default:
 		return "", nil, "", fmt.Errorf("notify: unsupported webhook transport %q", transport)
@@ -292,35 +299,70 @@ func webhookUserAgent(message WebhookMessage) string {
 }
 
 func webhookText(message WebhookMessage) string {
-	if message.Body == "" {
-		return message.Subject
+	return webhookSummary(message)
+}
+
+func webhookSummary(message WebhookMessage) string {
+	if strings.TrimSpace(message.Subject) == "" && strings.TrimSpace(message.Body) == "" && message.TrackingID == "" && message.Component == "" && message.ReportURL == "" {
+		return ""
 	}
-	if message.Subject == "" {
-		return message.Body
+	parts := make([]string, 0, 5)
+	if subject := strings.TrimSpace(message.Subject); subject != "" {
+		parts = append(parts, subject)
 	}
-	return message.Subject + "\n" + message.Body
+	if severity := normalizeWebhookSeverity(message.Severity); severity != "" {
+		parts = append(parts, "Severity: "+severity)
+	}
+	if message.TrackingID != "" {
+		parts = append(parts, "Tracking ID: "+message.TrackingID)
+	}
+	if message.Component != "" {
+		parts = append(parts, "Component: "+message.Component)
+	}
+	if message.ReportURL != "" {
+		parts = append(parts, "Report: "+message.ReportURL)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func normalizeWebhookMessage(message WebhookMessage) WebhookMessage {
+	if !message.Timestamp.IsZero() {
+		message.Timestamp = message.Timestamp.UTC().Truncate(time.Second)
+	}
+	message.Severity = normalizeWebhookSeverity(message.Severity)
+	if message.ReportURL == "" && message.TrackingID != "" {
+		message.ReportURL = strings.TrimSuffix(strings.TrimSpace(message.AppURL), "/") + "/server/security/report/" + url.PathEscape(message.TrackingID)
+	}
+	return message
+}
+
+func normalizeWebhookSeverity(severity string) string {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "critical", "error":
+		return "critical"
+	case "warning", "warn":
+		return "warning"
+	default:
+		return "info"
+	}
 }
 
 func pushoverPriority(severity string) string {
-	switch strings.ToLower(strings.TrimSpace(severity)) {
-	case "critical", "error":
+	switch normalizeWebhookSeverity(severity) {
+	case "critical":
 		return "1"
-	case "warning", "warn":
-		return "0"
 	default:
-		return "-1"
+		return "0"
 	}
 }
 
 func gotifyPriority(severity string) int {
-	switch strings.ToLower(strings.TrimSpace(severity)) {
+	switch normalizeWebhookSeverity(severity) {
 	case "critical":
-		return 10
-	case "error":
 		return 8
-	case "warning", "warn":
+	case "warning":
 		return 5
 	default:
-		return 1
+		return 2
 	}
 }

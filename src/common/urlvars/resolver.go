@@ -311,6 +311,29 @@ func (m *URLResolverManager) GetWildcardDomain() string {
 	return wildcard
 }
 
+// GetLearnedHosts returns the distinct trusted reverse-proxy hosts observed
+// within the configured sample window, in stable sorted order.
+func (m *URLResolverManager) GetLearnedHosts() []string {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	m.pruneSamplesLocked(time.Now())
+	seen := make(map[string]struct{}, len(m.samples))
+	for _, sample := range m.samples {
+		if sample.host != "" {
+			seen[sample.host] = struct{}{}
+		}
+	}
+	m.mu.Unlock()
+	hosts := make([]string, 0, len(seen))
+	for host := range seen {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
 func (m *URLResolverManager) observeDomain(host string, now time.Time) {
 	m.mu.Lock()
 	beforeBase, beforeWildcard, beforePrimary := m.baseDomain, m.wildcard, m.primaryHost

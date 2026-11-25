@@ -58,6 +58,27 @@ func TestHandleServerConsentChoices(t *testing.T) {
 	}
 }
 
+func TestConsentDefaultsOffAndUsesPathEscapedCookie(t *testing.T) {
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.Privacy.Cookies.Preferences.Enabled = true
+	cfg.Server.Privacy.Cookies.Analytics.Enabled = true
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	state := consentFromRequest(request, cfg)
+	if state.Preferences || state.Analytics {
+		t.Fatalf("non-essential consent without a visitor choice = %+v, want both categories off", state)
+	}
+	w := httptest.NewRecorder()
+	writeConsentCookie(w, ConsentState{Essential: true, Preferences: true, Timestamp: 1})
+	cookie := findCookie(t, w.Result().Cookies(), consentCookieName)
+	if !strings.HasPrefix(cookie.Value, "%7B") {
+		t.Fatalf("cookie value = %q, want percent-encoded JSON starting with %%7B", cookie.Value)
+	}
+	decoded, err := url.PathUnescape(cookie.Value)
+	if err != nil || !strings.HasPrefix(decoded, "{\"essential\"") {
+		t.Fatalf("PathUnescape(%q) = %q, %v; want consent JSON", cookie.Value, decoded, err)
+	}
+}
+
 func TestHandleServerConsentWritesAnonymizedAuditEvent(t *testing.T) {
 	recorder := &ownerTokenAuditRecorder{}
 	s := &Server{config: config.DefaultApplicationConfig(), auditLogger: recorder}
@@ -159,14 +180,13 @@ func TestConsentMiddlewareGatesPreferencesAndAnalytics(t *testing.T) {
 			cfg := config.DefaultApplicationConfig()
 			cfg.Server.Privacy.Cookies.Preferences.Enabled = tt.preferencesEnabled
 			cfg.Server.Privacy.Cookies.Analytics.Enabled = tt.analyticsEnabled
-			cfg.Server.Privacy.Consent.DefaultEnabled = false
 			cfg.Server.Tracking.Type = tt.trackingType
 			cookieValue, err := json.Marshal(tt.consent)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
-			r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.QueryEscape(string(cookieValue))})
+			r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.PathEscape(string(cookieValue))})
 			if tt.optOut {
 				r.AddCookie(&http.Cookie{Name: ccpaOptOutCookieName, Value: "true"})
 			}
@@ -194,7 +214,7 @@ func TestHandleServerConsentWithdrawalClearsCategoryCookies(t *testing.T) {
 	s := &Server{config: cfg}
 	r := httptest.NewRequest(http.MethodPost, "/server/consent", strings.NewReader("choice=decline"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.QueryEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
+	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.PathEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
 	r.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
 	r.AddCookie(&http.Cookie{Name: "lang", Value: "fr"})
 	r.AddCookie(&http.Cookie{Name: "airports_pref_map", Value: "satellite"})
@@ -226,7 +246,7 @@ func TestHandleServerCCPAOptOutWithdrawsNonessentialConsent(t *testing.T) {
 	s := &Server{config: cfg}
 	r := httptest.NewRequest(http.MethodPost, "/server/ccpa", strings.NewReader("choice=opt-out"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.QueryEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
+	r.AddCookie(&http.Cookie{Name: consentCookieName, Value: url.PathEscape(`{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`)})
 	r.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
 	w := httptest.NewRecorder()
 
@@ -245,12 +265,11 @@ func TestHandleServerCCPAOptOutWithdrawsNonessentialConsent(t *testing.T) {
 
 func TestCanLoadAnalyticsSuppressesTorTracking(t *testing.T) {
 	cfg := config.DefaultApplicationConfig()
-	cfg.Server.Privacy.Consent.DefaultEnabled = false
 	cfg.Server.Tracking.Type = "simple"
 	cfg.Server.Tor.OnionAddress = "exampleexampleexampleexampleexampleexampleexampleexample.onion"
 	s := &Server{config: cfg}
 	consentJSON := `{"essential":true,"preferences":true,"analytics":true,"timestamp":1}`
-	consentCookie := &http.Cookie{Name: consentCookieName, Value: url.QueryEscape(consentJSON)}
+	consentCookie := &http.Cookie{Name: consentCookieName, Value: url.PathEscape(consentJSON)}
 	r := httptest.NewRequest(http.MethodGet, "http://exampleexampleexampleexampleexampleexampleexampleexample.onion/", nil)
 	r.AddCookie(consentCookie)
 	r = r.WithContext(context.WithValue(r.Context(), torCircuitContextKey{}, "fc00::1"))
@@ -278,8 +297,8 @@ func TestInvalidConsentCookieFallsBackToConfiguredDefaults(t *testing.T) {
 		t.Fatal("malformed consent cookie should not count as valid consent")
 	}
 	state := consentFromRequest(request, cfg)
-	if !state.Essential || !state.Preferences || !state.Analytics {
-		t.Errorf("fallback consent state = %+v, want configured defaults with essential cookies", state)
+	if !state.Essential || state.Preferences || state.Analytics {
+		t.Errorf("fallback consent state = %+v, want essential cookies only until opt-in", state)
 	}
 }
 

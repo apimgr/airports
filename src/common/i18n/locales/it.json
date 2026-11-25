@@ -6,6 +6,20 @@
     "direction": "ltr",
     "version": "1.0.0"
   },
+  "offline": {
+    "title": "Offline",
+    "heading": "Sei offline",
+    "message": "Impossibile caricare questa pagina e non è disponibile una copia nella cache. Controlla la connessione e riprova.",
+    "indicator": "Sei offline. Alcune funzioni potrebbero non essere disponibili."
+  },
+  "app_update": {
+    "available": "È disponibile una nuova versione",
+    "now": "Aggiorna ora",
+    "later": "Più tardi"
+  },
+  "connection": {
+    "reconnecting": "Riconnessione al server…"
+  },
   "common": {
     "select_language": "Seleziona la lingua",
     "save": "Salva",
@@ -159,7 +173,9 @@
     "self_healing": "Autoguarigione",
     "shutting_down": "Spegnimento",
     "since": "Da",
-    "text": "Stato in testo semplice"
+    "text": "Stato in testo semplice",
+    "check.unknown": "Controllo: {key}",
+    "stat.unknown": "Statistica: {key}"
   },
   "consent": {
     "banner_text": "Questo sito utilizza i cookie per fornire funzionalità essenziali e, se abilitati, per comprenderne l'utilizzo.",
@@ -247,6 +263,8 @@
     "playground_title": "GraphQL Parco giochi",
     "playground_description": "Esplora le query aeroportuali di sola lettura su questo server.",
     "err_invalid_body": "Corpo della richiesta GraphQL non valido: {error}",
+    "err_invalid_get_parameter": "parametro GET GraphQL non supportato: {parameter}",
+    "err_invalid_variables": "variabili GraphQL non valide",
     "err_query_required": "è richiesta una domanda",
     "err_airport_not_found": "aeroporto non trovato: {code}",
     "err_nearby_requires_lon": "la query nelle vicinanze richiede lon",
@@ -1104,6 +1122,8 @@
     "templates.update_installed.subject": "Aggiornamento installato: {app_name}",
     "templates.update_installed.body": "AGGIORNAMENTO INSTALLATO\n\nDa: {app_name} ({fqdn})\nOrario: {timestamp}\n\n{app_name} è stato aggiornato correttamente.\n\nVersione precedente: {old_version}\nNuova versione: {new_version}\n\n--\n{app_name}\n{app_url}",
     "templates.update_staged.subject": "Aggiornamento graduale - {app_name}",
-    "templates.update_staged.body": "AGGIORNAMENTO IN FASE\n\nDa: {app_name} ({fqdn})\nOrario: {timestamp}\n\nLa versione {new_version} è organizzata in fasi e necessita di un riavvio prima di poter essere applicata.\n\nCorsa: {manual_command}\n\n--\n{app_name}\n{app_url}"
+    "templates.update_staged.body": "AGGIORNAMENTO IN FASE\n\nDa: {app_name} ({fqdn})\nOrario: {timestamp}\n\nLa versione {new_version} è organizzata in fasi e necessita di un riavvio prima di poter essere applicata.\n\nCorsa: {manual_command}\n\n--\n{app_name}\n{app_url}",
+    "templates.maintenance_exhausted.subject": "Ripristino automatico interrotto - {app_name}",
+    "templates.maintenance_exhausted.body": "{app_name} resta in modalità manutenzione di sola lettura dopo {attempts} tentativi di ripristino non riusciti.\n\nCausa: {reason}\nÈ necessario l’intervento dell’operatore. Risolvi la causa e riavvia il servizio."
   }
 }

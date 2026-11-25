@@ -267,6 +267,13 @@ func BuildSpecWithRoutes(version, apiVersion, lang string, routes []OpenAPIRoute
 			if parameters := openAPIPathParameters(route.Path); len(parameters) > 0 {
 				operation["parameters"] = parameters
 			}
+			if method == "get" && (route.Path == "/server/graphql" || route.Path == "/api/graphql") {
+				operation["parameters"] = []map[string]interface{}{
+					{"name": "query", "in": "query", "required": true, "schema": map[string]interface{}{"type": "string"}},
+					{"name": "variables", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+					{"name": "operationName", "in": "query", "required": false, "schema": map[string]interface{}{"type": "string"}},
+				}
+			}
 			if method == "post" || method == "put" || method == "patch" {
 				operation["requestBody"] = map[string]interface{}{
 					"required": method == "post" || method == "put",
