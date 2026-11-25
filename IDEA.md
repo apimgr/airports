@@ -122,30 +122,39 @@ Map rendering follows progressive enhancement, per the no-JS-required rule: the 
 - Account enumeration — no accounts exist
 - Airport records are public and have no user-scoped ownership; owner-token management and private security reports remain protected resources
 
-### Security decisions & exceptions
+### Security and privacy requirements
 
-- **No login accounts**: intentional. Public reads remain anonymous; the owner-token system supplies anonymous owner identities, while operator, linked-owner, and per-service metrics credentials follow AI.md.
-- **GeoIP databases downloaded at runtime**: intentional for size reasons (GeoIP databases are ~80 MB and updated weekly; embedding them would double binary size and require weekly releases). Downloads are verified against published SHA-256 checksums.
-- **Public data API supports cross-origin browser use**: intentional. CORS follows the configured public-origin policy.
-- **Map tiles loaded client-side from OpenStreetMap, no API key**: intentional. Keeps zero-config/no-paywall posture; the server never proxies or caches tile requests, so tile-server load and ToS compliance rest on standard OSM attribution/usage-policy adherence in the frontend, not on server-side rate limiting.
-- **Container binds privileged port 80 as a non-root user**: intentional. The runtime image runs as the non-root `airports` user (UID/GID 1000). Because the app listens on internal port 80 (<1024), the Dockerfile grants `cap_net_bind_service` on the binary via `setcap` rather than running as root or doing a root-then-drop dance. This is the documented exception to the non-root/no-privileged-port rule.
+- There are no login accounts. Public airport data remains anonymously accessible; platform operator, owner, linked-owner, and per-service metrics credentials are security controls, not product tiers.
+- Caller GeoIP results are used only to find nearby airports, are returned only to that caller, and are never logged or stored. GeoIP failure leaves the rest of the product available and shows a generic location view.
+- Public airport data is available to browser clients on other origins under the configured public-origin policy.
+- Map tiles come from OpenStreetMap without an API key. The browser contacts the tile provider directly, and the product identifies the provider and its privacy implications to visitors.
+
+### Data access capabilities
+
+Airport data and GraphQL queries do not require authentication. The product provides:
+
+- Browsing and pagination across airport records, plus lookup by ICAO/IATA identifier.
+- Search and autocomplete across supported airport fields.
+- Geographic queries for nearby airports, radius and bounding-box results, and caller-location-based nearby results when GeoIP is available.
+- JSON, CSV, and GeoJSON exports, plus country/region counts and aggregate dataset statistics.
+- A read-only GraphQL interface and OpenAPI documentation.
+- A safe public settings view that excludes credentials and internal topology.
+
+The platform's owner-token, metrics-token, MCP, server-information, and other baseline interfaces follow the contracts in the applicable AI.md PARTs. Their paths and transport details are defined by AI.md, not duplicated here.
 
 ### API routes
 
-All routes below are public read APIs unless marked otherwise. `{api_version}` is the configured version (default `v1`). API responses use the standard success/error envelope; `.txt` variants and content negotiation provide plain-text output where listed.
+All airport-data routes below are public and read-only. The server's baseline routes are defined by AI.md PARTS 13–14 and are not repeated here.
 
 - `GET /api/{api_version}/airports`: list airports with pagination and optional result limits; returns airport records and pagination metadata.
-- `GET /api/{api_version}/airports/{ident}` and `GET /api/{api_version}/airports/{ident}.txt`: retrieve one airport by ICAO/IATA identifier; returns the matching record or not-found error.
-- `GET /api/{api_version}/airports/search[.txt]`: search airports by supported text fields; returns matching records and pagination metadata.
-- `GET /api/{api_version}/airports/nearby[.txt]`: find airports near supplied coordinates; returns records with distances and search parameters.
-- `GET /api/{api_version}/airports/within`: find airports inside supplied geographic bounds; returns matching records and a count.
+- `GET /api/{api_version}/airports/{ident}` and `GET /api/{api_version}/airports/{ident}.txt`: retrieve one airport by ICAO/IATA identifier.
+- `GET /api/{api_version}/airports/search[.txt]`: search airports by supported text fields with pagination.
+- `GET /api/{api_version}/airports/nearby[.txt]`: find airports near supplied coordinates, including distances and search parameters.
+- `GET /api/{api_version}/airports/within`: find airports inside supplied geographic bounds.
 - `GET /api/{api_version}/airports/autocomplete`: return airport suggestions for a query.
 - `GET /api/{api_version}/airports.json`, `GET /api/{api_version}/airports.csv`, and `GET /api/{api_version}/airports.geojson`: export the airport dataset in the named format.
 - `GET /api/{api_version}/countries[.txt]` and `GET /api/{api_version}/states/{country}`: return country airport counts and state/region counts for a country.
 - `GET /api/{api_version}/stats[.txt]`: return aggregate airport dataset statistics.
-- `GET /api/{api_version}/geoip[.txt]` and `GET /api/{api_version}/geoip/{ip}[.txt]`: look up the caller's or requested IP's approximate location; returns available GeoIP fields.
-- `GET /api/{api_version}/geoip/airports/nearby`: return airports near the caller's GeoIP location.
+- `GET /api/{api_version}/geoip[.txt]` and `GET /api/{api_version}/geoip/{ip}[.txt]`: look up the caller's or requested IP's approximate location and return the available GeoIP fields.
+- `GET /api/{api_version}/geoip/airports/nearby`: return airports near the caller's GeoIP location when available.
 - `GET /api/{api_version}/settings`: return the documented safe public settings subset; credentials and internal topology are excluded.
-- `POST /api/{api_version}/server/graphql` and `POST /api/graphql`: query the read-only airport dataset through a JSON body. `GET` on either path accepts `query`, optional `variables`, and optional `operationName`. Both methods return query results or GraphQL errors; the unversioned path aliases the current version.
-
-Airport data and GraphQL queries do not require authentication. The platform's owner-token, metrics-token, MCP, server-information, and other baseline routes follow the route and authentication contracts in the applicable AI.md PARTs.
