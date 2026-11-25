@@ -50,6 +50,6 @@
 | Boolean parsing | `config.ParseBool()`/`IsTruthy()` only, never `strconv.ParseBool()` |
 | Flag syntax | Both `--flag=value` and `--flag value` accepted everywhere |
 | Server-side CLI update | `/api/autodiscover` → `cli_versions`/`cli_min_version`; download `{base}/cli/binaries/{name}-{os}-{arch}`; verify SHA-256; atomic swap; re-exec |
-| Official site source order | `site.txt` > `IDEA.md official_site` > README fallback > ask user |
+| Official site source order | `site.txt` > explicitly supplied `OFFICIAL_SITE` environment variable > CI secret/variable > empty; never infer from IDEA.md, README, project name, or host |
 
 For complete details, see AI.md PART 7, PART 8, PART 32.

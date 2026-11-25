@@ -9,16 +9,17 @@ Complete API reference for the Airports API Server.
 - **API Base**: `/api/{api_version}` (the version segment is configurable via `server.api_version`; `v1` is the default)
 
 Versioned routes are canonical. The operational aliases `/api/swagger`,
-`/api/graphql`, `/api/healthz`, `/api/metrics[/{service}]`, `/api/mcp`,
-`/mcp`, and `/api/debug/*` use the current API version's same handlers
-directly; they do not redirect. `/api/autodiscover` is unversioned by design.
+`/api/graphql`, `/api/healthz`, `/api/metrics[/{service}]`, `/api/mcp`, and
+`/mcp` use the current API version's same handlers directly; they do not
+redirect. `/api/autodiscover` is unversioned by design. Debug endpoints exist
+only under `/debug/*` and are not part of the API surface.
 Data-shaped resource routes remain versioned. The optional root `/healthz`
 alias is disabled unless `server.healthz.root.enabled` is true.
 
 ## Interactive Documentation
 
 - **Swagger UI**: `/server/docs/swagger`
-- **GraphQL Playground**: `/server/docs/graphql`
+- **GraphiQL**: `/server/docs/graphql`
 
 ## Public web pages
 
@@ -590,14 +591,12 @@ bearer token configured under `server.metrics.auth.tokens`. A matching token
 is mandatory; firewalling the endpoint is additional defense in depth. Root
 metrics aliases can be disabled with `server.metrics.root.enabled: false`.
 
-## Debug API
+## Debug endpoints
 
-When debug mode is enabled, the diagnostics under `/debug/*` are also mounted
-at `/api/{api_version}/debug/*` and `/api/debug/*`. Every debug route requires
-the operator token from `server.token`; versioned routes include the standard
-API version and no-cache headers. The route set includes the custom diagnostics,
-pprof routes when `server.debug.pprof` is enabled, and `/vars` when
-`server.debug.runtime_endpoints` is enabled.
+When debug mode is enabled, diagnostics are mounted only under `/debug/*`.
+Every debug route requires the operator token from `server.token`. The route
+set includes the custom diagnostics, pprof routes when `server.debug.pprof` is
+enabled, and `/vars` when `server.debug.runtime_endpoints` is enabled.
 
 ## Model Context Protocol
 

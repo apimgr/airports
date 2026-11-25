@@ -41,10 +41,10 @@ stays active during reload, or built-in defaults are used on first startup.
 
 | Mode | When | Effect |
 |------|------|--------|
-| `development` | `MODE=development` or `--mode development` | Allows `localhost`, `.local`, `.test` hosts; verbose logs; relaxed CORS; pprof available with `--debug` |
-| `production` | `MODE=production` or `--mode production` | Strict CORS; minimal logs; no debug endpoints |
+| `development` | `MODE=development` or `--mode development` | Allows development hosts; verbose logs; relaxed CORS; debug endpoints still require `--debug` or `DEBUG=true` |
+| `production` | `MODE=production` or `--mode production` | Strict CORS; minimal logs; debug endpoints remain off unless explicitly enabled |
 
-`DEBUG=true` is independent of `MODE` and enables pprof/expvar/detailed-request-logging. Never default-on in production.
+`DEBUG=true` is independent of `MODE` and enables diagnostics and detailed request logging. Debug routes exist only under `/debug/*`, require the operator Bearer token, and pprof/expvar require their respective settings. Never enable them by default in production.
 
 ## Core Settings
 
@@ -73,9 +73,8 @@ server:
     http_only: true
     same_site: lax
   # Bind address.
-  address: 0.0.0.0
-  # Listen port; containers use internal port 80.
-  port: 8080
+  address: "[::]"
+  # With no port configured, the server selects and persists a 64xxx port.
   # Comma-separated allowed hosts; auto-detected behind a reverse proxy.
   domain: ""
   timezone: America/New_York

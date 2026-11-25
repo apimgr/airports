@@ -12,7 +12,7 @@
 - Use `${VAR}`/`${VAR:-default}` syntax or `.env`/`.env.example` files in compose — hardcode sane defaults
 - Include `build:` or `version:` keys in any compose file
 - Add `LABEL` blocks to the Dockerfile — all OCI metadata is applied by CI via `--label`/`--annotation`
-- Run as root in the runtime stage unless the app must bind a privileged port or manage system services (document exception in IDEA.md)
+- Add `USER`, `USER app`, or user/group creation to the Dockerfile; the container starts as root and the binary creates its service user and drops privileges after initialization
 - Use docker-compose.dev.yml or docker-compose.yml as the AI testing interface — those are HUMAN USE ONLY; AI uses `tests/` scripts or docker-compose.test.yml as fallback
 - Push `:dev` or `:test` tags to the production registry
 
@@ -37,7 +37,7 @@
 | Base images | Builder `casjaysdev/go:latest`; runtime `alpine:latest` |
 | Binary path | `/usr/local/bin/{project_name}` |
 | Container paths | `/config/{project_name}/` (config, ssl/, tor/); `/data/{project_name}/` (uploads, cache, tor/); `/data/db/sqlite/server.db`; `/data/log/{project_name}/`; `/data/backups/{project_name}/` |
-| Non-root user | Alpine: `addgroup -S app && adduser -S -G app app` then `USER app` |
+| Privilege drop | No Dockerfile user/group setup; binary starts with container privileges, creates its service user/directories, binds privileged ports, then drops privileges |
 | Healthcheck | `CMD /usr/local/bin/{project_name} --status \|\| exit 1` |
 | Ports | Internal always `80`; prod `172.17.0.1:64xxx:80`; dev `64xxx:80` |
 | Compose env | Hardcoded YAML map style; prod sets no `DEBUG`/`MODE`; dev/test set `DEBUG: 1`, `MODE: dev` |

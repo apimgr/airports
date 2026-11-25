@@ -24,7 +24,7 @@
 - Maintain `tests/run_tests.sh`, `tests/docker.sh`, `tests/incus.sh` (executable, WTFPL header), auto-detecting Incus (preferred) then Docker (fallback)
 - Keep `docs/` covering the full shipped surface (browser, CLI, API, config, well-known/discovery) with the 8 required pages (index, installation, configuration, api, cli, security, integrations, development)
 - Maintain WCAG AA contrast (4.5:1) and both dark/light themes if customizing MkDocs Material colors
-- Route every human-readable string through `t()`/`{{t .Lang key}}`; keep all locale files' keys identical to `en.json` (build-time validated via `make i18n-validate`)
+- Route every human-readable string through `t()`/`{{t .Lang key}}`; keep all locale files' keys identical to `en.json` (validated by the i18n tests in `make test`)
 - Support the fallback chain `?lang= → cookie → Accept-Language → en` (web) and `--lang → config → LANG/LC_ALL → en` (CLI/server/agent)
 - Set `dir="rtl"` for Arabic and use CSS logical properties; use CLDR plural categories per language
 - Provide skip links, ARIA live regions for dynamic content, proper focus management, and 44x44px touch targets on every page

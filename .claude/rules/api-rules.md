@@ -36,7 +36,8 @@
 - Keep the health response field order fixed: project → status → version/build
   → runtime → features → checks → stats; extend via IDEA.md, never reinvent
 - Follow SemVer strictly for stable releases (MAJOR.breaking, MINOR.feature,
-  PATCH.fix); read version from `release.txt` → git tag → `dev` fallback
+  PATCH.fix); local version source is user-set `VERSION` → non-empty `release.txt`
+  → short commit ID (`devel` outside Git); CI derives versions from pushed tags
 - Version every API route as `/api/{api_version}/...`, plural nouns, lowercase,
   hyphens for multi-word, path params for identity, query params for modifiers
 - Give every project-specific API endpoint a matching frontend route; make
@@ -57,7 +58,7 @@
 - Check for existing certs in order: `/etc/letsencrypt/live/domain/` →
   `/etc/letsencrypt/live/{fqdn}/` → `{config_dir}/ssl/letsencrypt/{fqdn}/` →
   `{config_dir}/ssl/local/{fqdn}/`; only request a new LE cert if none found
-- Auto-renew app-managed LE certs 7 days before expiry (daily check, 03:00);
+- Auto-renew app-managed LE certs when 30 days or fewer remain (daily check, 03:00);
   never touch system (`/etc/letsencrypt`) or user-managed (`ssl/local`) certs
 - Always strip `:80`/`:443` from displayed URLs; adapt the startup banner to
   terminal width (full/compact/minimal/micro) and respect `NO_COLOR`/`--color`
@@ -70,10 +71,10 @@
 | Health field order | project, status, version/build, uptime/mode/timestamp, features, checks, stats — app-specific fields extend, never replace |
 | Health security | Only `ok`/`error`/aggregate counts/public version info; never credentials, DB strings, paths, internal IPs |
 | Versioning scheme | Stable: `MAJOR.MINOR.PATCH` (start at `1.0.0`); Beta: `YYYYMMDDHHMMSS-beta`; Daily: `YYYYMMDDHHMMSS` |
-| Version source order | `release.txt` → git tag → `dev` |
+| Version source order | Local: explicit `VERSION` → non-empty `release.txt` → short commit ID (`devel` outside Git); CI: release tag, beta tag, or short commit ID |
 | API route rules | Versioned, plural, lowercase, hyphenated, no trailing slash, no verbs — nouns + HTTP methods only |
 | Legacy vs compat | Legacy (your own old routes) = delete always; Compatibility (external service) = feature parity by default, routes only if explicitly requested |
-| Unversioned aliases | Only for stable/tooling endpoints (`/api/swagger`, `/api/graphql`, `/api/healthz`) — served directly, never a redirect, same handler as versioned route |
+| Unversioned API paths | Aliases: `/api/swagger`, `/api/graphql`, `/api/healthz`, `/api/metrics[/{service}]`, `/api/mcp`, and root `/mcp`; discovery: `/api/autodiscover` by design. Aliases use the same handler directly, never redirect |
 | Content negotiation (API) | Default JSON; `.txt` ext / `Accept: text/plain` / non-interactive client → text |
 | Content negotiation (frontend) | Browser → HTML+JS; our CLI → JSON; text browsers → no-JS HTML; HTTP tools (curl/wget) → HTML2Text |
 | Response envelopes | Item: bare object. Action: `{ok, data}`. Error: `{ok:false, error, message, details}`. List: `{data, pagination}` |
@@ -82,7 +83,7 @@
 | TLS challenge types | HTTP-01 (port 80), TLS-ALPN-01 (port 443), DNS-01 (wildcard, any DNS provider via lego) |
 | FQDN resolution order | Reverse-proxy headers → `DOMAIN` env → `os.Hostname()` → `$HOSTNAME` → public IPv6 → public IPv4 → `localhost` |
 | Cert lookup order | `/etc/letsencrypt/live/domain/` → `/etc/letsencrypt/live/{fqdn}/` → `{config_dir}/ssl/letsencrypt/{fqdn}/` → `{config_dir}/ssl/local/{fqdn}/` |
-| Cert ownership | `/etc/letsencrypt/**` = system/certbot (app never renews); `ssl/letsencrypt/{fqdn}/` = app auto-renews (7 days before expiry); `ssl/local/{fqdn}/` = user, manual only |
+| Cert ownership | `/etc/letsencrypt/**` = system/certbot (app never renews); `ssl/letsencrypt/{fqdn}/` = app auto-renews when 30 days or fewer remain; `ssl/local/{fqdn}/` = user, manual only |
 | Port/proto rules | Single port ≠443 → HTTP; single port 443 → HTTPS-only; dual port → first=HTTP, second=HTTPS; always strip `:80`/`:443` from URLs |
 | Logs vs console | Startup banner/console: icons, colors, ASCII art (responsive to width); log files/stdout logs: always raw plain text, never icons |
 

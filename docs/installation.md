@@ -6,7 +6,6 @@ The Airports API ships as a single self-contained static binary with embedded ai
 
 ```bash
 mkdir -p volumes/config volumes/data
-chown -R 1000:1000 volumes/config volumes/data
 docker run --rm -d \
   --name airports \
   -p 8080:80 \
@@ -14,9 +13,6 @@ docker run --rm -d \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest
 ```
-
-The container runs as a fixed non-root UID/GID (`1000:1000`); pre-chowning the
-volume directories avoids a permission-denied failure on first start.
 
 Then open <http://localhost:8080>.
 
@@ -26,11 +22,11 @@ A production compose file ships in the repository at `docker/docker-compose.yml`
 
 ```bash
 mkdir -p volumes/config volumes/data
-chown -R 1000:1000 volumes/config volumes/data
 docker compose -f docker/docker-compose.yml up -d
 ```
 
 The compose file ships with sane hardcoded defaults — **no `.env` file is required or supported.** Edit the compose file directly to override.
+The production compose file binds port `64580` to the Docker bridge address `172.17.0.1`; configure the host reverse proxy to reach that address and port.
 
 ## Binary Install (Linux / macOS / FreeBSD)
 
@@ -70,7 +66,7 @@ On first run the binary will:
 3. Create required directories.
 4. Download GeoIP databases (~80 MB) to `~/.local/share/apimgr/airports/security/geoip/`.
 5. Print a startup banner with listen URLs, version, commit, and build date.
-6. Begin serving on port 8080 (or 80 if run as root with `CAP_NET_BIND_SERVICE`).
+6. Begin serving on a randomly selected `64xxx` port by default. Set `PORT` or `server.port` to choose a fixed port.
 
 ## systemd Service (Linux)
 

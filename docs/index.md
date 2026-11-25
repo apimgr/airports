@@ -38,7 +38,7 @@ docker run --rm -d \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest
 
-curl -q -LSsf http://localhost:8080/api/{api_version}/airports/KJFK
+curl -q -LSsf http://localhost:8080/api/v1/airports/KJFK
 ```
 
 See [installation.md](installation.md) for binary installs and systemd integration.

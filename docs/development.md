@@ -25,6 +25,10 @@ make test         # run unit tests
 make docker       # build the Docker image
 ```
 
+`make release` publishes a stable SemVer release. `make beta` tags the clean
+`main` commit with a UTC timestamp and pushes the tag for CI to publish; use
+these maintainer-only targets only when publishing is intended.
+
 The Makefile's Go targets use `casjaysdev/go:latest`; no host Go toolchain is
 needed. CI runs `go vet ./...` and `staticcheck ./...` in the same project
 toolchain image. Documentation can be built with `mkdocs build` after installing

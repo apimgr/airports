@@ -121,7 +121,7 @@ Secrets and generated tokens are stored separately in `secrets.yml`.
 | `--port` | `PORT` | `80` (container) / auto (host) | Listen port |
 | `--address` | `LISTEN` | `0.0.0.0` | Bind address |
 | `--mode` | `MODE` | `production` | `development` or `production` |
-| `--debug` | `DEBUG` | `false` | Enable pprof/expvar endpoints |
+| `--debug` | `DEBUG` | `false` | Enable operator-token-protected diagnostics under `/debug/*` |
 | `--config` | — | auto-detected | Config directory containing `server.yml` |
 
 Config file is auto-created at first run with sane defaults. No manual setup required.
@@ -206,7 +206,7 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `/api/{api_version}/server/preferences/tokens` | Primary and linked owner-token management (primary Bearer required except issuance) |
 | `GET /server/help/mcp` | MCP setup and live tool reference |
 | `GET /api/{api_version}/server/help/mcp` | MCP setup metadata and live tools (JSON) |
-| `GET /api/{api_version}/debug/*` | Operator-token-protected diagnostics when debug mode is enabled; direct alias at `/api/debug/*` |
+| `GET /debug/*` | Operator-token-protected diagnostics when debug mode is enabled; internal diagnostics outside the API surface |
 | `GET /server/docs/graphql` | GraphiQL UI |
 | `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
 | `GET /api/{api_version}/server/graphql` | Read-only GraphQL query using URL parameters |
@@ -280,6 +280,7 @@ make test      # Run unit tests in Docker
 make local     # Build for host platform -> binaries/
 make build     # Cross-compile all platforms -> binaries/
 make docker    # Build and push multi-arch Docker image
+make beta      # Maintainer: tag main for CI beta publishing
 make clean     # Remove build artifacts
 ```
 
