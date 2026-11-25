@@ -209,7 +209,9 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 | `GET /api/{api_version}/debug/*` | Operator-token-protected diagnostics when debug mode is enabled; direct alias at `/api/debug/*` |
 | `GET /server/docs/graphql` | GraphiQL UI |
 | `POST /api/{api_version}/server/graphql` | GraphQL endpoint |
+| `GET /api/{api_version}/server/graphql` | Read-only GraphQL query using URL parameters |
 | `POST /api/graphql` | Direct alias for the current-version GraphQL endpoint |
+| `GET /api/graphql` | Read-only GraphQL query alias |
 | `GET /server/metrics/{service}` | Prometheus, Grafana, or Loki metrics (per-service bearer token required) |
 | `GET /api/metrics/{service}` | Metrics alias (per-service bearer token required) |
 | `GET /api/{api_version}/server/metrics/{service}` | Versioned metrics endpoint (per-service bearer token required) |

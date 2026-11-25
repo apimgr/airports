@@ -13,7 +13,8 @@ repo: https://github.com/apimgr/airports
 license: MIT
 binary: airports
 client_binary: airports-cli
-owner_token: airports_owner_token_6kP9qV2x
+owner_token: airports_owner_token_qwhzkfta
+owner_token_legacy: airports_owner_token_6kP9qV2x
 resource_label: airport
 resource_label_plural: airports
 
@@ -32,7 +33,7 @@ resource_label_plural: airports
 - Public sitemap and Atom/RSS discovery feeds (empty when the read-only product has no public items)
 - CLI client (`airports-cli`) for querying from the terminal
 - OpenAPI/Swagger docs at `/api/{api_version}/server/swagger`
-- GraphQL POST at `/api/{api_version}/server/graphql`, with the current-version alias `/api/graphql`
+- GraphQL POST and read-only GET at `/api/{api_version}/server/graphql`, with current-version POST and GET aliases at `/api/graphql`
 - Map view of airport locations on OpenStreetMap tiles (no API key) for single airport, search results, and radius/bounding-box query results — server-rendered no-JS baseline (coordinates table + static OSM link), progressively enhanced to an interactive pan/zoom map when JavaScript is available
 
 **Non-goals:**
@@ -145,6 +146,6 @@ All routes below are public read APIs unless marked otherwise. `{api_version}` i
 - `GET /api/{api_version}/geoip[.txt]` and `GET /api/{api_version}/geoip/{ip}[.txt]`: look up the caller's or requested IP's approximate location; returns available GeoIP fields.
 - `GET /api/{api_version}/geoip/airports/nearby`: return airports near the caller's GeoIP location.
 - `GET /api/{api_version}/settings`: return the documented safe public settings subset; credentials and internal topology are excluded.
-- `POST /api/{api_version}/server/graphql` and `POST /api/graphql`: query the read-only airport dataset through GraphQL; returns query results or GraphQL errors. The unversioned path aliases the current version.
+- `POST /api/{api_version}/server/graphql` and `POST /api/graphql`: query the read-only airport dataset through a JSON body. `GET` on either path accepts `query`, optional `variables`, and optional `operationName`. Both methods return query results or GraphQL errors; the unversioned path aliases the current version.
 
 Airport data and GraphQL queries do not require authentication. The platform's owner-token, metrics-token, MCP, server-information, and other baseline routes follow the route and authentication contracts in the applicable AI.md PARTs.

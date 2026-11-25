@@ -20,7 +20,7 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - ICAO/IATA lookup, free-text search, nearby-by-radius, bounding-box, nearest-N
 - GeoIP-based caller-location detection on the home page
 - JSON / CSV / GeoJSON output
-- REST under `/api/{api_version}/...`, GraphQL POST at `/api/{api_version}/server/graphql` (alias `/api/graphql`), OpenAPI at `/api/{api_version}/server/swagger`
+- REST under `/api/{api_version}/...`, GraphQL POST and read-only GET at `/api/{api_version}/server/graphql` (aliases at `/api/graphql`), OpenAPI at `/api/{api_version}/server/swagger`
 - Server-side rendered web UI with dark / light / auto theme
 - Public airport directory with paginated browsing, search, nearby results, and airport detail pages
 - Tor hidden-service support (binary owns Tor entirely)

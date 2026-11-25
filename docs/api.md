@@ -460,6 +460,7 @@ GET /api/{api_version}/server/security/policy
 GET /api/{api_version}/server/security/thanks
 GET /api/{api_version}/server/swagger
 POST /api/{api_version}/server/graphql
+GET /api/{api_version}/server/graphql?query=...
 ```
 
 `/api/{api_version}/server/auth/check` requires an operator or owner Bearer token
@@ -517,15 +518,24 @@ The canonical, versioned GraphQL endpoint is:
 POST /api/{api_version}/server/graphql
 ```
 
+Read-only queries may also use GET with a URL-encoded `query` and optional
+`variables` and `operationName` parameters:
+
+```http
+GET /api/{api_version}/server/graphql?query=%7B%20airports%20%7B%20icao%20%7D%20%7D
+```
+
 An unversioned alias is also mounted at the same handler:
 
 ```http
 POST /api/graphql
 ```
+`GET /api/graphql` is the equivalent read-only alias.
 
 **Interactive Playground**: `/server/docs/graphql`
 
-There is no GET-based GraphQL endpoint and no `/api/{api_version}/graphql` or `/api/{api_version}/docs` path — those were removed; use the paths above.
+There is no `/api/{api_version}/graphql` or `/api/{api_version}/docs` path —
+those were removed; use the paths above.
 
 GraphQL `nearby` uses kilometers and defaults to a 50 km radius. The REST
 `/airports/nearby` endpoint defaults to a 50 mile radius and accepts
