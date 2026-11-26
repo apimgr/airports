@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read AI.md PART 27 completely before acting. AI.md is authoritative when this summary is incomplete or differs.
+
 ## CRITICAL - NEVER DO
 
 - Pin third-party Actions/images to a tag (e.g. `@v4`) — always pin to a full commit SHA with a

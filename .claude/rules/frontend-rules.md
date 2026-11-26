@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read AI.md PART 16 completely before acting. AI.md is authoritative; only vendored documentation tools are exempt from the one-project-JavaScript-file rule.
+
 ## CRITICAL - NEVER DO
 
 - Use a JS framework/library/bundler/transpiler (React, Vue, Alpine, jQuery, webpack, vite, TypeScript, Babel) — plain browser-native JS only, no npm/node for frontend

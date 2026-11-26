@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read the assigned AI.md PARTs completely before acting. AI.md is authoritative when this summary is incomplete or differs.
+
 ## CRITICAL - NEVER DO
 
 - Add sub-routes under `/server/healthz` (no `/server/healthz/db`, etc.)

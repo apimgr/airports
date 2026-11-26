@@ -14,6 +14,10 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 
 **No login accounts or admin panel. Public airport-data and server-information reads are unauthenticated. Owner-token management uses the primary owner token; MCP uses linked owner tokens; metrics use per-service bearer tokens. The airport dataset remains read-only.**
 
+## Official Site
+
+[https://github.com/apimgr/airports](https://github.com/apimgr/airports)
+
 ## Features
 
 - **35,000+ airports** with ICAO/IATA codes, names, city, country, coordinates, elevation, and type
@@ -169,13 +173,15 @@ Base URL: `http://YOUR_SERVER/api/{api_version}` (`{api_version}` defaults to `v
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /server/healthz` | Health status (HTML) |
+| `GET /server/healthz` | Health status (HTML for browsers, human-readable text for CLI clients) |
 | `GET /api/{api_version}/server/healthz` | Health status (JSON) |
 | `GET /api/{api_version}/server/auth/check` | Validate an operator or owner bearer token without returning it |
 | `GET /server/about` | Project description and version info (HTML) |
 | `GET /api/{api_version}/server/about` | Project description (JSON) |
 | `GET /server/help` | Usage and API documentation links (HTML) |
 | `GET /api/{api_version}/server/help` | Help content and registered help pages (JSON) |
+
+API health `.txt` routes and `Accept: text/plain` responses use machine-readable dot notation with compact values. Frontend health text is human-readable.
 | `GET /server/help/mcp` | MCP setup instructions and live tools (HTML) |
 | `GET /server/privacy` | Privacy policy (HTML) |
 | `GET /api/{api_version}/server/privacy` | Privacy policy data (JSON) |

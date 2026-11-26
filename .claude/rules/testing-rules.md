@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read the assigned AI.md PARTs completely before acting. AI.md is authoritative when this summary is incomplete or differs.
+
 ## CRITICAL - NEVER DO
 
 - Run `go build`/`go test`/binaries directly on the local machine — Go is not installed there; always Docker (`casjaysdev/go:latest`) or Incus
@@ -20,6 +22,7 @@
 
 - Create/update the matching `*_test.go` in the same work pass whenever package logic is added or changed
 - Run `make test` (Phase 1, toolchain gate) before every commit; run binary validation scripts in `./tests/` manually before release. E2E is on demand and is not a commit gate
+- Keep the tiers distinct: `tests/run_tests.sh` is Docker-only basic smoke coverage; `tests/incus.sh` is the explicit full-app check (use `tests/docker.sh` explicitly when Incus is unavailable); E2E remains separate
 - Test every route with all applicable Accept headers (`text/html`+`text/plain` for frontend; `application/json`+`text/plain` for API) and every `.txt` endpoint
 - Maintain `tests/run_tests.sh`, `tests/docker.sh`, `tests/incus.sh` (executable, WTFPL header), auto-detecting Incus (preferred) then Docker (fallback)
 - Keep `docs/` covering the full shipped surface (browser, CLI, API, config, well-known/discovery) with the 8 required pages (index, installation, configuration, api, cli, security, integrations, development)
@@ -33,7 +36,7 @@
 
 | Area | Rule |
 |------|------|
-| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `./tests/*.sh` is manual binary validation before release; `./tests/e2e.sh` is on-demand and never part of the commit gate |
+| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `tests/run_tests.sh` is the Docker-only basic tier and full-app checks are explicitly run with Incus/Docker; `./tests/e2e.sh` is on-demand and never part of the commit gate |
 | Test file naming | `config_test.go`, `server_test.go`, `*_handler_test.go`, `mode_test.go`, `ssl_test.go`, `paths_test.go` — colocated with source |
 | Coverage tooling | `go test -cover -coverprofile=coverage.out ./...` + `go tool cover -func=coverage.out`; CI fails build if `< 60` |
 | Unit-test container | Docker toolchain image `casjaysdev/go:latest` via `make test`; never `alpine:latest` |

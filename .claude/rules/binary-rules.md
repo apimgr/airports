@@ -2,9 +2,11 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read the assigned AI.md PARTs completely before acting. The server is one static Go binary; optional Tor and I2P integrations may use their local daemons.
+
 ## CRITICAL - NEVER DO
 
-- Ship anything but a single static binary — `CGO_ENABLED=0`, pure Go, no runtime deps
+- Ship anything but a single static Go binary — `CGO_ENABLED=0`, pure Go; optional Tor/I2P daemons are integrations, not linked binary dependencies
 - Embed security databases (GeoIP/blocklists/CVE/Trivy) in the binary — always downloaded to `{data_dir}/security/`
 - Hand-roll flag parsing for the server binary — stdlib `flag` only (single-command, no subcommands)
 - Implement UI mode flags (`--tui`, `--cli`, `--gui`, `--mode tui/cli/gui`) — display mode is ALWAYS auto-detected; server `--mode` selects production, development, or explicit debug mode

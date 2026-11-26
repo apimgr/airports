@@ -196,7 +196,7 @@ an eviction between scrapes may be missed. Raw cache keys are never metric
 labels. The Grafana dashboard is served by the `grafana` service token and uses
 the same per-service authentication rule.
 
-- **Health endpoint**: `GET /server/healthz` (HTML) or `GET /api/{api_version}/server/healthz` (JSON).
+- **Health endpoint**: `GET /server/healthz` (HTML for browsers, human-readable text for CLI clients) or `GET /api/{api_version}/server/healthz` (JSON by default, machine-readable dot-notation text for `.txt`, `Accept: text/plain`, or non-interactive API clients).
 - **About endpoint**: `GET /server/about` shows the project description, features, links, and version.
 - **Docker healthcheck**: built in (`airports --status`).
 

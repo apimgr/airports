@@ -144,7 +144,7 @@ airports-cli [flags] <command> [args...]
 
 ### Interactive mode
 
-Starting `airports-cli` without a command selects the interface from the current environment. A terminal opens the TUI, which includes search, airport lookup, nearby airports, health, version, connection setup, and a general API explorer. A supported local desktop session opens the native GUI when the client was built with `-tags gui`; otherwise it falls back to the TUI when a terminal is available. Headless sessions show command help and require a command.
+Starting `airports-cli` without a command selects the interface from the current environment. A terminal opens the TUI, which includes search, airport lookup, nearby airports, health, version, connection setup, and a general API explorer. A supported local desktop session opens the native GUI when the client was built with `-tags gui`; otherwise it falls back to the TUI when a terminal is available. Headless sessions show command help and require a command. When `src/client/gui` exists, `make build` and release workflows produce separate optional `airports-cli-gui-{os}-{arch}` artifacts for Linux, macOS, and Windows. These depend on the platform system loader and remain separate from static CLI updates.
 
 ### Flags
 

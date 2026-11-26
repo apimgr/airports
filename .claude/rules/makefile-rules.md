@@ -2,6 +2,8 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read AI.md PART 25 completely before acting. AI.md is authoritative when this summary is incomplete or differs.
+
 ## CRITICAL - NEVER DO
 
 - Add Makefile targets beyond the seven required core targets and two allowed helpers

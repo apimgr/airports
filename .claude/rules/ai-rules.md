@@ -2,12 +2,15 @@
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
+> Quick reference only: read the assigned AI.md PARTs completely before acting. AI.md is authoritative; do not create a SPEC.md exception without the user's explicit approval.
+
 ## CRITICAL - NEVER DO
 
 - Guess or assume a requirement — stop and ask
 - Pre-load the entire AI.md speculatively — use its PART index, read every applicable PART section by section, and follow cross-references before returning to the original PART
 - Run `go` commands on the host — all builds/tests are Docker (`casjaysdev/go:latest`) or Incus
 - Modify AI.md — it is read-only source of truth; project changes go in IDEA.md
+- Add or amend a SPEC.md exception on your own — explain the conflict and request the user's explicit approval first
 - Create report files (AUDIT.md, COMPLIANCE.md, SUMMARY.md) — fix issues directly instead
   (temporary `AUDIT.AI.md` is allowed only for an explicit audit with >5 issues, deleted when resolved)
 - Reference the assistant as an author anywhere — code, comments, commits, PRs, docs must read as
@@ -20,6 +23,7 @@
 
 - Read the relevant AI.md PART(s) before implementing; re-verify every 3-5 changes (drift check)
 - Treat server apps as internet-facing and hostile-traffic-exposed by default
+- When a spec requirement appears to break product functionality, stop and propose the exception; only record it in SPEC.md after explicit user approval, and keep the product reason in IDEA.md
 - Validate/sanitize all input; parameterized queries only; name columns explicitly (never `SELECT *`)
 - Pair each user-facing API route with an HTML page that presents the same data, and each page with its API route; system-only and explicitly machine-only routes may be API-only per AI.md PART 1 and PART 14
 - Verify with real tools before claiming "done" (`make test`, curl, build, etc.) — never "looks right"
@@ -30,7 +34,7 @@
 
 | Area | Rule |
 |------|------|
-| Spec hierarchy | SPEC.md > AI.md > global CLAUDE.md; AI.md wins over IDEA.md if they conflict |
+| Spec hierarchy | A user-approved SPEC.md exception may override AI.md; otherwise AI.md is source of truth and wins over IDEA.md |
 | Container-only dev | `make dev` / `make local` / `make build` / `make test` — never bare `go build` |
 | Security posture | Fail secure, least privilege, defense in depth, secure by default |
 | Client requirement | Every project ships the CLI client; PART 32 has no skip case |

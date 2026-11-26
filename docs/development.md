@@ -142,7 +142,7 @@ CI workflows live in `.github/workflows/`. All third-party Actions are pinned to
 
 Releases are tagged `v{semver}` and cut by pushing the tag — `release.yml` then builds binaries for all platforms and creates the GitHub release.
 
-`release.txt` is the **sole** source of truth for the version. Bump it in the same commit as the user-facing change.
+For local Makefile builds, `VERSION` overrides a non-empty `release.txt`; when neither is set, the build uses the short Git commit ID and falls back to `devel` outside a Git checkout. Stable manual releases require a SemVer version in `release.txt`; CI release tags supply their own release version.
 
 ## Reporting Issues
 

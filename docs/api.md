@@ -409,13 +409,12 @@ GET /healthz
 GET /server/healthz
 GET /api/healthz
 GET /api/{api_version}/server/healthz
-GET /api/{api_version}/server/auth/check
 GET /server/healthz.txt
 GET /api/healthz.txt
 GET /api/{api_version}/server/healthz.txt
 ```
 
-All paths serve the same handler. The `/healthz` root alias is optional and only exists when configured. Content negotiation follows route type: frontend routes return HTML to browsers, API routes return JSON by default, and `.txt`, `Accept: text/plain`, or a non-interactive HTTP client receives plain text.
+All listed paths serve the health handler. The `/healthz` root alias is optional and only exists when configured. Frontend routes return HTML to browsers and human-readable plain text to CLI clients or on `Accept: text/plain`. API routes return JSON by default; `.txt`, `Accept: text/plain`, or a non-interactive API client receives machine-readable dot-notation text with compact values.
 
 ---
 
