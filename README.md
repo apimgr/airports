@@ -85,6 +85,7 @@ sudo airports --status
 
 **Root run** uses `/etc/apimgr/airports`, `/var/lib/apimgr/airports`, `/var/log/apimgr/airports`.
 **User run** uses `~/.config/apimgr/airports`, `~/.local/share/apimgr/airports`, and `~/.local/state/apimgr/airports/log`.
+If system-service escalation is declined or unavailable, Linux systemd and macOS install a per-user service, and Windows creates a Task Scheduler logon task. Linux with another init system and BSD print user-mode instructions. See [installation](docs/installation.md) for details.
 
 ---
 

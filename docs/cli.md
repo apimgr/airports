@@ -87,7 +87,7 @@ token.
 ### Service Subcommands
 
 ```
-airports --service --install   # install, enable, and start the system service
+airports --service --install   # install, enable, and start a system or user service
 airports --service --uninstall # remove service and all server data (confirms first)
 airports --service start
 airports --service stop
@@ -98,6 +98,7 @@ airports --service --help
 ```
 
 The binary auto-detects the local service manager: systemd, OpenRC, SysVinit, runit, launchd, FreeBSD rc, or Windows Service.
+If system-service escalation is declined or unavailable, Linux systemd installs a per-user unit, macOS installs a LaunchAgent, and Windows creates a Task Scheduler logon task. Linux with another init system and BSD print that no user service is available and return successfully. Run later commands as the same user to control an installed user service.
 
 ### Scheduler Subcommands
 

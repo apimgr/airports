@@ -80,6 +80,17 @@ sudo airports --status
 
 Logs are written to journald and to `/var/log/airports/`.
 
+If you decline the privilege prompt or cannot escalate, Linux systemd installs a user unit instead:
+
+```bash
+airports --service --install
+airports --status
+```
+
+The user unit is stored in `~/.config/systemd/user/airports.service`, runs as your account, and uses your user config/data paths. It can bind only ports `1024` and higher. It starts at login; enable systemd lingering separately if it must survive logout.
+
+On Linux with OpenRC, runit, s6, or SysVinit, no user service is installed. The command prints how to start the server with `airports --daemon` or ask an administrator to install the system service.
+
 ## launchd Service (macOS)
 
 ```bash
@@ -89,12 +100,16 @@ sudo airports --service start
 
 The launchd plist is installed at `/Library/LaunchDaemons/io.github.apimgr.airports.plist`.
 
+Without admin access, the same install command creates a LaunchAgent in `~/Library/LaunchAgents/`, runs as your account, and writes logs under `~/Library/Logs/apimgr/airports/`.
+
 ## Windows Service
 
 ```powershell
 airports --service --install
 airports --service start
 ```
+
+Without administrator access, install creates and starts a Task Scheduler task named `airports` at the current user's logon.
 
 ## Build from Source
 
