@@ -96,7 +96,7 @@ airports --service --disable   # stop and disable the service
 airports --service --help
 ```
 
-The binary auto-detects the host service manager: systemd, OpenRC, SysVinit, runit, launchd, FreeBSD rc, or Windows Service.
+The binary auto-detects the local service manager: systemd, OpenRC, SysVinit, runit, launchd, FreeBSD rc, or Windows Service.
 
 ### Scheduler Subcommands
 

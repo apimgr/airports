@@ -213,5 +213,5 @@ Compatible with Docker, Podman, containerd, and any OCI-compliant runtime.
 - **No OAuth / OIDC / SAML** — no login accounts exist.
 - **No external database server required** — embedded SQLite for operational state.
 - **External cache is optional** — in-process memory is the default; Redis or Valkey can be configured for shared cache and rate-limit state.
-- **No external scheduler** — built-in cron (do not deploy host cron / systemd timers).
+- **No external scheduler** — built-in cron (do not deploy cron jobs or systemd timers outside the application).
 - **No mandatory telemetry or phone-home** — optional consent-gated analytics may load in visitors' browsers. The server's outbound HTTPS calls are limited to GeoIP refresh, ACME (if enabled), and self-update (when explicitly invoked).

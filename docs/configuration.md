@@ -83,13 +83,13 @@ server:
 Only `default_language` and `available_languages` are configurable. `default_language` selects the language for operator email; web requests fall back to English. Internationalization is always enabled, and the language preference cookie is fixed as `lang` with a one-year lifetime.
 
 `server.url_detection` controls request-aware URL resolution and trusted proxy
-domain learning. Forwarded host and protocol values are considered only when
+domain learning. Forwarded hostname and protocol values are considered only when
 the request peer is a configured trusted proxy; invalid hosts and untrusted
 forwarded headers are ignored. Tor requests detected through the dedicated
 loopback listener's validated PROXY-protocol circuit metadata keep their HTTP
 URL; a client-controlled `.onion` Host header does not establish Tor identity.
 Learning is bounded by `sample_window` and
-`min_samples`; `live_reload` controls whether an observed trusted host is used
+`min_samples`; `live_reload` controls whether an observed trusted hostname is used
 immediately, and `log_changes` controls domain/protocol change logs.
 
 Owner-token policy is stored in `yaml.d/security.yml`. Primary and linked
@@ -216,7 +216,7 @@ sent. The secret key is redacted from debug configuration output and stored in
 
 The AI discovery document is generated at `/.well-known/llms.txt` and `/llms.txt`
 by default. Endpoint paths are collected from the registered API routes, and
-the current request host is used when building absolute URLs.
+the current request hostname is used when building absolute URLs.
 
 Brand title, tagline, description, SEO tags, and the default theme live in
 `yaml.d/branding.yml`. The optional `web.ui.accent` value accepts `#RRGGBB`;
@@ -435,7 +435,7 @@ server:
       max_idle_time: 1m
   cache:
     type: memory                   # none | memory | valkey | redis
-    url: ""                        # use URL or host/port credentials
+    url: ""                        # use URL or hostname/port credentials
     host: localhost
     port: 6379
     username: ""

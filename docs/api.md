@@ -39,7 +39,7 @@ These pages use the same airport data as the API and remain usable without JavaS
 The public frontend also serves `GET /sitemap.xml`, `GET /feed.xml` (Atom
 1.0), and `GET /rss.xml` (RSS 2.0). Airports has no public user-created
 content, so both feeds are valid and currently contain zero entries. URLs are
-absolute for the current request host; feed responses support `ETag`,
+absolute for the current request hostname; feed responses support `ETag`,
 `Last-Modified`, and conditional requests.
 
 ## Authentication

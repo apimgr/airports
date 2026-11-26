@@ -26,7 +26,7 @@ docker compose -f docker/docker-compose.yml up -d
 ```
 
 The compose file ships with sane hardcoded defaults — **no `.env` file is required or supported.** Edit the compose file directly to override.
-The production compose file binds port `64580` to the Docker bridge address `172.17.0.1`; configure the host reverse proxy to reach that address and port.
+The production compose file binds port `64580` to the Docker bridge address `172.17.0.1`; configure the reverse proxy to reach that address and port.
 
 ## Binary Install (Linux / macOS / FreeBSD)
 
@@ -98,7 +98,7 @@ airports --service start
 
 ## Build from Source
 
-The build runs entirely inside Docker — you do not need Go installed on the host.
+The build runs entirely inside Docker — you do not need Go installed on the local machine.
 
 ```bash
 git clone https://github.com/apimgr/airports.git

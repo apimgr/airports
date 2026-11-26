@@ -26,14 +26,14 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - Tor hidden-service support (binary owns Tor entirely)
 - Optional I2P eepsite support and remote MCP integration
 - Accessible airport maps with static links when JavaScript or map tiles are unavailable
-- Single static binary, no runtime dependencies
+- Single static binary with embedded assets and dataset; Tor and I2P integrations use their local daemons when available
 
 ## Quick start
 
 ```bash
 docker run --rm -d \
   --name airports \
-  -p 8080:80 \
+  -p 172.17.0.1:8080:80 \
   -v ./volumes/config:/config:z \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest

@@ -2,7 +2,7 @@
 
 ## Local Toolchain
 
-The build runs entirely inside Docker. You **do not** need Go installed on the host. The only host requirements are:
+The build runs entirely inside Docker. You **do not** need Go installed on the local machine. The only local requirements are:
 
 - Docker (Engine 20.10+ or Docker Desktop)
 - `git`
@@ -29,7 +29,7 @@ make docker       # build the Docker image
 `main` commit with a UTC timestamp and pushes the tag for CI to publish; use
 these maintainer-only targets only when publishing is intended.
 
-The Makefile's Go targets use `casjaysdev/go:latest`; no host Go toolchain is
+The Makefile's Go targets use `casjaysdev/go:latest`; no local Go toolchain is
 needed. CI runs `go vet ./...` and `staticcheck ./...` in the same project
 toolchain image. Documentation can be built with `mkdocs build` after installing
 `docs/requirements.txt`.

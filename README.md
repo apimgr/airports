@@ -10,7 +10,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 
 ## About
 
-Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary with zero runtime dependencies.
+Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. The application ships as a self-contained static binary; Tor and I2P integrations use their respective local daemons when available.
 
 **No login accounts or admin panel. Public airport-data and server-information reads are unauthenticated. Owner-token management uses the primary owner token; MCP uses linked owner tokens; metrics use per-service bearer tokens. The airport dataset remains read-only.**
 
@@ -26,7 +26,7 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 - **Web UI** — dark/light/auto theme, mobile-first, PWA-capable
 - **Localized UI and CLI** — eight languages; see the [translation guide](docs/translating.md)
 - **CLI client** — `airports-cli` for terminal queries
-- **Self-contained** — single static binary, all assets embedded, no runtime dependencies
+- **Self-contained** — single static binary with embedded assets and dataset; Tor and I2P integrations use their local daemons when available
 - **Auto-updates** — weekly GeoIP database refresh via built-in scheduler
 - **Multi-platform** — Linux, macOS, Windows, FreeBSD (amd64 & arm64)
 - **Tor hidden service** — auto-detected .onion service when Tor is available
@@ -118,7 +118,7 @@ Secrets and generated tokens are stored separately in `secrets.yml`.
 
 | Setting | Env Var | Default | Description |
 |---------|---------|---------|-------------|
-| `--port` | `PORT` | `80` (container) / auto (host) | Listen port |
+| `--port` | `PORT` | `80` (container) / auto (non-container) | Listen port |
 | `--address` | `LISTEN` | `0.0.0.0` | Bind address |
 | `--mode` | `MODE` | `production` | `development` or `production` |
 | `--debug` | `DEBUG` | `false` | Enable operator-token-protected diagnostics under `/debug/*` |
@@ -269,7 +269,7 @@ curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_vers
 
 ## Development
 
-**Requirements:** Docker and Make. No Go toolchain needed on the host — all builds run in Docker.
+**Requirements:** Docker and Make. No Go toolchain is needed on the local machine; all builds run in Docker.
 
 ```bash
 git clone https://github.com/apimgr/airports.git
@@ -277,7 +277,7 @@ cd airports
 
 make dev       # Quick build to temp dir
 make test      # Run unit tests in Docker
-make local     # Build for host platform -> binaries/
+make local     # Build for the current OS and architecture -> binaries/
 make build     # Cross-compile all platforms -> binaries/
 make docker    # Build and push multi-arch Docker image
 make beta      # Maintainer: tag main for CI beta publishing

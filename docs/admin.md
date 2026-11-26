@@ -8,7 +8,7 @@ All operator tasks happen out-of-band via:
 
 - The `airports` CLI (service install, backup, restore, update, security report maintenance, config validation)
 - `server.yml`, area drop-ins in `yaml.d/`, and the separate `secrets.yml` file
-- The host's service manager (`systemctl`, `launchctl`, etc.)
+- The machine's service manager (`systemctl`, `launchctl`, etc.)
 
 If you are looking for "how do I log into the admin panel?", there is no answer — the panel does not exist by design.
 
@@ -202,7 +202,7 @@ the same per-service authentication rule.
 
 ## Scheduler
 
-The binary includes its own scheduler — **never depend on host cron or systemd timers**. Default jobs:
+The binary includes its own scheduler — **never depend on cron or systemd timers managed outside the application**. Default jobs:
 
 | Job | Default cron | Purpose |
 |-----|--------------|---------|
