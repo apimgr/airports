@@ -33,12 +33,12 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 ```bash
 docker run --rm -d \
   --name airports \
-  -p 172.17.0.1:8080:80 \
+  -p 172.17.0.1:64580:80 \
   -v ./volumes/config:/config:z \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest
 
-curl -q -LSsf http://localhost:8080/api/v1/airports/KJFK
+curl -q -LSsf http://172.17.0.1:64580/api/v1/airports/KJFK
 ```
 
 See [installation.md](installation.md) for binary installs and systemd integration.

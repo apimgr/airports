@@ -1,6 +1,6 @@
 # Installation
 
-The Airports API ships as a single self-contained static binary with embedded airport dataset (35,000+ records). No runtime dependencies. No database server required.
+The Airports API ships as a single self-contained static binary with the airport dataset (35,000+ records) embedded. It does not require a database server. Tor and I2P integrations use their local daemons when available.
 
 ## Docker (recommended)
 
@@ -8,13 +8,13 @@ The Airports API ships as a single self-contained static binary with embedded ai
 mkdir -p volumes/config volumes/data
 docker run --rm -d \
   --name airports \
-  -p 8080:80 \
+  -p 172.17.0.1:64580:80 \
   -v ./volumes/config:/config:z \
   -v ./volumes/data:/data:z \
   ghcr.io/apimgr/airports:latest
 ```
 
-Then open <http://localhost:8080>.
+The container listens on the Docker bridge address at <http://172.17.0.1:64580>. Configure a reverse proxy to reach that address and port for public access.
 
 ### Docker Compose
 
