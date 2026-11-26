@@ -140,7 +140,6 @@ airports-cli [flags] <command> [args...]
 | `get <code>` | Fetch a single airport by ICAO or IATA code |
 | `nearby <lat> <lon> [n]` | N closest airports to a coordinate (optional result count) |
 | `health` | Show server health status |
-| `version` | Print client version, then the remote server's version/build info |
 
 ### Interactive mode
 
