@@ -415,8 +415,6 @@ GET /healthz
 GET /server/healthz
 GET /api/healthz
 GET /api/{api_version}/server/healthz
-GET /server/healthz.txt
-GET /api/healthz.txt
 GET /api/{api_version}/server/healthz.txt
 ```
 

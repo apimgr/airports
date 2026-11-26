@@ -406,13 +406,19 @@ server:
     disk_low:
       enabled: true
       threshold_percent: 85
-      check_interval: 5m
+      repeat: 24h
+    database_error:
+      enabled: true
+      failures: 3
       repeat: 24h
   scheduler:
     tasks:
       disk_check:
         enabled: true
-        schedule: "*/5 * * * *"
+        schedule: "@every 5m"
+      database_check:
+        enabled: true
+        schedule: "@every 1m"
 ```
 
 ## Database and Cache
