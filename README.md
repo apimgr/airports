@@ -1,6 +1,6 @@
 # ✈️ Airports API
 
-Global airport information API — 35,000+ airports worldwide, single static Go binary with embedded data.
+Global airport information API — 48,071 small, medium, and large airports worldwide, single static Go binary with embedded data.
 
 [![CI](https://github.com/apimgr/airports/actions/workflows/ci.yml/badge.svg)](https://github.com/apimgr/airports/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/apimgr/airports)](https://github.com/apimgr/airports/releases)
@@ -10,7 +10,7 @@ Global airport information API — 35,000+ airports worldwide, single static Go 
 
 ## About
 
-Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. The application ships as a self-contained static binary; Tor and I2P integrations use their respective local daemons when available.
+Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,071 small, medium, and large airports — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. The application ships as a self-contained static binary; Tor and I2P integrations use their respective local daemons when available.
 
 **No login accounts or admin panel. Public airport-data and server-information reads are unauthenticated. Owner-token management uses the primary owner token; MCP uses linked owner tokens; metrics use per-service bearer tokens. The airport dataset remains read-only.**
 
@@ -20,7 +20,7 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 
 ## Features
 
-- **35,000+ airports** with ICAO/IATA codes, names, city, country, coordinates, elevation, and type
+- **48,071 airports** with ICAO/IATA codes, names, city, country, coordinates, elevation, and type
 - **GeoIP integration** — nearby airports surfaced on the home page based on caller location
 - **Fast search** — by ICAO/IATA code, name, city, country, or coordinates
 - **Geographic queries** — airports within radius, bounding box, or nearest N
@@ -268,7 +268,8 @@ curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_vers
 
 ## Data Sources
 
-- **Airport data:** [OurAirports](https://ourairports.com/) — public domain, embedded at build time
+- **Airport data:** [OurAirports](https://ourairports.com/) — public domain. Snapshot commit `a537e082ac8c8fe6ab509df1f128cc6704fe73c1` of [ourairports-data](https://github.com/davidmegginson/ourairports-data), retrieved 2026-11-26; only small, medium, and large airports are included.
+- **Timezone mapping:** [mwgg/Airports](https://github.com/mwgg/Airports) — MIT, commit `a89e4e0dda9d9878337e2da190ebe1ef1d6af705`, retrieved 2026-11-26. Timezone is optional and omitted when no ident match exists. Its README credits TimeZoneDB (CC BY 3.0) and TimeAPI; see [LICENSE.md](LICENSE.md).
 - **GeoIP databases:** [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — ASN/country data under PDDL and DB-IP city data under CC BY 4.0; downloaded on first run and updated weekly
 
 ---

@@ -77,8 +77,8 @@ All JSON API responses use the canonical envelope:
   "pagination": {
     "page": 1,
     "limit": 50,
-    "total": 35479,
-    "pages": 710
+    "total": 48071,
+    "pages": 193
   }
 }
 ```
@@ -95,6 +95,8 @@ All JSON API responses use the canonical envelope:
 ---
 
 ## Airport Endpoints
+
+Airport records include the OurAirports facility `type` (`small_airport`, `medium_airport`, or `large_airport`). The `tz` field is optional and omitted when the timezone mapping has no matching identifier. The embedded provenance `source` key is not part of API responses.
 
 ### Get All Airports
 
@@ -118,6 +120,7 @@ GET /api/{api_version}/airports
       "city": "New York",
       "state": "New York",
       "country": "US",
+      "type": "large_airport",
       "elevation": 13,
       "lat": 40.63980103,
       "lon": -73.77890015,
@@ -127,11 +130,13 @@ GET /api/{api_version}/airports
   "pagination": {
     "page": 1,
     "limit": 250,
-    "total": 35479,
-    "pages": 142
+    "total": 48071,
+    "pages": 193
   }
 }
 ```
+
+The CSV export columns are `icao,iata,name,city,state,country,elevation,lat,lon,tz,type`; `tz` is blank when unavailable. GeoJSON uses `properties.type` and includes `properties.timezone` only when a timezone is available.
 
 ### Get Airport by Code
 
@@ -154,6 +159,7 @@ GET /api/{api_version}/airports/{ident}.txt
     "city": "New York",
     "state": "New York",
     "country": "US",
+    "type": "large_airport",
     "elevation": 13,
     "lat": 40.63980103,
     "lon": -73.77890015,
@@ -324,10 +330,10 @@ GET /api/{api_version}/stats.txt
 {
   "ok": true,
   "data": {
-    "total_airports": 35479,
-    "countries": 249,
-    "with_iata": 8745,
-    "with_icao": 35479
+    "total_airports": 48071,
+    "countries": 239,
+    "with_iata": 8799,
+    "with_icao": 48071
   }
 }
 ```
@@ -551,15 +557,16 @@ query {
     name
     city
     country
-    coordinates {
-      lat
-      lon
-    }
+    type
+    lat
+    lon
+    tz
   }
 
   nearby(lat: 40.6398, lon: -73.7789, radius: 50) {
     icao
     name
+    type
     distance
   }
 }

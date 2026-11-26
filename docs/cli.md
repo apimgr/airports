@@ -42,7 +42,8 @@ Running `airports` with no flags starts the server in the foreground, creating d
 | `--version`, `-v` | — | Print version, commit, build date; exit |
 | `--help`, `-h` | — | Show help; exit |
 | `--maintenance` | — | Start in maintenance mode (read-only, serves maintenance page) |
-| `--maintenance backup [path]` | — | Run a backup now |
+| `--maintenance backup [path]` | — | Create a backup now; without a path, use the configured backup directory |
+| `--maintenance backup test [path]` | — | Verify a backup and its incremental base; prompts for an encrypted backup password |
 | `--maintenance restore <path>` | — | Restore from a backup archive |
 | `--maintenance pgp <action>` | `server.token` or root | Manage the security-report keypair (`generate`, `rotate`, `publish`, `export`, `import`, `delete`) |
 | `--maintenance secret rotate <name>` | `server.token` or root | Rotate `installation_secret` or `encryption_key` |

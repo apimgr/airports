@@ -1,6 +1,6 @@
 ## Project description
 
-Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 35,000+ airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. The web UI renders airport locations on OpenStreetMap tiles (no API key required). All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary.
+Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,071 small, medium, and large airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. The web UI renders airport locations on OpenStreetMap tiles (no API key required). All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary.
 
 ## Project variables
 
@@ -23,7 +23,7 @@ resource_label_plural: airports
 ### Product scope & non-goals
 
 **In scope:**
-- Serving 35,000+ airport records via REST API and web UI
+- Serving 48,071 small, medium, and large airport records via REST API and web UI
 - GeoIP-based caller location detection to surface nearby airports
 - Search by ICAO/IATA code, name, city, country, or coordinates
 - Geographic queries: airports within radius, bounding box, nearest N airports

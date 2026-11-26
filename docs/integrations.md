@@ -38,7 +38,7 @@ When disabled, the home page shows a generic view without caller-location result
 
 ## Airport Dataset — embedded
 
-The 35,000+ airport records are baked into the binary at compile time from the [OurAirports](https://ourairports.com/data/) public dataset. There is **no runtime fetch** of airport data. Updating the dataset requires rebuilding the binary and shipping a new release.
+The 48,071 small, medium, and large airport records are baked into the binary at compile time from the [OurAirports](https://ourairports.com/data/) public dataset. The snapshot is commit `a537e082ac8c8fe6ab509df1f128cc6704fe73c1`, retrieved 2026-11-26. Timezone identifiers are joined by airport ident from [mwgg/Airports](https://github.com/mwgg/Airports), commit `a89e4e0dda9d9878337e2da190ebe1ef1d6af705`, retrieved 2026-11-26; unmatched records omit timezone. There is **no runtime fetch** of airport data. Updating the dataset requires rebuilding the binary and shipping a new release. See [LICENSE.md](../LICENSE.md) for source terms and changes.
 
 ## TLS Certificates — Let's Encrypt (optional)
 
