@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 )
 
 func TestDefaultI2PConfigIsOptIn(t *testing.T) {
@@ -43,7 +43,7 @@ func TestManagerInitialLifecycleState(t *testing.T) {
 
 func TestManagerStartReturnsBeforeProviderResolution(t *testing.T) {
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0755); err != nil {
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatalf("create temp base: %v", err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-i2p-")

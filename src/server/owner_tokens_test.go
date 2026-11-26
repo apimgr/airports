@@ -11,12 +11,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apimgr/airports/src/logging"
 )
 
 type ownerTokenAuditRecorder struct {
 	events []string
+}
+
+func TestSystemOwnerIsCreatedAtSchemaInitializationAndExcludedFromIdlePurge(t *testing.T) {
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "system-owner.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	if err := ensureOwnerTokenSchema(database); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`INSERT INTO owners(id, last_seen_at) VALUES('stale-owner', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanupOwnerTokenData(database, 1, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var systemCount, staleCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = 'system'`).Scan(&systemCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM owners WHERE id = 'stale-owner'`).Scan(&staleCount); err != nil {
+		t.Fatal(err)
+	}
+	if systemCount != 1 || staleCount != 0 {
+		t.Fatalf("owner counts after purge: system=%d stale=%d, want system=1 stale=0", systemCount, staleCount)
+	}
 }
 
 func (r *ownerTokenAuditRecorder) WriteAudit(_ logging.AuditCategory, line string) error {
@@ -235,10 +263,13 @@ func TestPrimaryTokenRevokeConfirmsAndDeletesOwnerResources(t *testing.T) {
 	if body.Data.Tokens != 2 || body.Data.Resources != 2 {
 		t.Fatalf("revoke response counts = %+v, want 2 tokens and 2 resources", body.Data)
 	}
-	for _, table := range []string{"owners", "api_tokens", "saved_airports"} {
+	for _, table := range []string{"api_tokens", "saved_airports"} {
 		if err := database.QueryRow(`SELECT COUNT(*) FROM "` + table + `"`).Scan(&remaining); err != nil || remaining != 0 {
 			t.Fatalf("%s contains rows after revoke: count=%d err=%v", table, remaining, err)
 		}
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM owners`).Scan(&remaining); err != nil || remaining != 1 {
+		t.Fatalf("owners contains %d rows after revoke, want reserved system owner: %v", remaining, err)
 	}
 	if len(audit.events) != 1 || !strings.Contains(audit.events[0], "event=token.revoked") || !strings.Contains(audit.events[0], "scope=\"owner\"") || !strings.Contains(audit.events[0], "token_count=2") || !strings.Contains(audit.events[0], "resource_count=2") || !strings.Contains(audit.events[0], "source=\"api\"") || !strings.Contains(audit.events[0], "ip=\"203.0.113.5\"") {
 		t.Fatalf("primary revoke audit events = %#v", audit.events)

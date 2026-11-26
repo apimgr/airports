@@ -67,7 +67,6 @@ func renderGraphiQLHTML(endpointURL, assetsPrefix string, baseURLs ...string) st
     <script src="%[2]sreact-dom.production.min.js"></script>
     <script src="%[2]sgraphiql.min.js"></script>
     <script src="%[3]s/static/js/app.js"></script>
-    <script src="%[3]s/static/js/docs-graphql.js"></script>
   </body>
 </html>
 `, endpointURL, assetsPrefix, baseURL)

@@ -162,7 +162,7 @@ func NewCVEService(securityDir, apiKey string) (*CVEService, error) {
 		sleep:      time.Sleep,
 	}
 
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		log.Printf("Warning: failed to create CVE cache directory %s: %v", dir, err)
 		log.Println("CVE database updates disabled for this session (operator awareness data only)")
 		return s, nil
@@ -515,7 +515,7 @@ func atomicWriteJSON(path string, v interface{}) error {
 	data = append(data, '\n')
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", filepath.Base(tmp), err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

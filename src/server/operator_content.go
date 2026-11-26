@@ -31,14 +31,14 @@ func (s *Server) operatorHTML(r *http.Request, name string) template.HTML {
 		return ""
 	}
 	onionAddress := ""
-	if cfg.Server.Tor.OnionAddress != "" {
+	if cfg.Server.Tor.Expose && cfg.Server.Tor.OnionAddress != "" {
 		onionAddress = cfg.Server.Tor.OnionAddress
 	}
 	i2pAddress := ""
-	if s.i2p != nil {
+	if cfg.Server.I2P.Expose && s.i2p != nil {
 		i2pAddress = s.i2p.EepsiteAddress()
 	}
-	return renderOperatorContent(r, name, i18n.FromContext(r.Context()), cfg.Server.Branding.Content[name], onionAddress, i2pAddress)
+	return renderOperatorContent(r, name, i18n.FromContext(r.Context()), cfg.Server.Branding.Content[name], onionAddress, i2pAddress, s.isTorRequest(r))
 }
 
 func (s *Server) operatorContentSource(r *http.Request, name string) (string, string, bool) {
@@ -64,11 +64,11 @@ func (s *Server) operatorContentSource(r *http.Request, name string) (string, st
 		return "", "", false
 	}
 	onionAddress := ""
-	if cfg.Server.Tor.OnionAddress != "" {
+	if cfg.Server.Tor.Expose && cfg.Server.Tor.OnionAddress != "" {
 		onionAddress = cfg.Server.Tor.OnionAddress
 	}
 	i2pAddress := ""
-	if s.i2p != nil {
+	if cfg.Server.I2P.Expose && s.i2p != nil {
 		i2pAddress = s.i2p.EepsiteAddress()
 	}
 	return mapOperatorContentFormat(format), expandOperatorVariables(body, onionAddress, i2pAddress), true
@@ -85,7 +85,7 @@ func mapOperatorContentFormat(format string) string {
 	}
 }
 
-func renderOperatorContent(r *http.Request, name, language string, content config.BrandingContent, onionAddress, i2pAddress string) template.HTML {
+func renderOperatorContent(r *http.Request, name, language string, content config.BrandingContent, onionAddress, i2pAddress string, torRequest bool) template.HTML {
 	if !validOperatorContentName(name) {
 		return ""
 	}
@@ -113,7 +113,46 @@ func renderOperatorContent(r *http.Request, name, language string, content confi
 	case "txt":
 		body = renderOperatorText(body)
 	}
+	if torRequest {
+		body = stripTorExternalLinks(body, r.Host)
+	}
 	return template.HTML(sanitizeOperatorHTML(body, name == "header" || name == "footer"))
+}
+
+func stripTorExternalLinks(source, requestHost string) string {
+	requestHostname := requestHost
+	if parsed, err := url.Parse("http://" + requestHost); err == nil && parsed.Hostname() != "" {
+		requestHostname = parsed.Hostname()
+	}
+	var result strings.Builder
+	tokenizer := xhtml.NewTokenizer(strings.NewReader(source))
+	stripAnchor := false
+	for {
+		tokenType := tokenizer.Next()
+		token := tokenizer.Token()
+		if tokenType == xhtml.ErrorToken {
+			return result.String()
+		}
+		if tokenType == xhtml.StartTagToken && strings.EqualFold(token.Data, "a") {
+			for _, attribute := range token.Attr {
+				if !strings.EqualFold(attribute.Key, "href") {
+					continue
+				}
+				href, err := url.Parse(strings.TrimSpace(attribute.Val))
+				if err == nil && (href.IsAbs() || href.Host != "") && !strings.EqualFold(href.Hostname(), requestHostname) {
+					stripAnchor = true
+				}
+			}
+			if stripAnchor {
+				continue
+			}
+		}
+		if tokenType == xhtml.EndTagToken && strings.EqualFold(token.Data, "a") && stripAnchor {
+			stripAnchor = false
+			continue
+		}
+		result.WriteString(token.String())
+	}
 }
 
 func warnInvalidOperatorContent(name string) {

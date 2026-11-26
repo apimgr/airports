@@ -7,9 +7,12 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/certificate"
@@ -64,7 +67,46 @@ func BuildDNSProvider(providerName string, creds map[string]string) (challenge.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to build dns-01 provider %q: %w", providerName, err)
 	}
+	if strings.EqualFold(providerName, "rfc2136") || strings.EqualFold(providerName, "dnsupdate") {
+		return &sanitizedDNSProvider{provider: provider}, nil
+	}
 	return provider, nil
+}
+
+type sanitizedDNSProvider struct {
+	provider challenge.Provider
+}
+
+func (p *sanitizedDNSProvider) Present(domain, token, keyAuth string) error {
+	return sanitizeDNSProviderError(p.provider.Present(domain, token, keyAuth))
+}
+
+func (p *sanitizedDNSProvider) CleanUp(domain, token, keyAuth string) error {
+	return sanitizeDNSProviderError(p.provider.CleanUp(domain, token, keyAuth))
+}
+
+func (p *sanitizedDNSProvider) Timeout() (time.Duration, time.Duration) {
+	if provider, ok := p.provider.(challenge.ProviderTimeout); ok {
+		return provider.Timeout()
+	}
+	return time.Minute, 2 * time.Second
+}
+
+func (p *sanitizedDNSProvider) Sequential() time.Duration {
+	if provider, ok := p.provider.(interface{ Sequential() time.Duration }); ok {
+		return provider.Sequential()
+	}
+	return 0
+}
+
+func sanitizeDNSProviderError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "bad authentication") {
+		return errors.New("BADSIG")
+	}
+	return err
 }
 
 // ValidateDNSProviderCredentials confirms the configured provider/credential
@@ -81,7 +123,7 @@ func ValidateDNSProviderCredentials(providerName string, creds map[string]string
 // across runs means re-registration (see ObtainCertificateDNS01) always
 // resolves to the same ACME account.
 func loadOrCreateDNS01Account(accountDir, email string) (*acmeUser, error) {
-	if err := os.MkdirAll(accountDir, 0700); err != nil {
+	if err := os.MkdirAll(accountDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create acme account dir: %w", err)
 	}
 	keyPath := filepath.Join(accountDir, "account.key")
@@ -107,7 +149,7 @@ func loadOrCreateDNS01Account(accountDir, email string) (*acmeUser, error) {
 		return nil, fmt.Errorf("failed to marshal acme account key: %w", err)
 	}
 	block := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0600); err != nil {
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0o600); err != nil {
 		return nil, fmt.Errorf("failed to persist acme account key: %w", err)
 	}
 	return &acmeUser{email: email, key: key}, nil

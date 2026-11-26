@@ -118,7 +118,7 @@ func NewGeoIPService(baseDir string) (*GeoIPService, error) {
 	geoipDir := filepath.Join(baseDir, "geoip")
 	s := &GeoIPService{dataDir: geoipDir}
 
-	if err := os.MkdirAll(geoipDir, 0700); err != nil {
+	if err := os.MkdirAll(geoipDir, 0o700); err != nil {
 		log.Printf("Warning: failed to create GeoIP directory %s: %v", geoipDir, err)
 		log.Println("GeoIP disabled for this session (risk signal only, requests are unaffected)")
 		return s, nil
@@ -222,7 +222,7 @@ func (s *GeoIPService) UpdateDatabases() error {
 	log.Println("Updating GeoIP databases...")
 
 	tempDir := filepath.Join(s.dataDir, ".tmp")
-	if err := os.MkdirAll(tempDir, 0700); err != nil {
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer func() {
@@ -370,7 +370,7 @@ func fileExists(path string) bool {
 }
 
 func downloadVerifiedFile(dest, url, checksumURL string) (err error) {
-	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(dest), ".geoip-*.tmp")

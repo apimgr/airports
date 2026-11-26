@@ -17,8 +17,10 @@ import (
 
 const preferenceCookieAge = 365 * 24 * 60 * 60
 
-var preferenceKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-var preferenceValuePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var (
+	preferenceKeyPattern   = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	preferenceValuePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+)
 
 func (s *Server) setPreferenceCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{

@@ -81,13 +81,13 @@ func TestSafeBrandingDialRejectsLoopbackResolution(t *testing.T) {
 func TestBrandingAssetResolverLocalAssetAndOpaqueHandler(t *testing.T) {
 	configDir := t.TempDir()
 	assetsDir := filepath.Join(configDir, "assets")
-	if err := os.Mkdir(assetsDir, 0700); err != nil {
+	if err := os.Mkdir(assetsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(assetsDir, 0700); err != nil {
+	if err := os.Chmod(assetsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(assetsDir, "logo.png"), mustDecodeBase64(t, onePixelPNG(t)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(assetsDir, "logo.png"), mustDecodeBase64(t, onePixelPNG(t)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	resolver, err := NewBrandingAssetResolver(configDir, t.TempDir())

@@ -38,8 +38,8 @@ func TestRenderGraphiQLHTML(t *testing.T) {
 			if !strings.Contains(html, `src="/static/js/app.js"`) {
 				t.Error("output missing shared app.js script tag")
 			}
-			if !strings.Contains(html, "/static/js/docs-graphql.js") {
-				t.Error("output missing GraphiQL bootstrap script")
+			if strings.Contains(html, "/static/js/docs-graphql.js") {
+				t.Error("output includes a separate GraphiQL bootstrap script")
 			}
 			if strings.Contains(html, "<style") {
 				t.Error("output contains inline styles")

@@ -677,8 +677,10 @@ func listenPort(value, proto string) string {
 	return ""
 }
 
-var defaultMu sync.RWMutex
-var defaultManager = NewURLResolverManager(URLResolverOptions{DomainEnv: os.Getenv("DOMAIN")})
+var (
+	defaultMu      sync.RWMutex
+	defaultManager = NewURLResolverManager(URLResolverOptions{DomainEnv: os.Getenv("DOMAIN")})
+)
 
 // SetDefaultURLResolverManager changes the process-wide resolver used by package helpers.
 func SetDefaultURLResolverManager(manager *URLResolverManager) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 )
 
 // TorDirs holds every filesystem path the Tor manager reads from or writes to,

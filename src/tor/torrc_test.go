@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-const testLogFile = "/tmp/test-tor.log"
-const testSiteDir = "/tmp/test-data/tor/site"
-const testBackendPort = 64123
+const (
+	testLogFile     = "/tmp/test-tor.log"
+	testSiteDir     = "/tmp/test-data/tor/site"
+	testBackendPort = 64123
+)
 
 func TestGenerateTorrcHiddenServiceOnly(t *testing.T) {
 	cfg := applyDefaults(TorConfig{UseNetwork: false})

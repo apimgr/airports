@@ -198,9 +198,6 @@ func TestDefaultLogManagerConfigMatchesSpecDefaults(t *testing.T) {
 	if cfg.Auth.Format != "syslog" {
 		t.Errorf("auth.log default format = %q, want syslog", cfg.Auth.Format)
 	}
-	if !cfg.Audit.MaskEmails {
-		t.Errorf("audit.mask_emails must default to true")
-	}
 	if !cfg.Audit.Events.Configuration || !cfg.Audit.Events.Security || !cfg.Audit.Events.Backup || !cfg.Audit.Events.Server {
 		t.Errorf("all audit event categories must default to true, got %+v", cfg.Audit.Events)
 	}
@@ -267,26 +264,6 @@ func TestWriteAuditMasksEmailsByDefault(t *testing.T) {
 	}
 }
 
-func TestWriteAuditMaskEmailsDisabled(t *testing.T) {
-	dir := t.TempDir()
-	cfg := DefaultLogManagerConfig()
-	cfg.Audit.MaskEmails = false
-	m := NewLogManager(dir, cfg)
-	defer func() { _ = m.Close() }()
-
-	if err := m.WriteAudit(AuditCategorySecurity, `actor=jane.doe@example.com`); err != nil {
-		t.Fatalf("WriteAudit: %v", err)
-	}
-
-	data, err := os.ReadFile(m.AuditPath())
-	if err != nil {
-		t.Fatalf("read audit.log: %v", err)
-	}
-	if !strings.Contains(string(data), "jane.doe@example.com") {
-		t.Errorf("expected unmasked email when mask_emails=false, got %q", string(data))
-	}
-}
-
 func TestAuditHashChainDetectsTampering(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultLogManagerConfig()
@@ -311,7 +288,7 @@ func TestAuditHashChainDetectsTampering(t *testing.T) {
 		t.Fatalf("read audit log: %v", err)
 	}
 	data = bytes.Replace(data, []byte("server.started"), []byte("server.stopped"), 1)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("tamper audit log: %v", err)
 	}
 	verified = VerifyAuditLog(dir, "audit.log")
@@ -423,7 +400,7 @@ func auditSegmentOrder(path string) (string, int) {
 
 func TestAuditChainBreakIsReportedOnlyOnce(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "audit.log"), []byte("not-json\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "audit.log"), []byte("not-json\n"), 0o600); err != nil {
 		t.Fatalf("write corrupt audit file: %v", err)
 	}
 	cfg := DefaultLogManagerConfig()

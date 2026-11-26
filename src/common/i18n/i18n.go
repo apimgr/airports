@@ -99,8 +99,10 @@ var DefaultLanguage = "en"
 // SupportedLanguages lists every registered language code shipped with the binary.
 var SupportedLanguages = RegisteredLanguageCodes()
 
-const LanguageCookieName = "lang"
-const LanguageCookieMaxAge = 365 * 24 * 60 * 60
+const (
+	LanguageCookieName   = "lang"
+	LanguageCookieMaxAge = 365 * 24 * 60 * 60
+)
 
 // LanguageConfig controls runtime language availability and preference persistence.
 type LanguageConfig struct {
@@ -108,10 +110,12 @@ type LanguageConfig struct {
 	AvailableLanguages []string
 }
 
-var settingsMu sync.RWMutex
-var languageConfig = LanguageConfig{
-	DefaultLanguage: "en", AvailableLanguages: RegisteredLanguageCodes(),
-}
+var (
+	settingsMu     sync.RWMutex
+	languageConfig = LanguageConfig{
+		DefaultLanguage: "en", AvailableLanguages: RegisteredLanguageCodes(),
+	}
+)
 
 // Configure applies server language settings before requests are served.
 func ConfigureLanguageSupport(cfg LanguageConfig) {

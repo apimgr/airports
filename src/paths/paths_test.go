@@ -14,7 +14,7 @@ import (
 func newScratchDir(t *testing.T) string {
 	t.Helper()
 	orgBase := filepath.Join(os.TempDir(), "apimgr")
-	if err := os.MkdirAll(orgBase, 0755); err != nil {
+	if err := os.MkdirAll(orgBase, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", orgBase, err)
 	}
 	dir, err := os.MkdirTemp(orgBase, "airports-")
@@ -138,7 +138,7 @@ func TestEnsureDir(t *testing.T) {
 	if !info.IsDir() {
 		t.Errorf("%q is not a directory", target)
 	}
-	if perm := info.Mode().Perm(); perm != 0700 {
+	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Errorf("EnsureDir mode = %o, want 0700", perm)
 	}
 
@@ -158,10 +158,10 @@ func TestEnsureDirUsesRootDirectoryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0755 {
+	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("directory mode = %o, want 0755", got)
 	}
-	if err := os.Chmod(target, 0700); err != nil {
+	if err := os.Chmod(target, 0o700); err != nil {
 		t.Fatalf("Chmod to incorrect mode: %v", err)
 	}
 	if err := EnsureDir(target); err != nil {
@@ -171,7 +171,7 @@ func TestEnsureDirUsesRootDirectoryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat after mode enforcement: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0755 {
+	if got := info.Mode().Perm(); got != 0o755 {
 		t.Fatalf("existing directory mode = %o, want enforced 0755", got)
 	}
 }
@@ -205,7 +205,7 @@ func TestSafeDirPath(t *testing.T) {
 func TestEnsureDir_FileConflict(t *testing.T) {
 	scratch := newScratchDir(t)
 	blocker := filepath.Join(scratch, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -240,7 +240,7 @@ func TestEnsureDirs(t *testing.T) {
 func TestEnsureDirs_FailsFastOnFirstError(t *testing.T) {
 	scratch := newScratchDir(t)
 	blocker := filepath.Join(scratch, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	dataDir := filepath.Join(scratch, "data")
@@ -260,7 +260,7 @@ func TestEnsureDirs_FailsOnSecondDir(t *testing.T) {
 	scratch := newScratchDir(t)
 	configDir := filepath.Join(scratch, "config")
 	blocker := filepath.Join(scratch, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	logsDir := filepath.Join(scratch, "logs")
@@ -284,7 +284,7 @@ func TestEnsureDirs_FailsOnThirdDir(t *testing.T) {
 	configDir := filepath.Join(scratch, "config")
 	dataDir := filepath.Join(scratch, "data")
 	blocker := filepath.Join(scratch, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

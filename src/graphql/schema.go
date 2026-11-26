@@ -9,13 +9,13 @@ type Airport {
   iata: String
   name: String
   city: String
+  state: String
   country: String
-  coordinates: Coordinates
-}
-
-type Coordinates {
+  elevation: Int
   lat: Float
   lon: Float
+  type: String
+  tz: String
 }
 
 type AirportWithDistance {
@@ -23,8 +23,15 @@ type AirportWithDistance {
   iata: String
   name: String
   city: String
+  state: String
   country: String
+  elevation: Int
+  lat: Float
+  lon: Float
+  type: String
+  tz: String
   distance: Float
+  distance_unit: String
 }
 
 type NameCount {

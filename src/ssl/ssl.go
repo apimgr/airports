@@ -131,7 +131,7 @@ func (m *SSLManager) getLetsEncryptTLSConfig(domains []string) (*tls.Config, err
 	// though its internal file naming is autocert's own, not fullchain.pem/
 	// privkey.pem.
 	cacheDir := filepath.Join(m.config.CertPath, "letsencrypt", "autocert")
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create cert cache dir: %w", err)
 	}
 
@@ -181,13 +181,13 @@ func (m *SSLManager) obtainDNS01Certificate(domains []string) (*tls.Certificate,
 
 	if len(domains) > 0 {
 		certDir := filepath.Join(m.config.CertPath, "letsencrypt", domains[0])
-		if mkErr := os.MkdirAll(certDir, 0700); mkErr != nil {
+		if mkErr := os.MkdirAll(certDir, 0o700); mkErr != nil {
 			return nil, fmt.Errorf("failed to create cert dir: %w", mkErr)
 		}
-		if writeErr := os.WriteFile(filepath.Join(certDir, "fullchain.pem"), certPEM, 0644); writeErr != nil {
+		if writeErr := os.WriteFile(filepath.Join(certDir, "fullchain.pem"), certPEM, 0o644); writeErr != nil {
 			return nil, fmt.Errorf("failed to write dns-01 certificate: %w", writeErr)
 		}
-		if writeErr := os.WriteFile(filepath.Join(certDir, "privkey.pem"), keyPEM, 0600); writeErr != nil {
+		if writeErr := os.WriteFile(filepath.Join(certDir, "privkey.pem"), keyPEM, 0o600); writeErr != nil {
 			return nil, fmt.Errorf("failed to write dns-01 private key: %w", writeErr)
 		}
 	}

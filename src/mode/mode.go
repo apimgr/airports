@@ -168,7 +168,7 @@ func Initialize(cliMode string) error {
 
 // InitializeDebug resolves debug mode using the AI.md PART 6 priority order:
 //  1. --debug CLI flag (cliDebug, highest priority)
-//  2. DEBUG environment variable (truthy values)
+//  2. A non-empty DEBUG environment variable (truthy values; empty is unset)
 //  3. --mode debug / MODE=debug alias (already applied by Initialize via
 //     SetAppModeFromValue before this is called)
 //  4. Default: false
@@ -184,9 +184,9 @@ func InitializeDebug(cliDebug bool) {
 		return
 	}
 
-	// Priority 2: Environment variable (must distinguish unset from
-	// explicitly false, so LookupEnv rather than Getenv)
-	if envDebug, ok := os.LookupEnv("DEBUG"); ok {
+	// Priority 2: A non-empty environment value; empty counts as unset while
+	// non-empty falsey values still override MODE=debug.
+	if envDebug, ok := os.LookupEnv("DEBUG"); ok && envDebug != "" {
 		SetDebugEnabled(config.IsTruthy(envDebug))
 		return
 	}

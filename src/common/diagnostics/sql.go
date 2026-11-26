@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
-var queryLoggingEnabled atomic.Bool
-var debugModeEnabled atomic.Bool
+var (
+	queryLoggingEnabled atomic.Bool
+	debugModeEnabled    atomic.Bool
+)
 
 // SetQueryLoggingEnabled updates the configuration gate for SQL diagnostics.
 func SetQueryLoggingEnabled(enabled bool) {

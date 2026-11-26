@@ -19,12 +19,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/apimgr/airports/src/client/gui"
 	"github.com/apimgr/airports/src/client/tui"
+	appbanner "github.com/apimgr/airports/src/common/banner"
 	"github.com/apimgr/airports/src/common/display"
 	"github.com/apimgr/airports/src/common/i18n"
 	commonversion "github.com/apimgr/airports/src/common/version"
@@ -61,7 +63,7 @@ const (
 // "Shell Completions") so completion scripts stay in sync with the
 // subcommands/flags actually implemented below.
 var (
-	cliShellCommands = []string{"search", "get", "nearby", "health", "version", "shell"}
+	cliShellCommands = []string{"search", "get", "nearby", "health", "shell"}
 	cliShellFlags    = []string{
 		"--server", "--api-version", "--format", "--output", "--limit", "--json", "--yaml", "--version", "-v",
 		"--help", "-h", "--token", "--config", "--color", "--lang", "--debug", "--shell",
@@ -164,6 +166,13 @@ func (c cliColorValue) MarshalYAML() (interface{}, error) {
 // Precedence: $XDG_CONFIG_HOME/apimgr/airports (Linux/macOS XDG standard),
 // then $HOME/.config/apimgr/airports.
 func cliConfigDir() (string, error) {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("APPDATA")
+		if base == "" {
+			return "", errors.New("cannot determine APPDATA directory")
+		}
+		return filepath.Join(base, "apimgr", "airports"), nil
+	}
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -180,6 +189,13 @@ func cliConfigDir() (string, error) {
 // to "test.yml" under the config dir, auto-detecting ".yml" before ".yaml"
 // when both are absent; an empty name defaults to "cli".
 func cliConfigPath(name string) (string, error) {
+	if strings.HasPrefix(name, "~/") || strings.HasPrefix(name, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		name = filepath.Join(home, name[2:])
+	}
 	if name != "" && filepath.IsAbs(name) {
 		return name, nil
 	}
@@ -309,7 +325,7 @@ func saveCLIConfig(cfg *cliConfig, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	canonical := *cfg
@@ -330,7 +346,7 @@ func saveCLIConfig(cfg *cliConfig, name string) error {
 	if err := encoder.Close(); err != nil {
 		return fmt.Errorf("close cli config encoder: %w", err)
 	}
-	return os.WriteFile(path, output.Bytes(), 0600)
+	return os.WriteFile(path, output.Bytes(), 0o600)
 }
 
 func colorSettingOverride(value string) *bool {
@@ -530,7 +546,11 @@ func main() {
 		os.Exit(shellcompl.HandleShellCompletion(os.Stdout, os.Stderr, shellSubcmd, shellName, binaryName, cliShellCommands, cliShellFlags))
 	}
 
-	savedCfg, _ := loadCLIConfig(configName)
+	savedCfg, err := loadCLIConfig(configName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cannot load CLI config: %v\n", binaryName, err)
+		os.Exit(2)
+	}
 	configuredToken, tokenErr := cliConfigToken(savedCfg)
 	if tokenErr != nil {
 		fmt.Fprintf(os.Stderr, "cannot load configured API token: %v\n", tokenErr)
@@ -626,6 +646,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s: --update check requires a configured server URL\n", binaryName)
 		os.Exit(2)
 	}
+	if len(args) == 0 && updateAction == "" && (displayMode == display.DisplayModeGUI || displayMode == display.DisplayModeTUI) {
+		var urls []string
+		if *baseURL != "" {
+			urls = append(urls, *baseURL)
+		}
+		appbanner.PrintStartupBanner(appbanner.BannerConfig{
+			AppName: binaryName, Version: Version, AppMode: mode.GetAppModeString(),
+			URLs: urls, ForceColor: colorSettingOverride(*colorFlag),
+			ConfigColor: cliConfigColor(savedCfg), ConfigEmoji: savedCfg.Output.Emoji,
+		})
+	}
 	if *baseURL != "" {
 		if err := validateServerURL(*baseURL); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: invalid --server URL: %v\n", binaryName, err)
@@ -691,16 +722,18 @@ func main() {
 		}
 	}
 	mode.SetDebugEnabled(*debugFlag)
+	serverFlagProvided := flagProvided("server")
+	tokenFlagProvided := flagProvided("token")
 
 	// SaveIfEmptyOrInvalid: only persist --token/--server back to the config
-	// profile when the currently saved value is empty, never overwrite a
-	// valid existing value.
+	// profile when explicitly supplied and the current value is empty; an
+	// environment variable supplies only this invocation and is never saved.
 	dirty := false
-	if savedCfg.Token == "" && *token != "" {
+	if tokenFlagProvided && savedCfg.Token == "" && *token != "" {
 		savedCfg.Token = *token
 		dirty = true
 	}
-	if savedCfg.Server.Primary == "" && *baseURL != "" {
+	if serverFlagProvided && savedCfg.Server.Primary == "" && *baseURL != "" {
 		savedCfg.Server.Primary = *baseURL
 		dirty = true
 	}
@@ -965,6 +998,17 @@ func extractLangFlag(argv []string) string {
 	return ""
 }
 
+// flagProvided reports whether the user explicitly supplied a parsed flag.
+func flagProvided(name string) bool {
+	provided := false
+	flag.CommandLine.Visit(func(parsed *flag.Flag) {
+		if parsed.Name == name {
+			provided = true
+		}
+	})
+	return provided
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -984,7 +1028,7 @@ func firstNonEmptyStr(values ...string) string {
 }
 
 func printUsage(w io.Writer, binaryName string, lang string) {
-	_, _ = fmt.Fprintf(w, "%s - %s\n\n%s\n  %s [flags] <command> [args...]\n\n%s\n  search <query>            %s\n  get <code>                %s\n  nearby <lat> <lon> [n]    %s\n  health                    %s\n  version                   %s\n\n%s\n",
+	_, _ = fmt.Fprintf(w, "%s - %s\n\n%s\n  %s [flags] <command> [args...]\n\n%s\n  search <query>            %s\n  get <code>                %s\n  nearby <lat> <lon> [n]    %s\n  health                    %s\n\n%s\n",
 		binaryName, i18n.TranslateText(lang, "cli.description"),
 		i18n.TranslateText(lang, "cli.usage"), binaryName,
 		i18n.TranslateText(lang, "cli.commands"),
@@ -992,7 +1036,6 @@ func printUsage(w io.Writer, binaryName string, lang string) {
 		i18n.TranslateText(lang, "cli.cmd_get"),
 		i18n.TranslateText(lang, "cli.cmd_nearby"),
 		i18n.TranslateText(lang, "cli.cmd_health"),
-		i18n.TranslateText(lang, "cli.cmd_version"),
 		i18n.TranslateText(lang, "cli.flags"))
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintf(w, "  --server URL              %s\n", i18n.TranslateText(lang, "cli.flag_server"))
@@ -1195,16 +1238,6 @@ func dispatch(c *client, cmd string, args []string, format string, lang string) 
 		if err != nil {
 			return err
 		}
-		return printResult(body, format, lang)
-
-	case "version":
-		fmt.Println("client: " + (commonversion.BuildInfo{Version: Version, CommitID: CommitID, BuildDate: BuildDate}).Format(filepath.Base(os.Args[0])))
-		body, err := c.get(ctx, c.apiURL("/server/about", nil), nil)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, i18n.TranslateFormattedText(lang, "cli.server_unreachable", "error", err))
-			return nil
-		}
-		fmt.Print("server: ")
 		return printResult(body, format, lang)
 
 	default:

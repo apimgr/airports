@@ -15,6 +15,7 @@
         </div>
         <p class="airport-name">{{.Name}}</p>
         <p class="airport-location">{{.City}}{{if .State}}, {{.State}}{{end}}</p>
+        <p class="airport-type">{{t "airport.type_label"}}: {{.Type}}</p>
     </article>
     {{end}}
 </div>

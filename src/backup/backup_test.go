@@ -1,7 +1,9 @@
 package backup
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +11,83 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+func TestVerifyLegacyUnencryptedArchive(t *testing.T) {
+	configDir, dataDir := newFakeSourceTree(t)
+	archive, _, err := buildTarGz(BackupArchiveOptions{ConfigDir: configDir, DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("buildTarGz: %v", err)
+	}
+	checksum, err := legacyArchiveChecksum(archive)
+	if err != nil {
+		t.Fatalf("legacyArchiveChecksum: %v", err)
+	}
+	manifest, err := json.Marshal(map[string]string{
+		"version":    "1.0.0",
+		"created_at": "2025-01-15T10:30:00Z",
+		"created_by": "legacy",
+		"checksum":   checksum,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy manifest: %v", err)
+	}
+	archive, err = appendManifest(archive, manifest)
+	if err != nil {
+		t.Fatalf("append legacy manifest: %v", err)
+	}
+	path := filepath.Join(testTempDir(t), "legacy.tar.gz")
+	if err := os.WriteFile(path, archive, 0o600); err != nil {
+		t.Fatalf("write legacy archive: %v", err)
+	}
+	if err := Verify(path, ""); err != nil {
+		t.Fatalf("Verify legacy archive: %v", err)
+	}
+}
+
+func TestCreateBackupPairUsesOneCapturedSourceSnapshot(t *testing.T) {
+	configDir, dataDir := newFakeSourceTree(t)
+	dir := testTempDir(t)
+	basePath := filepath.Join(dir, "airports_backup_2025-01-14.tar.gz")
+	if err := CreateBackupArchive(basePath, BackupArchiveOptions{ConfigDir: configDir, DataDir: dataDir}); err != nil {
+		t.Fatal(err)
+	}
+	databasePath := findServerDB(dataDir, configDir)
+	database, err := os.ReadFile(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	opts := BackupArchiveOptions{
+		ConfigDir:       configDir,
+		DataDir:         dataDir,
+		BaseBackup:      filepath.Base(basePath),
+		BaseArchivePath: basePath,
+		SnapshotAt:      time.Date(2025, 1, 15, 2, 0, 0, 0, time.UTC),
+		DatabaseSnapshot: func(_ context.Context, destination string) error {
+			calls++
+			return os.WriteFile(destination, database, 0o600)
+		},
+	}
+	incPath := filepath.Join(dir, "airports-daily.tar.gz")
+	fullPath := filepath.Join(dir, "airports_backup_2025-01-15.tar.gz")
+	if err := CreateBackupPair(incPath, fullPath, opts); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("database snapshot callback calls = %d, want 1", calls)
+	}
+	incManifest, err := ReadManifest(incPath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullManifest, err := ReadManifest(fullPath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incManifest.SnapshotAt != fullManifest.SnapshotAt {
+		t.Fatalf("snapshot_at differs: incremental=%s full=%s", incManifest.SnapshotAt, fullManifest.SnapshotAt)
+	}
+}
 
 // newFakeSourceTree creates a minimal ConfigDir/DataDir pair with a real
 // server.yml and a real (valid) SQLite server.db, suitable for Create/Verify
@@ -83,14 +162,14 @@ func TestBackupIncludesDropInsSecretsAssetsAndSecurityKeys(t *testing.T) {
 		{directory: "security", name: "pgp.priv.asc.enc"},
 	} {
 		path := filepath.Join(configDir, item.directory)
-		if err := os.MkdirAll(path, 0700); err != nil {
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(path, item.name), []byte("fixture"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(path, item.name), []byte("fixture"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "secrets.yml"), []byte("server: {}\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "secrets.yml"), []byte("server: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	destination := filepath.Join(testTempDir(t), "backup.tar.gz")
@@ -390,6 +469,45 @@ func TestApplyRetention_MaxTotalSize(t *testing.T) {
 	}
 	if total > 1500 {
 		t.Fatalf("expected remaining total <= 1500 bytes, got %d", total)
+	}
+}
+
+func TestApplyRetentionReleasesBaseAfterPruningIncremental(t *testing.T) {
+	dir := testTempDir(t)
+	baseName := "airports_backup_2025-01-13.tar.gz.enc"
+	baseBlob, err := EncryptArchive("retention-test", make([]byte, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherBlob, err := EncryptArchive("retention-test", make([]byte, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	incBlob, err := EncryptArchiveWithBase("retention-test", make([]byte, 100), baseName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		baseName:                                baseBlob,
+		"airports_backup_2025-01-14.tar.gz.enc": otherBlob,
+		"airports-daily.tar.gz.enc":             incBlob,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limit := int64(len(baseBlob) * 3 / 2)
+	if _, err := ApplyRetention(dir, "airports", RetentionConfig{MaxBackups: 2, MaxTotalSize: limit}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "airports-daily.tar.gz.enc")); !os.IsNotExist(err) {
+		t.Fatalf("incremental should be pruned, stat error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, baseName)); !os.IsNotExist(err) {
+		t.Fatalf("unreferenced base should be released, stat error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "airports_backup_2025-01-14.tar.gz.enc")); err != nil {
+		t.Fatalf("newest full should remain: %v", err)
 	}
 }
 

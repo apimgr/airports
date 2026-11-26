@@ -42,8 +42,8 @@ func StartupMaintenanceHandler(s *Server) http.Handler {
 }
 
 func isMaintenanceHealthPath(path string) bool {
-	return path == "/healthz" || path == "/healthz.txt" || path == "/server/healthz" || path == "/server/healthz.txt" ||
-		path == "/api/healthz" || path == "/api/healthz.txt" || strings.HasSuffix(path, "/server/healthz") || strings.HasSuffix(path, "/server/healthz.txt")
+	return path == "/healthz" || path == "/server/healthz" ||
+		path == "/api/healthz" || strings.HasSuffix(path, "/server/healthz") || strings.HasSuffix(path, "/server/healthz.txt")
 }
 
 // maintenanceWriteGate allows safe HTTP methods through and rejects all

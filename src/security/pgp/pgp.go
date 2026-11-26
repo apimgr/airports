@@ -255,7 +255,7 @@ func ReadPrivate(path string, installationSecret []byte) ([]byte, error) {
 
 func atomicPrivateWrite(path string, content []byte) (resultErr error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create private key directory: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".pgp-private-*")
@@ -268,7 +268,7 @@ func atomicPrivateWrite(path string, content []byte) (resultErr error) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary private key file: %w", err))
 		}
 	}()
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return err
 	}

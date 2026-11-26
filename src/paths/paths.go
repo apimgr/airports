@@ -127,9 +127,9 @@ func GetDefaultDirs(projectName string) (configDir, dataDir, logsDir string) {
 // EnsureDir creates a directory if it doesn't exist.
 // Uses 0700 per AI.md PART 23/31 (config/data/log dirs are owner-only).
 func EnsureDir(path string) error {
-	permission := os.FileMode(0700)
+	permission := os.FileMode(0o700)
 	if startedElevated {
-		permission = 0755
+		permission = 0o755
 	}
 	_, statErr := os.Stat(path)
 	if err := os.MkdirAll(path, permission); err != nil {
@@ -143,7 +143,7 @@ func EnsureDir(path string) error {
 		return fmt.Errorf("directory %s is not writable: %w", path, err)
 	}
 	testName := testFile.Name()
-	if err := testFile.Chmod(0600); err != nil {
+	if err := testFile.Chmod(0o600); err != nil {
 		_ = testFile.Close()
 		_ = os.Remove(testName)
 		return err

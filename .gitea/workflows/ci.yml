@@ -38,7 +38,16 @@ jobs:
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: go test ./...
+      - name: Run tests with coverage
+        run: |
+          mkdir -p /tmp/apimgr
+          COVDIR=$(mktemp -d /tmp/apimgr/airports-XXXXXX)
+          trap 'rm -rf "$COVDIR"' EXIT
+          mkdir -p "$COVDIR/data"
+          TMPDIR="$COVDIR" go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
+          PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+          test "$PCT" -ge 60
 
   build:
     if: gitea.event_name != 'schedule'

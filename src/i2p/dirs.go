@@ -21,11 +21,11 @@ func (d I2PDirs) keysPath() string     { return filepath.Join(d.siteDir(), "site
 
 func ensureDirs(d I2PDirs) error {
 	for _, dir := range []string{d.i2pConfigDir(), d.i2pDataDir(), d.siteDir()} {
-		if err := os.MkdirAll(dir, 0700); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("create i2p directory %s: %w", dir, err)
 		}
 		if runtime.GOOS != "windows" {
-			if err := os.Chmod(dir, 0700); err != nil {
+			if err := os.Chmod(dir, 0o700); err != nil {
 				return fmt.Errorf("chmod i2p directory %s: %w", dir, err)
 			}
 			if err := os.Chown(dir, os.Getuid(), os.Getgid()); err != nil {
@@ -37,14 +37,14 @@ func ensureDirs(d I2PDirs) error {
 }
 
 func writePrivateFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create parent directory for %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(path, 0600); err != nil {
+		if err := os.Chmod(path, 0o600); err != nil {
 			return fmt.Errorf("chmod %s: %w", path, err)
 		}
 		if err := os.Chown(path, os.Getuid(), os.Getgid()); err != nil {

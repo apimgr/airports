@@ -15,67 +15,64 @@ import (
 
 	cachepkg "github.com/apimgr/airports/src/cache"
 	"github.com/apimgr/airports/src/config"
-	"github.com/apimgr/airports/src/mode"
 	"github.com/go-chi/chi/v5"
 )
 
 // registerDebugRoutes registers debug endpoints (--debug/DEBUG=true only).
 func (s *Server) registerDebugRoutes(r chi.Router) {
-	if !mode.ShouldShowDebugEndpoints() {
-		return
-	}
 	if s.config == nil {
 		return
+	}
+	if s.routeRegistry == nil {
+		s.routeRegistry = &routeRegistry{router: r}
 	}
 
 	debugConfig := s.config.Server.Debug
 	runtime.SetBlockProfileRate(debugConfig.BlockProfileRate)
 	runtime.SetMutexProfileFraction(debugConfig.MutexProfileFraction)
-	s.registerDebugRouteGroup(r, "/debug", debugConfig, false)
-	s.registerDebugRouteGroup(r, s.APIBasePath()+"/debug", debugConfig, true)
-	s.registerDebugRouteGroup(r, "/api/debug", debugConfig, true)
+	register := func(path string, handler http.Handler) {
+		protected := s.requireOperatorToken(handler)
+		s.routeRegistry.Add(Route{
+			Method: http.MethodGet, Path: "/debug" + path, Auth: "operator",
+			Internal: true, DebugOnly: true, Handler: protected.ServeHTTP,
+		})
+	}
+	if debugConfig.Pprof {
+		register("/pprof", http.HandlerFunc(s.handleDebugPprofIndex))
+		register("/pprof/cmdline", http.HandlerFunc(s.handleDebugPprofCmdline))
+		register("/pprof/profile", http.HandlerFunc(pprof.Profile))
+		register("/pprof/symbol", http.HandlerFunc(pprof.Symbol))
+		register("/pprof/trace", http.HandlerFunc(pprof.Trace))
+		for _, name := range []string{"heap", "goroutine", "allocs", "block", "mutex", "threadcreate"} {
+			register("/pprof/"+name, pprof.Handler(name))
+		}
+	}
+	if debugConfig.RuntimeEndpoints {
+		register("/vars", http.HandlerFunc(s.handleDebugVars))
+	}
+	for _, endpoint := range []struct {
+		path    string
+		handler http.HandlerFunc
+	}{
+		{path: "/config", handler: s.handleDebugConfig},
+		{path: "/routes", handler: s.handleDebugRoutes},
+		{path: "/cache", handler: s.handleDebugCache},
+		{path: "/db", handler: s.handleDebugDB},
+		{path: "/scheduler", handler: s.handleDebugScheduler},
+		{path: "/memory", handler: s.handleDebugMemory},
+		{path: "/goroutines", handler: s.handleDebugGoroutines},
+		{path: "/error500", handler: s.handleDebugError500},
+	} {
+		register(endpoint.path, endpoint.handler)
+	}
 }
 
-func (s *Server) registerDebugRouteGroup(router chi.Router, prefix string, debugConfig config.DebugConfig, api bool) {
-	router.Route(prefix, func(r chi.Router) {
-		r.Use(s.requireOperatorToken)
-		if api {
-			r.Use(func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("X-API-Version", s.config.Server.APIVersion)
-					w.Header().Set("Cache-Control", "private, max-age=0, no-cache")
-					next.ServeHTTP(w, r)
-				})
-			})
-		}
-		if debugConfig.Pprof {
-			r.Get("/pprof/", pprof.Index)
-			r.Get("/pprof/cmdline", s.handleDebugPprofCmdline)
-			r.Get("/pprof/profile", pprof.Profile)
-			r.Get("/pprof/symbol", pprof.Symbol)
-			r.Get("/pprof/trace", pprof.Trace)
-			r.Get("/pprof/heap", pprof.Handler("heap").ServeHTTP)
-			r.Get("/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
-			r.Get("/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
-			r.Get("/pprof/block", pprof.Handler("block").ServeHTTP)
-			r.Get("/pprof/mutex", pprof.Handler("mutex").ServeHTTP)
-			r.Get("/pprof/threadcreate", pprof.Handler("threadcreate").ServeHTTP)
-		}
-
-		if debugConfig.RuntimeEndpoints {
-			r.Get("/vars", s.handleDebugVars)
-		}
-
-		// Custom debug endpoints.
-		r.Get("/config", s.handleDebugConfig)
-		r.Get("/routes", s.handleDebugRoutes)
-		r.Get("/cache", s.handleDebugCache)
-		r.Get("/db", s.handleDebugDB)
-		r.Get("/scheduler", s.handleDebugScheduler)
-		r.Get("/memory", s.handleDebugMemory)
-		r.Get("/goroutines", s.handleDebugGoroutines)
-		r.Get("/error500", s.handleDebugError500)
-	})
+func (s *Server) handleDebugPprofIndex(w http.ResponseWriter, r *http.Request) {
+	request := r.Clone(r.Context())
+	urlCopy := *r.URL
+	urlCopy.Path += "/"
+	request.URL = &urlCopy
+	pprof.Index(w, request)
 }
 
 // debugBinaryName returns only the executable name, never its command-line arguments.

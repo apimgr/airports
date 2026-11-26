@@ -153,6 +153,7 @@ func validateConfig(cfg *ApplicationConfig) {
 		cfg.Server.I2P = def.Server.I2P
 	}
 	validateServerLimits(&cfg.Server.Limits, def.Server.Limits)
+	validateRestoreConfig(&cfg.Server.Restore, def.Server.Restore)
 	validateCompression(&cfg.Server.Compression, def.Server.Compression)
 	if !validServerPort(cfg.Server.Port, cfg.Server.SSL.Enabled) {
 		log.Printf("warning: invalid server.port %q, using default %q", cfg.Server.Port, def.Server.Port)
@@ -194,6 +195,7 @@ func validateConfig(cfg *ApplicationConfig) {
 	}
 	validateSchedulerSchedules(&cfg.Server.Scheduler.Tasks, def.Server.Scheduler.Tasks)
 	validateDiskLowConfig(&cfg.Server.Notifications.DiskLow, def.Server.Notifications.DiskLow)
+	validateDatabaseErrorConfig(&cfg.Server.Notifications.DatabaseError, def.Server.Notifications.DatabaseError)
 
 	if normalized, ok := NormalizeBaseURL(cfg.Server.BaseURL); ok {
 		cfg.Server.BaseURL = normalized
@@ -360,18 +362,20 @@ func parseTokenCookieAge(value string) (time.Duration, error) {
 	return duration, nil
 }
 
-var seoMetaNameValidationPattern = regexp.MustCompile(`^[a-z0-9:_.-]+$`)
-var accentColorValidationPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-var seoVerificationNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-var seoReservedMetaNames = map[string]bool{"description": true, "keywords": true, "author": true, "robots": true, "viewport": true}
-var seoVerificationValueValidationPatterns = map[string]*regexp.Regexp{
-	"google":    regexp.MustCompile(`^[A-Za-z0-9_-]{1,43}$`),
-	"bing":      regexp.MustCompile(`^[A-F0-9]{1,32}$`),
-	"yandex":    regexp.MustCompile(`^[a-f0-9]{1,32}$`),
-	"baidu":     regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`),
-	"pinterest": regexp.MustCompile(`^[a-f0-9]{1,32}$`),
-	"facebook":  regexp.MustCompile(`^[a-z0-9]{1,64}$`),
-}
+var (
+	seoMetaNameValidationPattern           = regexp.MustCompile(`^[a-z0-9:_.-]+$`)
+	accentColorValidationPattern           = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+	seoVerificationNamePattern             = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	seoReservedMetaNames                   = map[string]bool{"description": true, "keywords": true, "author": true, "robots": true, "viewport": true}
+	seoVerificationValueValidationPatterns = map[string]*regexp.Regexp{
+		"google":    regexp.MustCompile(`^[A-Za-z0-9_-]{1,43}$`),
+		"bing":      regexp.MustCompile(`^[A-F0-9]{1,32}$`),
+		"yandex":    regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+		"baidu":     regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`),
+		"pinterest": regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+		"facebook":  regexp.MustCompile(`^[a-z0-9]{1,64}$`),
+	}
+)
 
 func validateSEO(seo *SEOConfig, defaults SEOConfig) {
 	separator := seo.TitleSeparator
@@ -601,6 +605,31 @@ func validateServerLimits(limits *LimitsConfig, defaults LimitsConfig) {
 	}
 }
 
+func validateRestoreConfig(value *RestoreConfig, defaults RestoreConfig) {
+	for _, setting := range []struct {
+		name  string
+		value *string
+		def   string
+	}{
+		{name: "max_archive_size", value: &value.MaxArchiveSize, def: defaults.MaxArchiveSize},
+		{name: "max_expanded_size", value: &value.MaxExpandedSize, def: defaults.MaxExpandedSize},
+		{name: "max_file_size", value: &value.MaxFileSize, def: defaults.MaxFileSize},
+	} {
+		if _, err := parseConfigByteSize(*setting.value); err != nil {
+			log.Printf("warning: invalid server.restore.%s %q, using default %q", setting.name, *setting.value, setting.def)
+			*setting.value = setting.def
+		}
+	}
+	if value.MaxFiles < 1 {
+		log.Printf("warning: invalid server.restore.max_files %d, using default %d", value.MaxFiles, defaults.MaxFiles)
+		value.MaxFiles = defaults.MaxFiles
+	}
+	if value.MaxRatio < 1 {
+		log.Printf("warning: invalid server.restore.max_ratio %d, using default %d", value.MaxRatio, defaults.MaxRatio)
+		value.MaxRatio = defaults.MaxRatio
+	}
+}
+
 func validServerPort(value string, sslEnabled bool) bool {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -693,6 +722,7 @@ func validateSchedulerSchedules(tasks *SchedulerTasks, defaults SchedulerTasks) 
 	validate("cve_update", &tasks.CVEUpdate.Schedule, defaults.CVEUpdate.Schedule)
 	validate("update_check", &tasks.UpdateCheck.Schedule, defaults.UpdateCheck.Schedule)
 	validate("disk_check", &tasks.DiskCheck.Schedule, defaults.DiskCheck.Schedule)
+	validate("database_check", &tasks.DatabaseCheck.Schedule, defaults.DatabaseCheck.Schedule)
 	validate("token_cleanup", &tasks.TokenCleanup.Schedule, defaults.TokenCleanup.Schedule)
 	validate("log_rotation", &tasks.LogRotation.Schedule, defaults.LogRotation.Schedule)
 	validate("backup", &tasks.Backup.Schedule, defaults.Backup.Schedule)
@@ -706,12 +736,19 @@ func validateDiskLowConfig(cfg *DiskLowConfig, defaults DiskLowConfig) {
 		log.Printf("warning: invalid server.notifications.disk_low.threshold_percent %d, using default %d", cfg.ThresholdPercent, defaults.ThresholdPercent)
 		cfg.ThresholdPercent = defaults.ThresholdPercent
 	}
-	if interval, err := time.ParseDuration(cfg.CheckInterval); err != nil || interval <= 0 {
-		log.Printf("warning: invalid server.notifications.disk_low.check_interval %q, using default %q", cfg.CheckInterval, defaults.CheckInterval)
-		cfg.CheckInterval = defaults.CheckInterval
-	}
 	if repeat, err := time.ParseDuration(cfg.Repeat); err != nil || repeat <= 0 {
 		log.Printf("warning: invalid server.notifications.disk_low.repeat %q, using default %q", cfg.Repeat, defaults.Repeat)
+		cfg.Repeat = defaults.Repeat
+	}
+}
+
+func validateDatabaseErrorConfig(cfg *DatabaseErrorConfig, defaults DatabaseErrorConfig) {
+	if cfg.Failures < 1 {
+		log.Printf("warning: invalid server.notifications.database_error.failures %d, using default %d", cfg.Failures, defaults.Failures)
+		cfg.Failures = defaults.Failures
+	}
+	if repeat, err := time.ParseDuration(cfg.Repeat); err != nil || repeat <= 0 {
+		log.Printf("warning: invalid server.notifications.database_error.repeat %q, using default %q", cfg.Repeat, defaults.Repeat)
 		cfg.Repeat = defaults.Repeat
 	}
 }

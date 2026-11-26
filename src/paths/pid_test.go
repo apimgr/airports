@@ -34,7 +34,7 @@ func TestCheckPIDFileMissing(t *testing.T) {
 func TestCheckPIDFileCorruptRemovesFile(t *testing.T) {
 	dir := newScratchDir(t)
 	pidPath := filepath.Join(dir, "corrupt.pid")
-	if err := os.WriteFile(pidPath, []byte("not-a-pid"), 0644); err != nil {
+	if err := os.WriteFile(pidPath, []byte("not-a-pid"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestCheckPIDFileStaleDeadProcessRemovesFile(t *testing.T) {
 	// high is extremely unlikely to correspond to any live process,
 	// simulating a crashed/kill -9'd instance.
 	const deadPID = 999999
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(deadPID)), 0644); err != nil {
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(deadPID)), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestCheckPIDFileLiveOwnProcess(t *testing.T) {
 
 	dir := newScratchDir(t)
 	pidPath := filepath.Join(dir, "live.pid")
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestCheckPIDFileLiveButDifferentBinaryIsStale(t *testing.T) {
 
 	dir := newScratchDir(t)
 	pidPath := filepath.Join(dir, "reused.pid")
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

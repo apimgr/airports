@@ -27,14 +27,14 @@
         <dl class="info-list">
             <dt>{{t "health.reason"}}</dt><dd>{{$h.Maintenance.Reason}}</dd>
             <dt>{{t "health.message"}}</dt><dd>{{$h.Maintenance.Message}}</dd>
-            <dt>{{t "health.since"}}</dt><dd>{{$h.Maintenance.Since}}</dd>
+            <dt>{{t "health.since"}}</dt><dd>{{.MaintenanceSince}}</dd>
             <dt>{{t "health.self_healing"}}</dt><dd>{{if $h.Maintenance.SelfHealing.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}</dd>
-            <dt>{{t "health.attempts"}}</dt><dd>{{$h.Maintenance.SelfHealing.Attempts}}</dd>
+            <dt>{{t "health.attempts"}}</dt><dd>{{.MaintenanceAttempts}}</dd>
             {{if $h.Maintenance.SelfHealing.LastAttempt}}
-            <dt>{{t "health.last_attempt"}}</dt><dd>{{$h.Maintenance.SelfHealing.LastAttempt}}</dd>
+            <dt>{{t "health.last_attempt"}}</dt><dd>{{.MaintenanceLastAttempt}}</dd>
             {{end}}
             {{if $h.Maintenance.SelfHealing.NextAttempt}}
-            <dt>{{t "health.next_attempt"}}</dt><dd>{{$h.Maintenance.SelfHealing.NextAttempt}}</dd>
+            <dt>{{t "health.next_attempt"}}</dt><dd>{{.MaintenanceNextAttempt}}</dd>
             {{end}}
         </dl>
         {{end}}
@@ -45,10 +45,10 @@
         <dl class="info-list">
             <dt>{{t "health.version"}}</dt><dd>{{$h.Version}}</dd>
             <dt>{{t "health.go_version"}}</dt><dd>{{$h.GoVersion}}</dd>
-            <dt>{{t "health.build"}}</dt><dd class="code-block">{{$h.Build.Commit}} · {{$h.Build.Date}}</dd>
-            <dt>{{t "health.uptime"}}</dt><dd>{{$h.Uptime}}</dd>
+            <dt>{{t "health.build"}}</dt><dd class="code-block">{{$h.Build.Commit}}{{if .BuildTimestamp}} · {{.BuildTimestamp}}{{end}}</dd>
+            <dt>{{t "health.uptime"}}</dt><dd>{{.Uptime}}</dd>
             <dt>{{t "health.mode"}}</dt><dd>{{$h.Mode}}</dd>
-            <dt>{{t "health.status"}}</dt><dd>{{$h.Status}}</dd>
+            <dt>{{t "health.status"}}</dt><dd>{{if eq $h.Status "healthy"}}{{t "health.healthy"}}{{else if eq $h.Status "degraded"}}{{t "health.degraded"}}{{else if eq $h.Status "unhealthy"}}{{t "health.unhealthy"}}{{else if eq $h.Status "maintenance"}}{{t "health.maintenance"}}{{else if eq $h.Status "restart_required"}}{{t "health.restart_required"}}{{else if eq $h.Status "shutting_down"}}{{t "health.shutting_down"}}{{end}}</dd>
         </dl>
     </section>
 
@@ -61,7 +61,7 @@
             <li class="{{if $h.Features.Tor.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
                 {{t "health.tor"}}: {{if $h.Features.Tor.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
                 {{if $h.Features.Tor.Enabled}}
-                <span class="badge">{{$h.Features.Tor.Status}}</span>
+                <span class="badge">{{if eq $h.Features.Tor.Status "healthy"}}{{t "health.healthy"}}{{else if eq $h.Features.Tor.Status "starting"}}{{t "common.loading"}}{{else}}{{t "common.error"}}{{end}}</span>
                 {{if $h.Features.Tor.Hostname}}
                 <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{tf "health.copy_onion_address" "address" $h.Features.Tor.Hostname}}">{{t "common.copy"}}</button>
                 {{end}}
@@ -70,7 +70,7 @@
             <li class="{{if $h.Features.I2P.Enabled}}feature-enabled{{else}}feature-disabled{{end}}">
                 I2P: {{if $h.Features.I2P.Enabled}}{{t "common.enabled"}}{{else}}{{t "common.disabled"}}{{end}}
                 {{if $h.Features.I2P.Enabled}}
-                <span class="badge">{{$h.Features.I2P.Status}}</span>
+                <span class="badge">{{if eq $h.Features.I2P.Status "healthy"}}{{t "health.healthy"}}{{else if eq $h.Features.I2P.Status "starting"}}{{t "common.loading"}}{{else}}{{t "common.error"}}{{end}}</span>
                 {{if $h.Features.I2P.Hostname}}
                 <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.I2P.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
                 {{end}}
@@ -86,13 +86,13 @@
                 <caption>{{t "health.component_status"}}</caption>
                 <thead><tr><th scope="col">{{t "health.component"}}</th><th scope="col">{{t "health.status"}}</th></tr></thead>
                 <tbody>
-                    <tr><td>{{t "health.database"}}</td><td><span class="status-{{if eq $h.Checks.Database "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Database}}</span></td></tr>
-                    <tr><td>{{t "health.cache"}}</td><td><span class="status-{{if eq $h.Checks.Cache "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Cache}}</span></td></tr>
-                    <tr><td>{{t "health.disk"}}</td><td><span class="status-{{if eq $h.Checks.Disk "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Disk}}</span></td></tr>
-                    <tr><td>{{t "health.scheduler"}}</td><td><span class="status-{{if eq $h.Checks.Scheduler "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Scheduler}}</span></td></tr>
-                    {{if $h.Checks.Tor}}<tr><td>{{t "health.tor"}}</td><td><span class="status-{{if eq $h.Checks.Tor "ok"}}ok{{else}}error{{end}}">{{$h.Checks.Tor}}</span></td></tr>{{end}}
-                    {{if $h.Checks.I2P}}<tr><td>I2P</td><td><span class="status-{{if eq $h.Checks.I2P "ok"}}ok{{else if eq $h.Checks.I2P "degraded"}}warning{{else}}error{{end}}">{{$h.Checks.I2P}}</span></td></tr>{{end}}
-                    {{range $h.Checks.Datasets}}<tr><td>{{healthCheckLabel .Key}}</td><td><span class="status-{{if eq .Status "ok"}}ok{{else if eq .Status "degraded"}}warning{{else}}error{{end}}">{{.Status}}</span></td></tr>{{end}}
+                    <tr><td>{{t "health.database"}}</td><td><span class="status-{{if eq $h.Checks.Database "ok"}}ok{{else}}error{{end}}">{{if eq $h.Checks.Database "ok"}}{{t "health.ok"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>
+                    <tr><td>{{t "health.cache"}}</td><td><span class="status-{{if eq $h.Checks.Cache "ok"}}ok{{else}}error{{end}}">{{if eq $h.Checks.Cache "ok"}}{{t "health.ok"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>
+                    <tr><td>{{t "health.disk"}}</td><td><span class="status-{{if eq $h.Checks.Disk "ok"}}ok{{else}}error{{end}}">{{if eq $h.Checks.Disk "ok"}}{{t "health.ok"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>
+                    <tr><td>{{t "health.scheduler"}}</td><td><span class="status-{{if eq $h.Checks.Scheduler "ok"}}ok{{else}}error{{end}}">{{if eq $h.Checks.Scheduler "ok"}}{{t "health.ok"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>
+                    {{if $h.Checks.Tor}}<tr><td>{{t "health.tor"}}</td><td><span class="status-{{if eq $h.Checks.Tor "ok"}}ok{{else}}error{{end}}">{{if eq $h.Checks.Tor "ok"}}{{t "health.ok"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>{{end}}
+                    {{if $h.Checks.I2P}}<tr><td>I2P</td><td><span class="status-{{if eq $h.Checks.I2P "ok"}}ok{{else if eq $h.Checks.I2P "degraded"}}warning{{else}}error{{end}}">{{if eq $h.Checks.I2P "ok"}}{{t "health.ok"}}{{else if eq $h.Checks.I2P "degraded"}}{{t "health.degraded"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>{{end}}
+                    {{range $h.Checks.Datasets}}<tr><td>{{healthCheckLabel .Key}}</td><td><span class="status-{{if eq .Status "ok"}}ok{{else if eq .Status "degraded"}}warning{{else}}error{{end}}">{{if eq .Status "ok"}}{{t "health.ok"}}{{else if eq .Status "degraded"}}{{t "health.degraded"}}{{else}}{{t "common.error"}}{{end}}</span></td></tr>{{end}}
                 </tbody>
             </table>
         </div>
@@ -103,13 +103,13 @@
         <dl class="health-stats-grid">
             <div class="stat-card"><dt class="stat-label">{{t "health.total_requests"}}</dt><dd class="stat-number">{{.Requests}}</dd></div>
             <div class="stat-card"><dt class="stat-label">{{t "health.requests_24h"}}</dt><dd class="stat-number">{{.Req24h}}</dd></div>
-            <div class="stat-card"><dt class="stat-label">{{t "health.active_connections"}}</dt><dd class="stat-number">{{$h.Stats.ActiveConns}}</dd></div>
+            <div class="stat-card"><dt class="stat-label">{{t "health.active_connections"}}</dt><dd class="stat-number">{{.ActiveConnections}}</dd></div>
         </dl>
     </section>
 
     <section class="section-card" aria-labelledby="health-checked-heading">
         <h2 id="health-checked-heading">{{t "health.last_checked"}}</h2>
-        <p><time>{{$h.Timestamp}}</time></p>
+        <p><time>{{.Timestamp}}</time></p>
         <p>{{t "health.auto_refresh"}}</p>
         <p><a href="{{.APIBase}}/server/healthz">{{t "health.json"}}</a> · <a href="{{.BaseURL}}/server/healthz" rel="alternate" type="text/plain">{{t "health.text"}}</a></p>
     </section>

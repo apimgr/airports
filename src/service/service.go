@@ -2,6 +2,7 @@ package service
 
 import (
 	"bufio"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 )
 
 const (
@@ -176,6 +177,337 @@ func InstallSystemService() error {
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
+}
+
+// InstallUserService installs the platform's specified user service when
+// callers cannot or choose not to escalate to a system installation.
+func InstallUserService() error {
+	switch runtime.GOOS {
+	case "linux":
+		if DetectServiceManager() != ServiceSystemd {
+			printUserServiceUnavailable()
+			return nil
+		}
+		return installUserSystemdService()
+	case "darwin":
+		return installUserLaunchdService()
+	case "windows":
+		return installUserTaskSchedulerTask()
+	case "freebsd", "openbsd", "netbsd", "dragonfly":
+		printUserServiceUnavailable()
+		return nil
+	default:
+		printUserServiceUnavailable()
+		return nil
+	}
+}
+
+func printUserServiceUnavailable() {
+	fmt.Printf("No user service is available on %s. Start the server with '%s --daemon' or ask an administrator to install the system service.\n", runtime.GOOS, appName)
+}
+
+func installUserSystemdService() error {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return fmt.Errorf("resolve user config directory: %w", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	unitDir := filepath.Join(configDir, "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o700); err != nil {
+		return fmt.Errorf("create user systemd directory: %w", err)
+	}
+	unitPath := filepath.Join(unitDir, appName+".service")
+	unit := fmt.Sprintf(`[Unit]
+Description=Airports API Server
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart="%s"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+`, escapeSystemdExecPath(executable))
+	if err := os.WriteFile(unitPath, []byte(unit), 0o600); err != nil {
+		return fmt.Errorf("write user service file: %w", err)
+	}
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("reload user systemd: %w", err)
+	}
+	if err := exec.Command("systemctl", "--user", "enable", "--now", appName+".service").Run(); err != nil {
+		return fmt.Errorf("enable and start user service: %w", err)
+	}
+	fmt.Printf("User service installed and started at: %s\n", unitPath)
+	return nil
+}
+
+func installUserLaunchdService() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home directory: %w", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	launchAgentsDir := filepath.Join(homeDir, "Library", "LaunchAgents")
+	logsDir := filepath.Join(homeDir, "Library", "Logs", orgName, appName)
+	if err := os.MkdirAll(launchAgentsDir, 0o700); err != nil {
+		return fmt.Errorf("create user LaunchAgents directory: %w", err)
+	}
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		return fmt.Errorf("create user service log directory: %w", err)
+	}
+	label := fmt.Sprintf("io.github.%s.%s", orgName, appName)
+	plistPath := filepath.Join(launchAgentsDir, label+".plist")
+	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>%s</string>
+<key>ProgramArguments</key><array><string>%s</string></array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>StandardOutPath</key><string>%s</string>
+<key>StandardErrorPath</key><string>%s</string>
+</dict></plist>
+`, escapeXML(label), escapeXML(executable), escapeXML(filepath.Join(logsDir, "stdout.log")), escapeXML(filepath.Join(logsDir, "stderr.log")))
+	if err := os.WriteFile(plistPath, []byte(plist), 0o600); err != nil {
+		return fmt.Errorf("write user LaunchAgent plist: %w", err)
+	}
+	user, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("resolve user identity: %w", err)
+	}
+	target := "gui/" + user.Uid + "/" + label
+	if err := exec.Command("launchctl", "enable", target).Run(); err != nil {
+		return fmt.Errorf("enable user LaunchAgent: %w", err)
+	}
+	if err := exec.Command("launchctl", "bootstrap", "gui/"+user.Uid, plistPath).Run(); err != nil {
+		return fmt.Errorf("start user LaunchAgent: %w", err)
+	}
+	fmt.Printf("User service installed and started at: %s\n", plistPath)
+	return nil
+}
+
+func installUserTaskSchedulerTask() error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return fmt.Errorf("resolve executable path: %w", err)
+	}
+	if err := exec.Command("schtasks.exe", "/Create", "/SC", "ONLOGON", "/TN", appName, "/TR", strconv.Quote(executable), "/F").Run(); err != nil {
+		return fmt.Errorf("create user logon task: %w", err)
+	}
+	if err := exec.Command("schtasks.exe", "/Run", "/TN", appName).Run(); err != nil {
+		return fmt.Errorf("start user logon task: %w", err)
+	}
+	fmt.Printf("User logon task installed and started: %s\n", appName)
+	return nil
+}
+
+func escapeXML(value string) string {
+	var escaped strings.Builder
+	if err := xml.EscapeText(&escaped, []byte(value)); err != nil {
+		return ""
+	}
+	return escaped.String()
+}
+
+// UserServiceInstalled reports whether this account has the project user unit.
+func UserServiceInstalled() bool {
+	if runtime.GOOS == "windows" {
+		return exec.Command("schtasks.exe", "/Query", "/TN", appName).Run() == nil
+	}
+	path, err := userServiceFilePath()
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// UserServiceAction controls an installed per-user service.
+func UserServiceAction(action string) error {
+	if !UserServiceInstalled() {
+		return fmt.Errorf("user service is not installed")
+	}
+	switch runtime.GOOS {
+	case "linux":
+		args := []string{"--user"}
+		switch action {
+		case "start", "stop", "restart", "reload":
+			verb := action
+			if verb == "reload" {
+				verb = "restart"
+			}
+			args = append(args, verb, appName+".service")
+		case "disable":
+			args = append(args, "disable", "--now", appName+".service")
+		default:
+			return fmt.Errorf("unsupported user service action %q", action)
+		}
+		return exec.Command("systemctl", args...).Run()
+	case "darwin":
+		path, err := userServiceFilePath()
+		if err != nil {
+			return err
+		}
+		currentUser, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("resolve user identity: %w", err)
+		}
+		label := fmt.Sprintf("io.github.%s.%s", orgName, appName)
+		target := "gui/" + currentUser.Uid + "/" + label
+		switch action {
+		case "start":
+			_ = exec.Command("launchctl", "enable", target).Run()
+			if err := exec.Command("launchctl", "bootstrap", "gui/"+currentUser.Uid, path).Run(); err != nil {
+				return exec.Command("launchctl", "kickstart", "-k", target).Run()
+			}
+			return exec.Command("launchctl", "kickstart", "-k", target).Run()
+		case "stop", "disable":
+			if action == "disable" {
+				_ = exec.Command("launchctl", "disable", target).Run()
+			}
+			return exec.Command("launchctl", "bootout", target).Run()
+		case "restart", "reload":
+			return exec.Command("launchctl", "kickstart", "-k", target).Run()
+		default:
+			return fmt.Errorf("unsupported user service action %q", action)
+		}
+	case "windows":
+		switch action {
+		case "start":
+			return exec.Command("schtasks.exe", "/Run", "/TN", appName).Run()
+		case "stop", "disable":
+			if err := exec.Command("schtasks.exe", "/End", "/TN", appName).Run(); err != nil && action == "stop" {
+				return err
+			}
+			if action == "disable" {
+				return exec.Command("schtasks.exe", "/Change", "/TN", appName, "/DISABLE").Run()
+			}
+			return nil
+		case "restart", "reload":
+			_ = exec.Command("schtasks.exe", "/End", "/TN", appName).Run()
+			return exec.Command("schtasks.exe", "/Run", "/TN", appName).Run()
+		default:
+			return fmt.Errorf("unsupported user service action %q", action)
+		}
+	default:
+		return fmt.Errorf("user service actions are not supported on %s", runtime.GOOS)
+	}
+}
+
+// UninstallUserService removes the current account's service and its data after confirmation.
+func UninstallUserService() error {
+	if !confirmUninstall() {
+		fmt.Println("Uninstall cancelled.")
+		return nil
+	}
+	if err := UserServiceAction("disable"); err != nil {
+		fmt.Printf("Warning: could not stop user service: %v\n", err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := exec.Command("schtasks.exe", "/Delete", "/TN", appName, "/F").Run(); err != nil {
+			return fmt.Errorf("remove user logon task: %w", err)
+		}
+	} else {
+		path, err := userServiceFilePath()
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove user service file: %w", err)
+		}
+	}
+	if runtime.GOOS == "linux" {
+		if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+			return fmt.Errorf("reload user systemd: %w", err)
+		}
+	}
+	if err := removeUserServiceData(); err != nil {
+		return err
+	}
+	fmt.Println("User service uninstalled. Delete the binary manually if no longer needed.")
+	return nil
+}
+
+func userServiceFilePath() (string, error) {
+	switch runtime.GOOS {
+	case "linux":
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user config directory: %w", err)
+		}
+		return filepath.Join(configDir, "systemd", "user", appName+".service"), nil
+	case "darwin":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home directory: %w", err)
+		}
+		return filepath.Join(homeDir, "Library", "LaunchAgents", fmt.Sprintf("io.github.%s.%s.plist", orgName, appName)), nil
+	case "windows":
+		return "", fmt.Errorf("user service is a Task Scheduler entry on Windows, not a file")
+	default:
+		return "", fmt.Errorf("user service is not supported on %s", runtime.GOOS)
+	}
+}
+
+func removeUserServiceData() error {
+	configDir, dataDir, logsDir := paths.GetDefaultDirs(appName)
+	if value := os.Getenv("CONFIG_DIR"); value != "" {
+		configDir = value
+	}
+	if value := os.Getenv("DATA_DIR"); value != "" {
+		dataDir = value
+	}
+	if value := os.Getenv("LOG_DIR"); value != "" {
+		logsDir = value
+	}
+	cacheDir := os.Getenv("CACHE_DIR")
+	if cacheDir == "" {
+		cacheDir = paths.GetCacheDir(appName)
+	}
+	backupDir := paths.GetBackupDir(os.Getenv("BACKUP_DIR"), dataDir)
+	pidPath := os.Getenv("PID_FILE")
+	if pidPath == "" {
+		pidPath = paths.GetPIDFile(appName)
+	}
+	for _, path := range []string{configDir, dataDir, cacheDir, logsDir, backupDir} {
+		safe, err := paths.SafeDirPath(path)
+		if err != nil {
+			return fmt.Errorf("refusing unsafe user service data path %q: %w", path, err)
+		}
+		if err := os.RemoveAll(safe); err != nil {
+			return fmt.Errorf("remove user service data path %q: %w", safe, err)
+		}
+	}
+	if safe, err := paths.SafeFilePath(filepath.Dir(pidPath), filepath.Base(pidPath)); err != nil {
+		return fmt.Errorf("refusing unsafe PID path %q: %w", pidPath, err)
+	} else if err := os.Remove(safe); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove PID file %q: %w", safe, err)
+	}
+	return nil
+}
+
+func escapeSystemdExecPath(path string) string {
+	return strings.NewReplacer("%", "%%", "\\", "\\\\", `"`, `\"`, "\t", `\t`).Replace(path)
 }
 
 // Uninstall removes the service. Per spec this also deletes config, data,
@@ -527,13 +859,13 @@ WantedBy=multi-user.target
 		fmt.Sprintf("/etc/%s/%s", orgName, appName),
 	}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
 	// Write service file
-	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write service file: %w", err)
 	}
 
@@ -624,7 +956,7 @@ start_pre() {
 }
 `, appName, binaryPath, orgName, appName, appName, orgName, appName, orgName, appName, orgName, orgName, orgName, orgName, appName, appName, orgName, appName, appName, appName, orgName, appName, appName, appName, orgName, appName, appName, appName, orgName, appName)
 
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
 		return fmt.Errorf("failed to write OpenRC script: %w", err)
 	}
 
@@ -705,7 +1037,7 @@ case "$1" in
 esac
 `, appName, appName, binaryPath)
 
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
 		return fmt.Errorf("failed to write SysVinit script: %w", err)
 	}
 
@@ -765,7 +1097,7 @@ func installRunit() error {
 	binaryPath := GetSystemServiceBinaryPath()
 
 	// Create service directory
-	if err := os.MkdirAll(svDir, 0755); err != nil {
+	if err := os.MkdirAll(svDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create service directory: %w", err)
 	}
 
@@ -774,13 +1106,13 @@ exec %s 2>&1
 `, binaryPath)
 
 	runPath := filepath.Join(svDir, "run")
-	if err := os.WriteFile(runPath, []byte(runScript), 0755); err != nil {
+	if err := os.WriteFile(runPath, []byte(runScript), 0o755); err != nil {
 		return fmt.Errorf("failed to write run script: %w", err)
 	}
 
 	// Create log directory
 	logDir := filepath.Join(svDir, "log")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 
@@ -796,7 +1128,7 @@ mkdir -p %s
 exec svlogd -tt %s
 `, appLogDir, appLogDir)
 	logRunPath := filepath.Join(logDir, "run")
-	if err := os.WriteFile(logRunPath, []byte(logRunScript), 0755); err != nil {
+	if err := os.WriteFile(logRunPath, []byte(logRunScript), 0o755); err != nil {
 		return fmt.Errorf("failed to write log run script: %w", err)
 	}
 
@@ -834,11 +1166,11 @@ func installS6() error {
 		return fmt.Errorf("could not find the running s6-svscan directory")
 	}
 	svDir := filepath.Join("/etc/s6/sv", appName)
-	if err := os.MkdirAll(filepath.Join(svDir, "log"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(svDir, "log"), 0o755); err != nil {
 		return fmt.Errorf("failed to create s6 service directory: %w", err)
 	}
 	runScript := fmt.Sprintf("#!/bin/sh\nexec %s 2>&1\n", shellQuote(GetSystemServiceBinaryPath()))
-	if err := os.WriteFile(filepath.Join(svDir, "run"), []byte(runScript), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(svDir, "run"), []byte(runScript), 0o755); err != nil {
 		return fmt.Errorf("failed to write s6 run script: %w", err)
 	}
 	_, _, appLogDir := paths.GetDefaultDirs(appName)
@@ -846,7 +1178,7 @@ func installS6() error {
 		appLogDir = filepath.Join("/var/log", orgName, appName)
 	}
 	logRun := fmt.Sprintf("#!/bin/sh\nexec s6-log n10 s1000000 %s\n", shellQuote(appLogDir))
-	if err := os.WriteFile(filepath.Join(svDir, "log", "run"), []byte(logRun), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(svDir, "log", "run"), []byte(logRun), 0o755); err != nil {
 		return fmt.Errorf("failed to write s6 log run script: %w", err)
 	}
 	if err := enableS6(); err != nil {
@@ -950,13 +1282,13 @@ func installLaunchd() error {
 		fmt.Sprintf("/Library/Logs/%s/%s", orgName, appName),
 	}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
 	// Write plist file
-	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
+	if err := os.WriteFile(plistPath, []byte(plistContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write plist file: %w", err)
 	}
 
@@ -1006,7 +1338,7 @@ func installWindows() error {
 
 	// Copy binary
 	binDir := filepath.Dir(binaryPath)
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -1079,7 +1411,7 @@ load_rc_config $name
 run_rc_command "$1"
 `, appName, appName, appName, binaryPath, appName, appName)
 
-	if err := os.WriteFile(rcPath, []byte(rcContent), 0755); err != nil {
+	if err := os.WriteFile(rcPath, []byte(rcContent), 0o755); err != nil {
 		return fmt.Errorf("failed to write rc.d script: %w", err)
 	}
 
@@ -1123,7 +1455,7 @@ func uninstallBSDRC() error {
 // copyBinary copies the binary to the destination
 func copyBinary(src, dst string) error {
 	// Create destination directory if needed
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 
@@ -1134,7 +1466,7 @@ func copyBinary(src, dst string) error {
 	}
 
 	// Write to destination
-	if err := os.WriteFile(dst, data, 0755); err != nil {
+	if err := os.WriteFile(dst, data, 0o755); err != nil {
 		return err
 	}
 

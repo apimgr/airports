@@ -127,7 +127,7 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 	}
 
 	tempBase := filepath.Join(os.TempDir(), "apimgr")
-	if err := os.MkdirAll(tempBase, 0700); err != nil {
+	if err := os.MkdirAll(tempBase, 0o700); err != nil {
 		return fmt.Errorf("create project temp namespace: %w", err)
 	}
 	tempDir, err := os.MkdirTemp(tempBase, "airports-")
@@ -139,7 +139,7 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 		_ = os.Remove(tempPath)
 		_ = os.Remove(tempDir)
 	}()
-	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0700)
+	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 	if err != nil {
 		return fmt.Errorf("create update file: %w", err)
 	}
@@ -168,7 +168,7 @@ func downloadAndReplaceCLI(ctx context.Context, c *client, release cliRelease) e
 	if resolved, resolveErr := filepath.EvalSymlinks(currentPath); resolveErr == nil {
 		currentPath = resolved
 	}
-	if err := os.Chmod(tempPath, 0700); err != nil {
+	if err := os.Chmod(tempPath, 0o700); err != nil {
 		return fmt.Errorf("set update permissions: %w", err)
 	}
 	if err := replaceCLI(currentPath, tempPath); err != nil {
@@ -270,14 +270,9 @@ func checkAndMaybeUpdateCLI(c *client, cfg *cliConfig, action string) error {
 	if !newer {
 		return nil
 	}
-	shouldUpdate := action == "yes"
-	if shouldUpdate && !isInteractiveCLI() {
-		auto := updateSetting(cfg)
-		if !auto {
-			return errors.New("non-interactive CLI updates require update.auto: true in cli.yml")
-		}
-	}
-	if action == "" && isInteractiveCLI() {
+	interactive := isInteractiveCLI()
+	shouldUpdate := action == "yes" || (action == "" && !interactive && updateSetting(cfg))
+	if action == "" && interactive {
 		shouldUpdate = promptForCLIUpdate(release.Version)
 	}
 	if !shouldUpdate {

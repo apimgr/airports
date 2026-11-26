@@ -86,8 +86,10 @@ var contactAntispamState = struct {
 	order:      list.New(),
 }
 
-var contactMarkupPattern = regexp.MustCompile(`(?i)<\s*/?\s*[a-z!][^>]*(?:>|$)|&(?:lt|gt|#0*60|#0*62|#x0*3c|#x0*3e);|\[(?:/?(?:url|img|b)|url=)`)
-var contactLinkPattern = regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>"']+|\b[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/[^\s<>"']*)?`)
+var (
+	contactMarkupPattern = regexp.MustCompile(`(?i)<\s*/?\s*[a-z!][^>]*(?:>|$)|&(?:lt|gt|#0*60|#0*62|#x0*3c|#x0*3e);|\[(?:/?(?:url|img|b)|url=)`)
+	contactLinkPattern   = regexp.MustCompile(`(?i)\b(?:https?://|www\.)[^\s<>"']+|\b[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/[^\s<>"']*)?`)
+)
 
 func (s *Server) newContactCaptcha() (string, string, error) {
 	return s.newContactCaptchaForLanguage(i18n.DefaultLanguage)

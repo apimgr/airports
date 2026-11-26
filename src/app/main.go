@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,7 +37,6 @@ import (
 
 	"github.com/apimgr/airports/src/airports"
 	"github.com/apimgr/airports/src/backup"
-	appbanner "github.com/apimgr/airports/src/common/banner"
 	"github.com/apimgr/airports/src/common/display"
 	"github.com/apimgr/airports/src/common/i18n"
 	urlvars "github.com/apimgr/airports/src/common/urlvars"
@@ -49,11 +49,12 @@ import (
 	"github.com/apimgr/airports/src/logging"
 	"github.com/apimgr/airports/src/mode"
 	"github.com/apimgr/airports/src/notify"
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/scheduler"
 	compliancerequirements "github.com/apimgr/airports/src/security/compliance"
 	"github.com/apimgr/airports/src/security/cve"
 	"github.com/apimgr/airports/src/server"
+	appbanner "github.com/apimgr/airports/src/server/banner"
 	"github.com/apimgr/airports/src/service"
 	"github.com/apimgr/airports/src/shellcompl"
 	appsignal "github.com/apimgr/airports/src/signal"
@@ -98,6 +99,13 @@ var diskLowState = struct {
 	sync.Mutex
 	volumes map[string]time.Time
 }{volumes: make(map[string]time.Time)}
+
+var databaseErrorState = struct {
+	sync.Mutex
+	failures         int
+	since            time.Time
+	lastNotification time.Time
+}{}
 
 var (
 	errRestartForUpdate  = errors.New("staged update applied; restart required")
@@ -278,7 +286,14 @@ func Main() {
 	if maintenanceSubcommandFound {
 		switch maintenanceAction {
 		case "backup":
-			if err := createBackup(maintenanceTarget, true); err != nil {
+			var err error
+			if maintenanceTarget == "test" || strings.HasPrefix(maintenanceTarget, "test ") {
+				file := strings.TrimSpace(strings.TrimPrefix(maintenanceTarget, "test"))
+				err = testBackup(file, true)
+			} else {
+				err = createBackup(maintenanceTarget, true)
+			}
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -650,6 +665,9 @@ func extractMaintenanceFlag(args []string) (subcommandFound bool, action string,
 					}
 					i++
 					values = append(values, args[i])
+					if action == "backup" && values[0] == "test" && len(values) == 1 {
+						continue
+					}
 					if action == "backup" || action == "restore" || action == "mode" || action == "compliance" {
 						break
 					}
@@ -1227,7 +1245,11 @@ func run(ctx context.Context, options runConfig) error {
 		ctx = context.Background()
 	}
 	if options.Listener != nil {
-		defer options.Listener.Close()
+		defer func() {
+			if err := options.Listener.Close(); err != nil {
+				log.Printf("Warning: could not close retained listener: %v", err)
+			}
+		}()
 	}
 	portFlag, addressFlag, configDirFlag, dataDirFlag := options.Port, options.Address, options.ConfigDir, options.DataDir
 	cacheDirFlag, logDirFlag, pidFileFlag, baseURLFlag, modeFlag := options.CacheDir, options.LogDir, options.PIDFile, options.BaseURL, options.Mode
@@ -1608,6 +1630,9 @@ func run(ctx context.Context, options runConfig) error {
 	portInt, _ := strconv.Atoi(port)
 	torMgr := tor.NewTorManager(ProjectName, portInt, cfg.Server.Tor)
 	i2pMgr := i2p.NewI2PManager(cfg.Server.I2P, i2p.I2PDirs{ConfigDir: configDir, DataDir: dataDir, LogDir: logsDir})
+	if err := server.InitializeOwnerTokenSchema(dbHandle); err != nil {
+		return fmt.Errorf("initialize owner identity storage: %w", err)
+	}
 
 	// Create HTTP server
 	srv := server.NewServer(airportSvc, geoipSvc, cfg, sched, dbHandle, dataDir, configDir, torMgr, recentLogBuffer)
@@ -1750,19 +1775,10 @@ func run(ctx context.Context, options runConfig) error {
 		var forceColorSetting *bool
 		if colorSetting != "auto" {
 			forceColorSetting = &forceColor
+		} else {
+			forceColorSetting = cfg.Output.Color
 		}
-		appbanner.PrintServerBanner(appbanner.BannerConfig{
-			AppName:     "Airports API Server",
-			Version:     Version,
-			CommitID:    CommitID,
-			BuildDate:   BuildDate,
-			AppMode:     mode.GetAppMode().String(),
-			Debug:       mode.IsDebugEnabled(),
-			URLs:        urls,
-			ForceColor:  forceColorSetting,
-			ConfigColor: cfg.Output.Color,
-			ConfigEmoji: cfg.Output.Emoji,
-		}, lang)
+		appbanner.PrintServerStartupBanner("Airports API Server", Version, mode.GetAppMode().String(), urls, forceColorSetting, lang)
 		for i, listener := range listeners {
 			if i < len(startupSwitchers) {
 				continue
@@ -1825,12 +1841,10 @@ func run(ctx context.Context, options runConfig) error {
 
 	// Start automatic config file watcher — polls server.yml for external
 	// edits and hot-reloads without requiring SIGHUP, per AI.md PART 5
-	// "Live Reload" (file is the sole source of truth; no runtime API
-	// mutation; changes apply immediately except server port/address/daemonize,
-	// SSL, database, and Tor settings that require a process restart).
+	// "Live Reload". Tor settings restart only the Tor child process.
 	configWatchDone := make(chan struct{})
 	defer close(configWatchDone)
-	go watchConfigFile(configPath, cfg, srv, configWatchDone, maintenanceRecovery.updateConfig)
+	go watchConfigFile(configPath, cfg, srv, schedDeps.torMgr, configWatchDone, maintenanceRecovery.updateConfig)
 
 	// Wait for shutdown, log-reopen, or status-dump signals. Configuration
 	// reloads are owned by the file watcher; SIGHUP is ignored per AI.md PART 8.
@@ -1939,11 +1953,9 @@ func chownPathTree(root string, uid, gid int) error {
 // watchConfigFile polls the config file, drop-ins, secrets and assets every 5
 // seconds and hot-reloads the running server, per AI.md PART 5 "Live
 // ReloadApplicationConfig": config files are the source of truth and changes must apply
-// without a restart. Settings that require a restart to fully take effect
-// (port/address/daemonize, SSL, database, and Tor settings) are still applied to the in-memory
-// config for consistency, but a warning is logged since the bound
-// listener/connection pool cannot change without a process restart.
-func watchConfigFile(configPath string, initial *config.ApplicationConfig, srv *server.Server, done <-chan struct{}, onReload func(*config.ApplicationConfig)) {
+// without a restart. Listener, TLS-listener, database and daemon settings are
+// reported for the next process start; Tor settings restart only the Tor child.
+func watchConfigFile(configPath string, initial *config.ApplicationConfig, srv *server.Server, torMgr *tor.TorManager, done <-chan struct{}, onReload func(*config.ApplicationConfig)) {
 	lastStamp := configWatchStamp(configPath)
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -1968,6 +1980,21 @@ func watchConfigFile(configPath string, initial *config.ApplicationConfig, srv *
 			}
 
 			warnRestartRequiredChanges(current, newCfg)
+			if torMgr != nil && current.Server.Tor != newCfg.Server.Tor {
+				go func(torConfig tor.TorConfig) {
+					timeout := time.Duration(torConfig.BootstrapTimeout) * time.Second
+					if timeout <= 0 {
+						timeout = 180 * time.Second
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), timeout)
+					defer cancel()
+					if err := torMgr.ReloadConfig(ctx, torConfig); err != nil {
+						log.Printf("Warning: Tor configuration reload failed: %v", err)
+					} else {
+						log.Printf("Tor configuration reloaded")
+					}
+				}(newCfg.Server.Tor)
+			}
 			refreshSMTPStatus(newCfg, false)
 			db.SetQueryLoggingEnabled(newCfg.Server.Debug.LogQueries)
 			srv.ReloadConfig(newCfg)
@@ -2065,25 +2092,6 @@ func restartRequiredSettings(oldCfg, newCfg *config.ApplicationConfig) []string 
 	if oldSSL.MinVersion != newSSL.MinVersion {
 		changed = append(changed, "ssl.min_version")
 	}
-	oldLE, newLE := oldSSL.LetsEncrypt, newSSL.LetsEncrypt
-	if oldLE.Enabled != newLE.Enabled {
-		changed = append(changed, "ssl.letsencrypt.enabled")
-	}
-	if oldLE.Email != newLE.Email {
-		changed = append(changed, "ssl.letsencrypt.email")
-	}
-	if oldLE.Challenge != newLE.Challenge {
-		changed = append(changed, "ssl.letsencrypt.challenge")
-	}
-	if oldLE.Staging != newLE.Staging {
-		changed = append(changed, "ssl.letsencrypt.staging")
-	}
-	if oldLE.DNSProvider != newLE.DNSProvider {
-		changed = append(changed, "ssl.letsencrypt.dns_provider")
-	}
-	if oldLE.DNSCredentials != newLE.DNSCredentials {
-		changed = append(changed, "ssl.letsencrypt.dns_credentials")
-	}
 	oldDB, newDB := oldCfg.Server.Database, newCfg.Server.Database
 	if oldDB.Driver != newDB.Driver {
 		changed = append(changed, "database.driver")
@@ -2102,52 +2110,6 @@ func restartRequiredSettings(oldCfg, newCfg *config.ApplicationConfig) []string 
 	}
 	if oldDB.Pool.MaxIdleTime != newDB.Pool.MaxIdleTime {
 		changed = append(changed, "database.pool.max_idle_time")
-	}
-	oldTor, newTor := oldCfg.Server.Tor, newCfg.Server.Tor
-	if oldTor.OnionAddress != newTor.OnionAddress {
-		changed = append(changed, "tor.onion_address")
-	}
-	if oldTor.ContactEmail != newTor.ContactEmail {
-		changed = append(changed, "tor.contact_email")
-	}
-	if oldTor.Binary != newTor.Binary {
-		changed = append(changed, "tor.binary")
-	}
-	if oldTor.UseNetwork != newTor.UseNetwork {
-		changed = append(changed, "tor.use_network")
-	}
-	if oldTor.MaxCircuits != newTor.MaxCircuits {
-		changed = append(changed, "tor.max_circuits")
-	}
-	if oldTor.CircuitTimeout != newTor.CircuitTimeout {
-		changed = append(changed, "tor.circuit_timeout")
-	}
-	if oldTor.BootstrapTimeout != newTor.BootstrapTimeout {
-		changed = append(changed, "tor.bootstrap_timeout")
-	}
-	if oldTor.SafeLogging != newTor.SafeLogging {
-		changed = append(changed, "tor.safe_logging")
-	}
-	if oldTor.MaxStreamsPerCircuit != newTor.MaxStreamsPerCircuit {
-		changed = append(changed, "tor.max_streams_per_circuit")
-	}
-	if oldTor.CloseCircuitOnStreamLimit != newTor.CloseCircuitOnStreamLimit {
-		changed = append(changed, "tor.close_circuit_on_stream_limit")
-	}
-	if oldTor.BandwidthRate != newTor.BandwidthRate {
-		changed = append(changed, "tor.bandwidth_rate")
-	}
-	if oldTor.BandwidthBurst != newTor.BandwidthBurst {
-		changed = append(changed, "tor.bandwidth_burst")
-	}
-	if oldTor.MaxMonthlyBandwidth != newTor.MaxMonthlyBandwidth {
-		changed = append(changed, "tor.max_monthly_bandwidth")
-	}
-	if oldTor.NumIntroPoints != newTor.NumIntroPoints {
-		changed = append(changed, "tor.num_intro_points")
-	}
-	if oldTor.VirtualPort != newTor.VirtualPort {
-		changed = append(changed, "tor.virtual_port")
 	}
 	return changed
 }
@@ -2219,7 +2181,8 @@ func printHelp(binaryName string) {
 	fmt.Println()
 	fmt.Println("Maintenance / Admin:")
 	fmt.Println("  --maintenance                 Start in maintenance mode (read-only)")
-	fmt.Println("  --maintenance backup [path]   Run a backup now")
+	fmt.Println("  --maintenance backup [path]   Create a backup now")
+	fmt.Println("  --maintenance backup test [path]  Verify a backup and its incremental base")
 	fmt.Println("  --maintenance restore <path>  Restore from backup archive")
 	fmt.Println("  --maintenance update          Check for and install a server update")
 	fmt.Println("  --maintenance help            Show maintenance command help")
@@ -2246,7 +2209,8 @@ func printHelp(binaryName string) {
 	fmt.Printf("  %s                          # Start with defaults\n", binaryName)
 	fmt.Printf("  %s --port 8080              # Start on port 8080\n", binaryName)
 	fmt.Printf("  %s --maintenance            # Start in maintenance mode\n", binaryName)
-	fmt.Printf("  %s --maintenance backup      # Create backup now\n", binaryName)
+	fmt.Printf("  %s --maintenance backup           # Create backup now\n", binaryName)
+	fmt.Printf("  %s --maintenance backup test      # Verify the newest backup\n", binaryName)
 	fmt.Printf("  %s --service --install      # Install as service\n", binaryName)
 }
 
@@ -2307,9 +2271,9 @@ func writeServerPID(pidPath string, inContainer, startedElevated bool) (bool, er
 		return false, fmt.Errorf("already running (pid %d)", existingPID)
 	}
 
-	pidPerm := os.FileMode(0600)
+	pidPerm := os.FileMode(0o600)
 	if startedElevated {
-		pidPerm = 0644
+		pidPerm = 0o644
 	}
 	if err := os.WriteFile(pidPath, fmt.Appendf(nil, "%d\n", os.Getpid()), pidPerm); err != nil {
 		log.Printf("Warning: could not write PID file %s: %v", pidPath, err)
@@ -2493,7 +2457,6 @@ func runComplianceReport(configDir, logsDir string) error {
 		Backup:        cfg.Server.Logging.Audit.Events.Backup,
 		Server:        cfg.Server.Logging.Audit.Events.Server,
 	}
-	auditCfg.Audit.MaskEmails = cfg.Server.Logging.Audit.MaskEmails
 	auditManager := logging.NewLogManager(logsDir, auditCfg)
 	defer func() {
 		if closeErr := auditManager.Close(); closeErr != nil {
@@ -2686,8 +2649,22 @@ func handleServiceCommand(cmd string) error {
 	default:
 		cmd = rawCommand
 	}
+	if !service.IsElevated() && service.UserServiceInstalled() {
+		switch cmd {
+		case "install":
+			return service.InstallUserService()
+		case "start", "stop", "restart", "reload", "disable":
+			return service.UserServiceAction(cmd)
+		case "uninstall":
+			return service.UninstallUserService()
+		}
+	}
 	if action, needsEscalation := serviceEscalationActions[cmd]; needsEscalation {
 		if err := service.HandleEscalation(action); err != nil {
+			if cmd == "install" && !service.IsElevated() {
+				fmt.Println("Installing user service instead...")
+				return service.InstallUserService()
+			}
 			return err
 		}
 	}
@@ -2988,6 +2965,12 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.ApplicationC
 			return runDiskLowCheck(cfg, deps.configDir, []string{deps.dataDir, deps.logsDir, deps.backupDir}, time.Now())
 		})
 
+	mustRegister("database_check", "Database connection probe", tasks.DatabaseCheck.Schedule,
+		tasks.DatabaseCheck.Enabled, false, "",
+		func() error {
+			return runDatabaseConnectionCheck(deps.db, cfg, deps.configDir, time.Now())
+		})
+
 	mustRegister("token_cleanup", "Expired token cleanup", tasks.TokenCleanup.Schedule,
 		tasks.TokenCleanup.Enabled, false, "",
 		func() error {
@@ -3212,6 +3195,67 @@ func runDiskLowCheck(cfg *config.ApplicationConfig, configDir string, directorie
 	return nil
 }
 
+func runDatabaseConnectionCheck(database db.Handle, cfg *config.ApplicationConfig, configDir string, now time.Time) error {
+	settings := cfg.Server.Notifications.DatabaseError
+	if !settings.Enabled {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	probeErr := db.HealthProbe(ctx, database)
+	cancel()
+
+	databaseErrorState.Lock()
+	if probeErr == nil {
+		recovered := databaseErrorState.failures > 0
+		databaseErrorState.failures = 0
+		databaseErrorState.since = time.Time{}
+		databaseErrorState.lastNotification = time.Time{}
+		databaseErrorState.Unlock()
+		if recovered {
+			slog.Info("Database connection recovered")
+		}
+		return nil
+	}
+	if databaseErrorState.failures == 0 {
+		databaseErrorState.since = now
+	}
+	databaseErrorState.failures++
+	failures := databaseErrorState.failures
+	since := databaseErrorState.since
+	repeat, err := time.ParseDuration(settings.Repeat)
+	if err != nil || repeat <= 0 {
+		repeat = 24 * time.Hour
+	}
+	shouldNotify := failures >= settings.Failures && (databaseErrorState.lastNotification.IsZero() || now.Sub(databaseErrorState.lastNotification) >= repeat)
+	if shouldNotify {
+		databaseErrorState.lastNotification = now
+	}
+	databaseErrorState.Unlock()
+	if !shouldNotify {
+		return nil
+	}
+	message := sanitizeDatabaseProbeError(probeErr, cfg.Server.Database.URL, cfg.Server.Database.Token)
+	slog.Warn("Database connection problem", "failures", failures, "since", since.UTC().Format(time.RFC3339), "error", message)
+	vars := notify.GlobalVars(cfg)
+	vars["error"] = message
+	vars["since"] = since.UTC().Format(time.RFC3339)
+	if sendErr := notify.Send(cfg, configDir, "database_error", notifyRecipient(cfg), vars); sendErr != nil {
+		log.Printf("Warning: failed to send database_error notification email: %v", sendErr)
+	}
+	return nil
+}
+
+func sanitizeDatabaseProbeError(err error, databaseURL, token string) string {
+	message := err.Error()
+	if databaseURL != "" {
+		message = strings.ReplaceAll(message, databaseURL, "[database endpoint]")
+	}
+	if token != "" {
+		message = strings.ReplaceAll(message, token, "xxxxx")
+	}
+	return message
+}
+
 func diskVolumeKey(path string, total, free uint64) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -3425,6 +3469,7 @@ func snapshotDatabaseForBackup(ctx context.Context, cfg config.DatabaseConfig, d
 func createBackup(fileLocation string, interactive bool) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
 	cfg := config.GetApplicationConfig()
+	snapshotAt := time.Now().UTC()
 
 	password := cfg.Server.Backup.EncryptionPassword
 	if password == "" && interactive {
@@ -3444,23 +3489,38 @@ func createBackup(fileLocation string, interactive bool) error {
 	}
 
 	backupDir := resolveBackupDir()
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	isScheduledDefaultLocation := fileLocation == ""
+	isScheduledDefaultLocation := fileLocation == "" && !interactive
 	if fileLocation == "" {
-		date := time.Now().UTC().Format("2006-01-02")
+		date := snapshotAt.Format("2006-01-02")
 		ext := "tar.gz"
 		if password != "" {
 			ext = "tar.gz.enc"
 		}
-		fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s_backup_%s.%s", ProjectName, date, ext))
+		if isScheduledDefaultLocation {
+			fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s_backup_%s.%s", ProjectName, date, ext))
+		} else {
+			fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s_backup_%s_%s.%s", ProjectName, date, snapshotAt.Format("150405"), ext))
+		}
+		if _, err := os.Stat(fileLocation); err == nil {
+			stem := fmt.Sprintf("%s_backup_%s_%s", ProjectName, date, snapshotAt.Format("150405"))
+			fileLocation = filepath.Join(backupDir, stem+"."+ext)
+			for suffix := 1; ; suffix++ {
+				if _, statErr := os.Stat(fileLocation); os.IsNotExist(statErr) {
+					break
+				} else if statErr != nil {
+					return fmt.Errorf("inspect backup destination %s: %w", fileLocation, statErr)
+				}
+				fileLocation = filepath.Join(backupDir, fmt.Sprintf("%s_%d.%s", stem, suffix, ext))
+			}
+		}
 	}
 
 	fmt.Printf("Creating backup: %s\n", fileLocation)
-
-	if err := backup.CreateBackupArchive(fileLocation, backup.BackupArchiveOptions{
+	backupOpts := backup.BackupArchiveOptions{
 		ConfigDir: configDir,
 		DataDir:   dataDir,
 		DatabaseSnapshot: func(ctx context.Context, destination string) error {
@@ -3472,35 +3532,39 @@ func createBackup(fileLocation string, interactive bool) error {
 		ComplianceEnabled:  cfg.Server.Compliance.IsEnabled(),
 		AppVersion:         Version,
 		CreatedBy:          ProjectName,
-	}); err != nil {
-		if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
-			"filename": filepath.Base(fileLocation),
-			"error":    err.Error(),
-		}); sendErr != nil {
-			log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
-		}
-		return fmt.Errorf("%w: %w", err, notify.ErrSuppressScheduler)
+		SnapshotAt:         snapshotAt,
 	}
-
-	if err := backup.Verify(fileLocation, password); err != nil {
-		_ = os.Remove(fileLocation)
-		if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
-			"filename": filepath.Base(fileLocation),
-			"error":    err.Error(),
-		}); sendErr != nil {
-			log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
-		}
-		return fmt.Errorf("backup verification failed, removed: %w: %w", err, notify.ErrSuppressScheduler)
-	}
-
+	pairCreated := false
 	if isScheduledDefaultLocation {
-		// Scheduled/default-location run (backup_daily task, AI.md PART 21
-		// "Backup Creation Flow" steps 5-6): also refresh the daily
-		// incremental. A manual "--maintenance backup {custom-file}" run
-		// never reaches this branch, since it always passes an explicit
-		// fileLocation - it only produces the file the operator asked for.
-		if incErr := createIncrementalBackup("daily"); incErr != nil {
-			log.Printf("Warning: daily incremental backup failed: %v", incErr)
+		var err error
+		pairCreated, err = createScheduledBackupPair(fileLocation, backupDir, password, backupOpts, cfg)
+		if err != nil {
+			if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{"filename": filepath.Base(fileLocation), "error": err.Error()}); sendErr != nil {
+				log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
+			}
+			return fmt.Errorf("scheduled backup pair failed: %w: %w", err, notify.ErrSuppressScheduler)
+		}
+	}
+	if !pairCreated {
+		if err := backup.CreateBackupArchive(fileLocation, backupOpts); err != nil {
+			if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
+				"filename": filepath.Base(fileLocation),
+				"error":    err.Error(),
+			}); sendErr != nil {
+				log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
+			}
+			return fmt.Errorf("%w: %w", err, notify.ErrSuppressScheduler)
+		}
+
+		if err := backup.VerifyWithLimits(fileLocation, password, configuredRestoreLimits(cfg)); err != nil {
+			_ = os.Remove(fileLocation)
+			if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
+				"filename": filepath.Base(fileLocation),
+				"error":    err.Error(),
+			}); sendErr != nil {
+				log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
+			}
+			return fmt.Errorf("backup verification failed, removed: %w: %w", err, notify.ErrSuppressScheduler)
 		}
 	}
 
@@ -3536,6 +3600,187 @@ func createBackup(fileLocation string, interactive bool) error {
 	return nil
 }
 
+func createScheduledBackupPair(fullPath, backupDir, password string, opts backup.BackupArchiveOptions, cfg *config.ApplicationConfig) (bool, error) {
+	basePath, baseManifest, err := latestFullBackup(backupDir, password)
+	if err != nil {
+		return false, err
+	}
+	if basePath == "" {
+		log.Printf("INFO: skipping daily incremental backup: no previous full backup")
+		return false, nil
+	}
+	matched, corrupt, err := backupPasswordMatchesBase(basePath, password)
+	if err != nil {
+		return false, err
+	}
+	if corrupt {
+		log.Printf("WARN: skipping daily incremental backup: previous full backup header is corrupt: %s", filepath.Base(basePath))
+		return false, nil
+	}
+	if !matched {
+		log.Printf("INFO: skipping daily incremental backup because backup encryption password changed")
+		return false, nil
+	}
+	if baseManifest == nil {
+		log.Printf("WARN: skipping daily incremental backup because previous full backup is corrupt: %s", filepath.Base(basePath))
+		return false, nil
+	}
+	ext := "tar.gz"
+	if password != "" {
+		ext = "tar.gz.enc"
+	}
+	incPath := filepath.Join(backupDir, fmt.Sprintf("%s-daily.%s", ProjectName, ext))
+	incTemp, err := createTemporaryBackupPath(backupDir, ProjectName+"-daily", ext)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err := os.Remove(incTemp); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("WARN: failed to remove temporary incremental backup %s: %v", incTemp, err)
+		}
+	}()
+	fullTemp, err := createTemporaryBackupPath(backupDir, ProjectName+"-full", ext)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err := os.Remove(fullTemp); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("WARN: failed to remove temporary full backup %s: %v", fullTemp, err)
+		}
+	}()
+	incOpts := opts
+	incOpts.BackupType = "incremental"
+	incOpts.BaseBackup = filepath.Base(basePath)
+	incOpts.BaseArchivePath = basePath
+	incOpts.BaseSHA256 = baseManifest.Checksum
+	if err := backup.CreateBackupPair(incTemp, fullTemp, incOpts); err != nil {
+		return false, err
+	}
+	limits := configuredRestoreLimits(cfg)
+	if err := backup.VerifyWithLimits(incTemp, password, limits); err != nil {
+		return false, fmt.Errorf("daily incremental verification: %w", err)
+	}
+	if err := backup.VerifyWithLimits(fullTemp, password, limits); err != nil {
+		return false, fmt.Errorf("full backup verification: %w", err)
+	}
+	if err := finalizeBackupPair(fullTemp, fullPath, incTemp, incPath, backupDir); err != nil {
+		return false, err
+	}
+	previousExt := "tar.gz"
+	if ext == "tar.gz" {
+		previousExt = "tar.gz.enc"
+	}
+	previousPath := filepath.Join(backupDir, fmt.Sprintf("%s-daily.%s", ProjectName, previousExt))
+	if previousPath != incPath {
+		if err := os.Remove(previousPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: could not remove replaced daily incremental %s: %v", previousPath, err)
+		}
+	}
+	return true, nil
+}
+
+func finalizeBackupPair(fullTemp, fullPath, incTemp, incPath, backupDir string) error {
+	return finalizeBackupPairWithRename(fullTemp, fullPath, incTemp, incPath, backupDir, os.Rename)
+}
+
+func finalizeBackupPairWithRename(fullTemp, fullPath, incTemp, incPath, backupDir string, rename func(string, string) error) error {
+	fullBackup, hadFull, err := stageBackupForReplacement(fullPath, "full", backupDir, rename)
+	if err != nil {
+		return fmt.Errorf("stage previous full backup: %w", err)
+	}
+	incBackup, hadIncremental, err := stageBackupForReplacement(incPath, "incremental", backupDir, rename)
+	if err != nil {
+		rollbackErr := restoreBackupPair(fullPath, fullBackup, hadFull, incPath, incBackup, hadIncremental, false, rename)
+		return errors.Join(fmt.Errorf("stage previous daily incremental: %w", err), rollbackErr)
+	}
+	if err := rename(fullTemp, fullPath); err != nil {
+		rollbackErr := restoreBackupPair(fullPath, fullBackup, hadFull, incPath, incBackup, hadIncremental, false, rename)
+		return errors.Join(fmt.Errorf("finalize full backup: %w", err), rollbackErr)
+	}
+	if err := rename(incTemp, incPath); err != nil {
+		rollbackErr := restoreBackupPair(fullPath, fullBackup, hadFull, incPath, incBackup, hadIncremental, true, rename)
+		return errors.Join(fmt.Errorf("finalize daily incremental: %w", err), rollbackErr)
+	}
+	removeBackupRollbackFile(fullBackup)
+	removeBackupRollbackFile(incBackup)
+	return nil
+}
+
+func stageBackupForReplacement(destination, label, backupDir string, rename func(string, string) error) (string, bool, error) {
+	if _, err := os.Lstat(destination); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	backupPath, err := createTemporaryBackupPath(backupDir, ProjectName+"-rollback-"+label, backupArchiveExtension(destination))
+	if err != nil {
+		return "", false, err
+	}
+	if err := rename(destination, backupPath); err != nil {
+		cleanupErr := os.Remove(backupPath)
+		if cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			return "", false, errors.Join(err, fmt.Errorf("remove unused rollback path %s: %w", backupPath, cleanupErr))
+		}
+		return "", false, err
+	}
+	return backupPath, true, nil
+}
+
+func backupArchiveExtension(path string) string {
+	if strings.HasSuffix(path, ".tar.gz.enc") {
+		return "tar.gz.enc"
+	}
+	return "tar.gz"
+}
+
+func restoreBackupPair(fullPath, fullBackup string, hadFull bool, incPath, incBackup string, hadIncremental, fullInstalled bool, rename func(string, string) error) error {
+	var rollbackErrors []error
+	canRestoreFull := true
+	if fullInstalled {
+		if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			canRestoreFull = false
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("remove newly finalized full backup: %w", err))
+		}
+	}
+	if hadFull && canRestoreFull {
+		if err := rename(fullBackup, fullPath); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("restore previous full backup from %s: %w", fullBackup, err))
+		}
+	}
+	if hadIncremental {
+		if err := rename(incBackup, incPath); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("restore previous daily incremental from %s: %w", incBackup, err))
+		}
+	}
+	return errors.Join(rollbackErrors...)
+}
+
+func removeBackupRollbackFile(path string) {
+	if path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("WARN: failed to remove backup rollback file %s: %v", path, err)
+	}
+}
+
+func createTemporaryBackupPath(directory, prefix, extension string) (string, error) {
+	file, err := os.CreateTemp(directory, "."+prefix+"-pending-*"+"."+extension)
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := os.Remove(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // createIncrementalBackup creates or replaces the fixed-name "{project}-{kind}"
 // incremental backup file ({project_name}-{kind}.tar.gz[.enc]) in the
 // default backup directory, per AI.md PART 21 "Backup Files Created" —
@@ -3548,6 +3793,10 @@ func createBackup(fileLocation string, interactive bool) error {
 // existing backup — full or incremental — untouched, matching the full
 // backup's own fail-safe behavior.
 func createIncrementalBackup(kind string) error {
+	return createIncrementalBackupAt(kind, time.Now().UTC())
+}
+
+func createIncrementalBackupAt(kind string, snapshotAt time.Time) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
 	cfg := config.GetApplicationConfig()
 
@@ -3559,8 +3808,31 @@ func createIncrementalBackup(kind string) error {
 	}
 
 	backupDir := resolveBackupDir()
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+	basePath, baseManifest, err := latestFullBackup(backupDir, password)
+	if err != nil {
+		return err
+	}
+	if basePath == "" {
+		if kind == "daily" {
+			log.Printf("INFO: skipping daily incremental backup: no previous full backup")
+		}
+		return nil
+	}
+	if matched, corrupt, err := backupPasswordMatchesBase(basePath, password); err != nil {
+		return err
+	} else if corrupt {
+		log.Printf("WARN: skipping %s incremental backup: previous full backup header is corrupt: %s", kind, filepath.Base(basePath))
+		return nil
+	} else if !matched {
+		log.Printf("INFO: skipping %s incremental backup because backup encryption password changed", kind)
+		return nil
+	}
+	if baseManifest == nil {
+		log.Printf("WARN: skipping %s incremental backup because previous full backup is corrupt: %s", kind, filepath.Base(basePath))
+		return nil
 	}
 
 	ext := "tar.gz"
@@ -3568,8 +3840,20 @@ func createIncrementalBackup(kind string) error {
 		ext = "tar.gz.enc"
 	}
 	fileLocation := filepath.Join(backupDir, fmt.Sprintf("%s-%s.%s", ProjectName, kind, ext))
+	tempFile, err := os.CreateTemp(backupDir, "."+ProjectName+"-"+kind+"-pending-*"+"."+ext)
+	if err != nil {
+		return fmt.Errorf("create incremental temporary file: %w", err)
+	}
+	tempLocation := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempLocation)
+		return err
+	}
+	if err := os.Remove(tempLocation); err != nil {
+		return err
+	}
 
-	if err := backup.CreateBackupArchive(fileLocation, backup.BackupArchiveOptions{
+	if err := backup.CreateBackupArchive(tempLocation, backup.BackupArchiveOptions{
 		ConfigDir: configDir,
 		DataDir:   dataDir,
 		DatabaseSnapshot: func(ctx context.Context, destination string) error {
@@ -3581,7 +3865,13 @@ func createIncrementalBackup(kind string) error {
 		ComplianceEnabled:  cfg.Server.Compliance.IsEnabled(),
 		AppVersion:         Version,
 		CreatedBy:          ProjectName,
+		BackupType:         "incremental",
+		SnapshotAt:         snapshotAt,
+		BaseBackup:         filepath.Base(basePath),
+		BaseArchivePath:    basePath,
+		BaseSHA256:         baseManifest.Checksum,
 	}); err != nil {
+		_ = os.Remove(tempLocation)
 		if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
 			"filename": filepath.Base(fileLocation),
 			"error":    err.Error(),
@@ -3591,8 +3881,8 @@ func createIncrementalBackup(kind string) error {
 		return fmt.Errorf("%s incremental backup failed: %w", kind, err)
 	}
 
-	if err := backup.Verify(fileLocation, password); err != nil {
-		_ = os.Remove(fileLocation)
+	if err := backup.VerifyWithLimits(tempLocation, password, configuredRestoreLimits(cfg)); err != nil {
+		_ = os.Remove(tempLocation)
 		if sendErr := notify.Send(cfg, configDir, "backup_failed", notifyRecipient(cfg), map[string]string{
 			"filename": filepath.Base(fileLocation),
 			"error":    err.Error(),
@@ -3600,6 +3890,20 @@ func createIncrementalBackup(kind string) error {
 			log.Printf("Warning: failed to send backup_failed notification email: %v", sendErr)
 		}
 		return fmt.Errorf("%s incremental backup verification failed, removed: %w", kind, err)
+	}
+	if err := os.Rename(tempLocation, fileLocation); err != nil {
+		_ = os.Remove(tempLocation)
+		return fmt.Errorf("%s incremental backup finalize failed: %w", kind, err)
+	}
+	previousExt := "tar.gz"
+	if ext == "tar.gz" {
+		previousExt = "tar.gz.enc"
+	}
+	previousLocation := filepath.Join(backupDir, fmt.Sprintf("%s-%s.%s", ProjectName, kind, previousExt))
+	if previousLocation != fileLocation {
+		if err := os.Remove(previousLocation); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: could not remove replaced incremental %s: %v", previousLocation, err)
+		}
 	}
 
 	backupSize := ""
@@ -3617,6 +3921,110 @@ func createIncrementalBackup(kind string) error {
 	return nil
 }
 
+func latestFullBackup(backupDir, password string) (string, *backup.Manifest, error) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return "", nil, err
+	}
+	prefix := ProjectName + "_backup_"
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !isBackupArchiveFile(name) {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "", nil, nil
+	}
+	sort.Strings(names)
+	for i := len(names) - 1; i >= 0; i-- {
+		path := filepath.Join(backupDir, names[i])
+		manifest, err := backup.ReadManifest(path, password)
+		if err == nil {
+			if manifest.Type == "full" {
+				return path, manifest, nil
+			}
+			return path, nil, nil
+		}
+		if strings.HasSuffix(names[i], ".enc") || err != nil {
+			return path, nil, nil
+		}
+	}
+	return "", nil, nil
+}
+
+func newestBackupBySnapshot(backupDir string) (string, error) {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return "", fmt.Errorf("no backups found in %s: %w", backupDir, err)
+	}
+	var newestByTime os.FileInfo
+	var newestPath string
+	var newestManifestPath string
+	var newestSnapshot time.Time
+	hasEncrypted := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !isBackupArchiveFile(name) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		path := filepath.Join(backupDir, name)
+		if newestByTime == nil || info.ModTime().After(newestByTime.ModTime()) {
+			newestByTime, newestPath = info, path
+		}
+		if strings.HasSuffix(strings.ToLower(name), ".enc") {
+			hasEncrypted = true
+			continue
+		}
+		manifest, err := backup.ReadManifest(path, "")
+		if err != nil {
+			continue
+		}
+		snapshot, err := time.Parse(time.RFC3339, manifest.SnapshotAt)
+		if err == nil && (newestManifestPath == "" || snapshot.After(newestSnapshot)) {
+			newestSnapshot, newestManifestPath = snapshot, path
+		}
+	}
+	if newestPath == "" {
+		return "", fmt.Errorf("no backup files found")
+	}
+	// Encrypted manifests require the operator-supplied password. Select by
+	// filesystem modification time when any encrypted archive is present.
+	if !hasEncrypted && newestManifestPath != "" {
+		return newestManifestPath, nil
+	}
+	return newestPath, nil
+}
+
+func isBackupArchiveFile(name string) bool {
+	return strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tar.gz.enc")
+}
+
+func backupPasswordMatchesBase(path, password string) (matched, corrupt bool, err error) {
+	if strings.HasSuffix(strings.ToLower(path), ".enc") {
+		blob, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return false, false, readErr
+		}
+		header, parseErr := backup.ParseEncryptionHeader(blob)
+		if parseErr != nil {
+			return false, true, nil
+		}
+		if password == "" {
+			return false, false, nil
+		}
+		matched, matchErr := backup.PasswordMatchesHeader(password, header)
+		return matched, false, matchErr
+	}
+	return password == "", false, nil
+}
+
 // backupMaxTotalSizeBytes resolves server.backup.retention.max_total_size
 // (percent or absolute string) to a byte count via the backup package's
 // parser. Falls back to 0 (disabled) on parse failure.
@@ -3628,13 +4036,21 @@ func backupMaxTotalSizeBytes(cfg *config.ApplicationConfig, backupDir string) (i
 	return backup.ParseMaxTotalSize(value, backupDir)
 }
 
-// authorizeRestore enforces the AI.md PART 21 "Restore Authorization" table
-// before any destructive restore work happens: an empty database (first run)
-// and root are allowed outright, the service user must present the operator
-// token from server.token, and anyone else is denied. The provided token is
-// read from an interactive prompt rather than a flag or environment
-// variable so it never lands in shell history or the process list.
-func authorizeRestore(configDir string, interactive bool) error {
+func configuredRestoreLimits(cfg *config.ApplicationConfig) backup.RestoreLimits {
+	if cfg == nil {
+		cfg = config.DefaultApplicationConfig()
+	}
+	settings := cfg.Server.Restore
+	return backup.RestoreLimits{
+		MaxArchiveSize:  settings.MaxArchiveBytes(),
+		MaxExpandedSize: settings.MaxExpandedBytes(),
+		MaxFiles:        settings.MaxFiles,
+		MaxFileSize:     settings.MaxFileBytes(),
+		MaxRatio:        settings.MaxRatio,
+	}
+}
+
+func authorizeRestoreWithConfirmation(configDir string, interactive, terminal bool, readInput func(string, int) (string, error)) error {
 	dbIsEmpty := true
 	dbFile := filepath.Join(paths.GetSQLiteDBPath(ProjectName), "server.db")
 	if info, err := os.Stat(dbFile); err == nil && info.Size() > 0 {
@@ -3661,8 +4077,28 @@ func authorizeRestore(configDir string, interactive bool) error {
 		}
 	}
 
-	if _, err := backup.AuthorizeRestore(dbIsEmpty, runningAsRoot, providedToken, configuredToken); err != nil {
+	authorization, err := backup.AuthorizeRestore(dbIsEmpty, runningAsRoot, providedToken, configuredToken)
+	if err != nil {
 		return err
+	}
+	if authorization == backup.RestoreAllowedRoot && !dbIsEmpty {
+		if err := confirmRootRestore(interactive, terminal, readInput); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func confirmRootRestore(interactive, terminal bool, readInput func(string, int) (string, error)) error {
+	if !interactive || !terminal {
+		return errors.New("restore as root requires an interactive confirmation")
+	}
+	answer, err := readInput("This will overwrite all server data. Type RESTORE to confirm: ", 80)
+	if err != nil {
+		return fmt.Errorf("restore confirmation: %w", err)
+	}
+	if answer != "RESTORE" {
+		return errors.New("restore cancelled")
 	}
 	return nil
 }
@@ -3672,31 +4108,27 @@ func authorizeRestore(configDir string, interactive bool) error {
 // in the default backup directory. interactive controls whether a missing
 // decryption password is prompted for.
 func restoreBackup(fileLocation string, interactive bool) error {
+	return restoreBackupWithAuthorizer(fileLocation, interactive, func(configDir string) error {
+		return authorizeRestoreWithConfirmation(configDir, interactive, term.IsTerminal(int(os.Stdin.Fd())), readRequiredPGPInput)
+	})
+}
+
+func restoreBackupWithAuthorizer(fileLocation string, interactive bool, authorize func(string) error) error {
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
 
 	if fileLocation == "" {
 		backupDir := resolveBackupDir()
-		entries, err := os.ReadDir(backupDir)
+		var err error
+		fileLocation, err = newestBackupBySnapshot(backupDir)
 		if err != nil {
-			return fmt.Errorf("no backups found in %s", backupDir)
+			return err
 		}
-
-		var latest string
-		for _, entry := range entries {
-			name := entry.Name()
-			if strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tar.gz.enc") {
-				if latest == "" || name > latest {
-					latest = name
-				}
-			}
-		}
-		if latest == "" {
-			return fmt.Errorf("no backup files found")
-		}
-		fileLocation = filepath.Join(backupDir, latest)
 	}
 
-	if err := authorizeRestore(configDir, interactive); err != nil {
+	if authorize == nil {
+		return errors.New("restore: authorization is required")
+	}
+	if err := authorize(configDir); err != nil {
 		return err
 	}
 
@@ -3709,6 +4141,9 @@ func restoreBackup(fileLocation string, interactive bool) error {
 		if err != nil {
 			return err
 		}
+		if password == "" {
+			return fmt.Errorf("an encrypted backup requires a password; run restore from a terminal to enter it")
+		}
 	}
 
 	err := backup.RestoreBackupArchive(fileLocation, backup.BackupRestoreOptions{
@@ -3716,6 +4151,7 @@ func restoreBackup(fileLocation string, interactive bool) error {
 		DataDir:    dataDir,
 		Password:   password,
 		AppVersion: Version,
+		Limits:     configuredRestoreLimits(config.GetApplicationConfig()),
 	})
 	var mismatch *backup.VersionMismatchWarning
 	if err != nil {
@@ -3728,6 +4164,33 @@ func restoreBackup(fileLocation string, interactive bool) error {
 	}
 
 	fmt.Println("Restore completed successfully")
+	return nil
+}
+
+func testBackup(fileLocation string, interactive bool) error {
+	if fileLocation == "" {
+		backupDir := resolveBackupDir()
+		var err error
+		fileLocation, err = newestBackupBySnapshot(backupDir)
+		if err != nil {
+			return err
+		}
+	}
+	password := ""
+	if strings.HasSuffix(strings.ToLower(fileLocation), ".enc") {
+		if !interactive || !term.IsTerminal(int(os.Stdin.Fd())) {
+			return fmt.Errorf("encrypted backup test requires an interactive terminal to enter the password")
+		}
+		var err error
+		password, err = promptBackupPassword("Backup decryption password: ")
+		if err != nil {
+			return err
+		}
+	}
+	if err := backup.VerifyWithLimits(fileLocation, password, configuredRestoreLimits(config.GetApplicationConfig())); err != nil {
+		return fmt.Errorf("backup test failed: %w", err)
+	}
+	fmt.Printf("Backup verified successfully: %s\n", fileLocation)
 	return nil
 }
 
@@ -4119,7 +4582,7 @@ func checkAndUpdate() error {
 	// Download into the project-scoped OS temp namespace so maintenance can
 	// reclaim interrupted update artifacts after they age beyond 24 hours.
 	tempOrgDir := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(tempOrgDir, 0700); err != nil {
+	if err := os.MkdirAll(tempOrgDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create project temp namespace: %w", err)
 	}
 	tempDir, err := os.MkdirTemp(tempOrgDir, ProjectName+"-")
@@ -4161,7 +4624,7 @@ func checkAndUpdate() error {
 	}
 
 	// Replace binary atomically
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+	if err := os.Chmod(tmpFile.Name(), 0o755); err != nil {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
@@ -4706,8 +5169,10 @@ func loadDefaultSchedulerLocation(defaultTimezone string) *time.Location {
 
 // colorSetting holds the validated --color CLI flag value (auto/yes/no) for
 // the startup banner's color priority.
-var colorSetting = "auto"
-var outputEmojiSetting *bool
+var (
+	colorSetting       = "auto"
+	outputEmojiSetting *bool
+)
 
 // resolveColorSetting validates the --color flag value (auto/yes/no,
 // case-sensitive per AI.md PART 8), defaults an empty value to "auto",

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,6 +27,45 @@ func closeTestResource(t *testing.T, name string, closeResource func() error) {
 			t.Errorf("close %s: %v", name, err)
 		}
 	})
+}
+
+func TestFinalizeBackupPairRestoresPreviousPairWhenIncrementalRenameFails(t *testing.T) {
+	backupDir := newMainTestDir(t)
+	fullPath := filepath.Join(backupDir, "airports_backup_previous.tar.gz")
+	incPath := filepath.Join(backupDir, "airports-daily.tar.gz")
+	fullTemp := filepath.Join(backupDir, "full.pending.tar.gz")
+	incTemp := filepath.Join(backupDir, "incremental.pending.tar.gz")
+	files := map[string]string{
+		fullPath: "previous full",
+		incPath:  "previous incremental",
+		fullTemp: "new full",
+		incTemp:  "new incremental",
+	}
+	for path, content := range files {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	rename := func(oldPath, newPath string) error {
+		if oldPath == incTemp && newPath == incPath {
+			return errors.New("injected incremental rename failure")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	err := finalizeBackupPairWithRename(fullTemp, fullPath, incTemp, incPath, backupDir, rename)
+	if err == nil {
+		t.Fatal("finalizeBackupPairWithRename() succeeded after the incremental rename failed")
+	}
+	for path, want := range map[string]string{fullPath: "previous full", incPath: "previous incremental"} {
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read restored %s: %v", path, err)
+		}
+		if string(got) != want {
+			t.Errorf("restored %s = %q, want %q", path, got, want)
+		}
+	}
 }
 
 func TestParseDataMaintenanceArgs(t *testing.T) {
@@ -218,11 +258,11 @@ func TestRunMaintenanceSecretRotateEncryptionKey(t *testing.T) {
 func TestMaintenancePrivateWriters(t *testing.T) {
 	root := newMainTestDir(t)
 	secretPath := filepath.Join(root, "security", "pgp.priv.asc.enc")
-	if err := atomicPGPWrite(secretPath, []byte("private"), 0600); err != nil {
+	if err := atomicPGPWrite(secretPath, []byte("private"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(secretPath)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("private file mode = %v, err=%v", info, err)
 	}
 	if err := writeExclusivePrivateFile(filepath.Join(root, "exclusive"), []byte("once")); err != nil {
@@ -350,7 +390,7 @@ func TestRotatePGPKeyReencryptsReportsAndKeepsRecoveryKey(t *testing.T) {
 	if err := pgp.WritePrivate(privatePath, secret, oldKey.Private); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicPGPWrite(publicPath, oldKey.Public, 0600); err != nil {
+	if err := atomicPGPWrite(publicPath, oldKey.Public, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := savePGPMetadata(database, pgpMetadata{Fingerprint: oldKey.Fingerprint, KeyserversPublished: map[string]string{}}); err != nil {
@@ -427,7 +467,7 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 	if err := pgp.WritePrivate(privatePath, secret, key.Private); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicPGPWrite(publicPath, key.Public, 0600); err != nil {
+	if err := atomicPGPWrite(publicPath, key.Public, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := savePGPMetadata(database, pgpMetadata{Fingerprint: key.Fingerprint}); err != nil {
@@ -435,7 +475,7 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 	}
 	logs := logging.NewLogManager(filepath.Join(root, "logs"), logging.LogManagerConfig{})
 	closeTestResource(t, "log manager", logs.Close)
-	if err := os.MkdirAll(filepath.Join(root, "export"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "export"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	exportedPath := filepath.Join(root, "export", "pgp.priv.asc")
@@ -443,7 +483,7 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 		t.Fatalf("export private key: %v", err)
 	}
 	info, err := os.Stat(exportedPath)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("exported private key mode = %v, err=%v", info, err)
 	}
 	exported, err := os.ReadFile(exportedPath)
@@ -460,7 +500,7 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"pgp.priv.old.asc.enc", "pgp.pub.asc.sig", "keyservers.state"} {
-		if err := atomicPGPWrite(filepath.Join(keyDir, name), []byte("recovery data"), 0600); err != nil {
+		if err := atomicPGPWrite(filepath.Join(keyDir, name), []byte("recovery data"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -493,7 +533,7 @@ func TestImportPGPPrivateKeyPersistsIdentityAndPublishingState(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputPath := filepath.Join(root, "import.asc")
-	if err := os.WriteFile(inputPath, key.Private, 0600); err != nil {
+	if err := os.WriteFile(inputPath, key.Private, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	keyDir := filepath.Join(root, "security")
@@ -542,7 +582,7 @@ func TestPGPKeyserverFailureIsRecordedAndRemovedTargetCleared(t *testing.T) {
 	}
 	keyDir := filepath.Join(root, "security")
 	publicPath := filepath.Join(keyDir, "pgp.pub.asc")
-	if err := atomicPGPWrite(publicPath, []byte("public key"), 0600); err != nil {
+	if err := atomicPGPWrite(publicPath, []byte("public key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := savePGPMetadata(database, pgpMetadata{Fingerprint: "ABCDEF", KeyserversPublished: map[string]string{}, KeyserverRetries: map[string]pgpRetryState{}}); err != nil {
@@ -754,7 +794,7 @@ func TestCleanupSecurityRetentionRemovesExpiredState(t *testing.T) {
 	}
 	keyDir := filepath.Join(root, "security")
 	oldPrivateKey := filepath.Join(keyDir, "pgp.priv.old.asc.enc")
-	if err := atomicPGPWrite(oldPrivateKey, []byte("retired key"), 0600); err != nil {
+	if err := atomicPGPWrite(oldPrivateKey, []byte("retired key"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`CREATE TABLE security_reports (tracking_id TEXT PRIMARY KEY, closed_at TEXT)`); err != nil {
@@ -832,18 +872,18 @@ func TestComplianceCountsAndAuditEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	backupDir := filepath.Join(root, "backups")
-	if err := os.MkdirAll(backupDir, 0700); err != nil {
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	backupPath := filepath.Join(backupDir, "snapshot.zip")
-	if err := os.WriteFile(backupPath, []byte("backup"), 0600); err != nil {
+	if err := os.WriteFile(backupPath, []byte("backup"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	owners, resources, tokens, reports, events, lastBackup, err := complianceCounts(database, backupDir, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if owners != 2 || resources != 2 || tokens != 1 || reports != 1 || events != 2 || lastBackup == "none" {
+	if owners != 3 || resources != 2 || tokens != 1 || reports != 1 || events != 2 || lastBackup == "none" {
 		t.Fatalf("complianceCounts() = %d, %d, %d, %d, %d, %q", owners, resources, tokens, reports, events, lastBackup)
 	}
 	owner, err := resolveOwnerByPrefix(database, "own_12345678")
@@ -859,7 +899,7 @@ func TestComplianceCountsAndAuditEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	exportInfo, err := os.Stat(exportPath)
-	if err != nil || exportInfo.Mode().Perm() != 0600 {
+	if err != nil || exportInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("owner export mode = %v, err=%v", exportInfo, err)
 	}
 	export, err := os.ReadFile(exportPath)
@@ -894,7 +934,7 @@ func TestComplianceCountsAndAuditEvents(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM api_tokens`).Scan(&remainingTokens); err != nil {
 		t.Fatal(err)
 	}
-	if remainingOwners != 1 || remainingTokens != 0 {
+	if remainingOwners != 2 || remainingTokens != 0 {
 		t.Fatalf("owner deletion left %d owner(s) and %d token(s)", remainingOwners, remainingTokens)
 	}
 	var ownerAResources, ownerBResources int

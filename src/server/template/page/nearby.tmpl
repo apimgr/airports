@@ -105,6 +105,7 @@
                     </div>
                     <div class="airport-result-details">
                         <span>📍 {{.City}}, {{.Country}}</span>
+                        <span>{{t "airport.type_label"}}: {{.Type}}</span>
                         <span>✈️ {{.Elevation}} ft</span>
                         <span>🌐 {{printf "%.4f" .Lat}}, {{printf "%.4f" .Lon}}</span>
                         <a href="https://www.openstreetmap.org/?mlat={{.Lat}}&mlon={{.Lon}}#map=12/{{.Lat}}/{{.Lon}}" target="_blank" rel="noopener">{{t "airport.view_on_map"}}</a>

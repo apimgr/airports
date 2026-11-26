@@ -5,7 +5,6 @@ package service
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -142,44 +141,11 @@ func HandleEscalation(action string) error {
 // attempt to daemonize itself again (Daemonize is a no-op once this is set).
 const daemonizedEnvVar = "AIRPORTS_DAEMONIZED"
 
-// Daemonize detaches the current process from its console, per AI.md "Server
-// Binary Commands" `--daemon`. Windows has no fork()/setsid() equivalent, so
-// this re-launches the current binary with the same argv as a fully detached
-// process (DETACHED_PROCESS: no console inherited, CREATE_NEW_PROCESS_GROUP:
-// immune to the parent console's Ctrl+C/Ctrl+Break), with stdio redirected to
-// NUL, prints the child's PID, and exits the parent. Returns nil without side
-// effects when already running as the detached child.
+// Daemonize keeps the process in the foreground on Windows. The --daemon flag
+// is unsupported; Windows Services provide background operation.
 func Daemonize() error {
-	if os.Getenv(daemonizedEnvVar) == "1" {
-		return nil
-	}
-
-	nul, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("failed to open %s: %w", os.DevNull, err)
-	}
-	defer nul.Close()
-
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to resolve executable path: %w", err)
-	}
-
-	cmd := exec.Command(execPath, os.Args[1:]...)
-	cmd.Env = append(os.Environ(), daemonizedEnvVar+"=1")
-	cmd.Stdin = nul
-	cmd.Stdout = nul
-	cmd.Stderr = nul
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP,
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start daemon child: %w", err)
-	}
-
-	fmt.Printf("Daemonized as PID %d\n", cmd.Process.Pid)
-	os.Exit(0)
+	fmt.Fprintln(os.Stderr, "Warning: --daemon is not supported on Windows")
+	fmt.Fprintln(os.Stderr, "Use --service --install for Windows Service (it also enables and starts it)")
 	return nil
 }
 

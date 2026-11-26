@@ -56,7 +56,7 @@ func (s *Server) accessLogger(next http.Handler) http.Handler {
 
 func isHealthCheckPath(path string) bool {
 	switch path {
-	case "/server/healthz", "/server/healthz.txt", "/healthz", "/healthz.txt", "/api/healthz", "/api/healthz.txt":
+	case "/server/healthz", "/healthz", "/api/healthz":
 		return true
 	}
 	parts := strings.Split(path, "/")

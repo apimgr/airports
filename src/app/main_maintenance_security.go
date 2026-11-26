@@ -16,7 +16,7 @@ import (
 	"github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/logging"
 	"github.com/apimgr/airports/src/notify"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/server"
 	"github.com/apimgr/airports/src/service"
 )

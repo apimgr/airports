@@ -63,7 +63,7 @@ func TestStageReleaseBinaryVerifiesAndPublishesArtifacts(t *testing.T) {
 			t.Errorf("staged %s = %q, want %q", name, got, want)
 		}
 	}
-	if info, err := os.Stat(stageDir); err != nil || info.Mode().Perm() != 0700 {
+	if info, err := os.Stat(stageDir); err != nil || info.Mode().Perm() != 0o700 {
 		t.Errorf("staging directory permissions = %v, error = %v; want 0700", info, err)
 	}
 }
@@ -193,19 +193,19 @@ func TestApplyStagedUpdateRejectsIneligibleAndCorruptUpdates(t *testing.T) {
 		t.Fatalf("unprivileged staged update = %+v, want no action", failure)
 	}
 	stageDir := filepath.Join(dataDir, "update")
-	if err := os.MkdirAll(stageDir, 0700); err != nil {
+	if err := os.MkdirAll(stageDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".new"), []byte("corrupt"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".new"), []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".version"), []byte("99.0.0"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".version"), []byte("99.0.0"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".previous_version"), []byte("1.0.0"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".previous_version"), []byte("1.0.0"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".sha256"), []byte(strings.Repeat("0", sha256.Size*2)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".sha256"), []byte(strings.Repeat("0", sha256.Size*2)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	failure := applyStagedUpdate(dataDir, true)
@@ -228,16 +228,16 @@ func TestApplyStagedUpdateCleansIncompleteAndCurrentVersion(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			dataDir := t.TempDir()
 			stageDir := filepath.Join(dataDir, "update")
-			if err := os.MkdirAll(stageDir, 0700); err != nil {
+			if err := os.MkdirAll(stageDir, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".new"), []byte("staged"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(stageDir, ProjectName+".new"), []byte("staged"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".version"), []byte(test.version), 0600)
+			_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".version"), []byte(test.version), 0o600)
 			if test.name == "already current" {
-				_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".previous_version"), []byte("older"), 0600)
-				_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".sha256"), []byte(strings.Repeat("0", sha256.Size*2)), 0600)
+				_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".previous_version"), []byte("older"), 0o600)
+				_ = os.WriteFile(filepath.Join(stageDir, ProjectName+".sha256"), []byte(strings.Repeat("0", sha256.Size*2)), 0o600)
 			}
 			failure := applyStagedUpdate(dataDir, true)
 			if test.name == "incomplete metadata" && (failure == nil || !strings.Contains(failure.cause.Error(), "metadata is incomplete")) {
@@ -256,7 +256,7 @@ func TestApplyStagedUpdateCleansIncompleteAndCurrentVersion(t *testing.T) {
 func TestReportStagedUpdateRemovesCompletionMarker(t *testing.T) {
 	dataDir, logsDir, configDir := t.TempDir(), t.TempDir(), t.TempDir()
 	marker := filepath.Join(dataDir, "update_installed")
-	if err := os.WriteFile(marker, []byte("1.0.0\n"+Version+"\n"), 0600); err != nil {
+	if err := os.WriteFile(marker, []byte("1.0.0\n"+Version+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultApplicationConfig()
@@ -264,7 +264,7 @@ func TestReportStagedUpdateRemovesCompletionMarker(t *testing.T) {
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Errorf("completion marker remains after reporting: %v", err)
 	}
-	if err := os.WriteFile(marker, []byte("1.0.0\nstale-version\n"), 0600); err != nil {
+	if err := os.WriteFile(marker, []byte("1.0.0\nstale-version\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	reportStagedUpdate(dataDir, logsDir, configDir, cfg, nil)

@@ -15,13 +15,30 @@ import (
 // setupRouter assembles the global middleware chain and application routes.
 func (s *Server) setupRouter() {
 	r := chi.NewRouter()
-	registerMetrics := func(router chi.Router, path, service string) {
-		router.Get(path, metricsAuthMiddleware(
+	registry := &routeRegistry{router: r}
+	s.routeRegistry = registry
+	registerMetrics := func(_ chi.Router, path, service string) {
+		metricsHandler := metricsAuthMiddleware(
 			metricsServiceToken(s.config.Server.Metrics, service),
 			s.config.Server.Metrics.Auth.AllowUnauthenticated,
 			s.metrics,
 			s.metrics.serviceHandler(service),
-		).ServeHTTP)
+		)
+		handler := http.HandlerFunc(metricsHandler.ServeHTTP)
+		if strings.HasPrefix(path, s.APIBasePath()+"/") {
+			handler = apiResponseHeaders(s.config.Server.APIVersion, handler)
+		}
+		mountedWhen := "server.metrics.enabled"
+		mounted := s.config.Server.Metrics.Enabled
+		if path == "/metrics" || strings.HasPrefix(path, "/metrics/") {
+			mountedWhen = "server.metrics.enabled && server.metrics.root.enabled"
+			mounted = mounted && s.config.Server.Metrics.Root.Enabled
+		}
+		registry.Add(Route{
+			Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
+			Auth: "service", Listed: false, Internal: true, Handler: handler,
+			MountedWhen: mountedWhen, Mounted: mounted,
+		})
 	}
 	s.registerMiddleware(r)
 	s.registerRoutes(r, registerMetrics)
@@ -30,12 +47,42 @@ func (s *Server) setupRouter() {
 
 // registerRoutes mounts the public web, API, metrics, debug, and error routes.
 func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, string, string)) {
+	if s.routeRegistry == nil {
+		s.routeRegistry = &routeRegistry{router: r}
+	}
+	registry := s.routeRegistry
+	apiBase := s.APIBasePath()
+	apiVersion := s.config.Server.APIVersion
+	registerVersioned := func(method, path, auth string, handler http.HandlerFunc, aliases ...string) {
+		fullPath := apiBase + path
+		operationID, summary, requestModel, responseModel := swaggerpkg.CanonicalRouteModels(Version, apiVersion, "en", method, path)
+		if operationID == "" {
+			operationID = routeOperationID(method, path)
+		}
+		aliasIDs := make(map[string]string, len(aliases))
+		for _, alias := range aliases {
+			aliasIDs[alias] = routeOperationID(method, alias)
+		}
+		binaryType := ""
+		switch path {
+		case "/airports.json":
+			binaryType = "application/json"
+		case "/airports.csv":
+			binaryType = "text/csv"
+		case "/airports.geojson":
+			binaryType = "application/geo+json"
+		}
+		registry.Add(Route{
+			Method: method, Path: fullPath, Aliases: aliases, AliasOperationIDs: aliasIDs,
+			OperationID: operationID, Summary: summary, Auth: auth,
+			Request: requestModel, Response: responseModel, Binary: binaryType,
+			Listed: auth != "operator" && auth != "service", Handler: apiResponseHeaders(apiVersion, handler),
+		})
+	}
 	r.Get("/cli/binaries/{binary}", s.handleCLIBinaryDownload)
 	if s.brandingAssets != nil {
 		r.Handle("/branding-assets/*", s.brandingAssets.Handler())
 	}
-	r.Post("/mcp", apiResponseHeaders(s.config.Server.APIVersion, s.handleMCP))
-	r.Post("/api/mcp", apiResponseHeaders(s.config.Server.APIVersion, s.handleMCP))
 
 	// Static files — serve with long-lived cache (1 year) per AI.md PART 9 caching rules.
 	// Files are embedded at build time; content is immutable per build.
@@ -61,11 +108,14 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 
 	// Special files
 	r.Get("/robots.txt", s.handleRobotsTxt)
-	r.Get("/llms.txt", s.handleLLMSTxt)
-	r.Get("/.well-known/security.txt", s.handleSecurityTxt)
-	r.Get("/.well-known/llms.txt", s.handleLLMSTxt)
-	r.Get("/.well-known/pgp-key.asc", s.handleSecurityPGPKey)
-	r.Get("/manifest.webmanifest", s.handleManifest)
+	registry.Add(Route{Method: http.MethodGet, Path: "/llms.txt", OperationID: "getLlmsTxt", Summary: "GET /llms.txt", Auth: "none", Listed: true, Handler: s.handleLLMSTxt})
+	registry.Add(Route{Method: http.MethodGet, Path: "/.well-known/llms.txt", OperationID: "getWellKnownLlmsTxt", Summary: "GET /.well-known/llms.txt", Auth: "none", Listed: true, Handler: s.handleLLMSTxt})
+	registry.Add(Route{Method: http.MethodGet, Path: "/.well-known/security.txt", OperationID: "getSecurityTxt", Summary: "GET /.well-known/security.txt", Auth: "none", Listed: true, Handler: s.handleSecurityTxt})
+	registry.Add(Route{
+		Method: http.MethodGet, Path: "/.well-known/pgp-key.asc", OperationID: "getPGPKey", Summary: "GET /.well-known/pgp-key.asc", Auth: "none", Listed: true, Handler: s.handleSecurityPGPKey,
+		MountedWhen: "security.publish_pgp_key", Mounted: s.config.Web.Security.PublishPGPKey,
+	})
+	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 
 	// Web routes (HTML - All Public, NO AUTH)
@@ -77,25 +127,18 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	r.Get("/airports/{ident}", s.handleAirportDetail)
 	r.Get("/stats", s.handleStats)
 	r.Get("/geoip", s.handleGeoIPPage)
-	if s.config.Server.Healthz.Root.Enabled {
-		r.Get("/healthz", s.handleServerHealthz) // optional root alias for /server/healthz
-		r.Get("/healthz.txt", s.handleServerHealthz)
-	}
+	registry.Add(Route{
+		Method: http.MethodGet, Path: "/healthz", OperationID: "getRootHealthz", Summary: "GET /healthz", Auth: "none", Listed: true,
+		Handler: s.handleServerHealthz, MountedWhen: "server.healthz.root.enabled", Mounted: s.config.Server.Healthz.Root.Enabled,
+	})
 
 	// /server/* pages (required by IDEA.md and AI.md spec)
 	r.Get("/server/about", s.handleServerAbout)
-	if s.config.Server.Metrics.Enabled {
-		registerMetrics(r, "/server/metrics", "prometheus")
-		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics(r, "/server/metrics/"+service, service)
-		}
-	}
 	r.Get("/server/help", s.handleServerHelp)
 	if s.helpPageEnabled("/server/help/mcp") {
 		r.Get("/server/help/mcp", s.handleServerMCPHelp)
 	}
 	r.Get("/server/healthz", s.handleServerHealthz)
-	r.Get("/server/healthz.txt", s.handleServerHealthz)
 	r.Get("/server/privacy", s.handleServerPrivacy)
 	r.Get("/server/preferences", s.handleServerPreferences)
 	r.Post("/server/preferences", s.handleServerPreferencesSave)
@@ -129,13 +172,13 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	// (404 on any non-loopback peer), never versioned, never in Swagger/
 	// GraphQL/well-known/FeaturesInfo — same tier as /server/metrics but
 	// without a bearer token (there is no legitimate remote caller).
-	r.Get("/server/tor/status", torLoopbackOnly(s.handleTorStatus))
-	r.Post("/server/tor/validate", torLoopbackOnly(s.handleTorValidate))
-	r.Post("/server/tor/restart", torLoopbackOnly(s.handleTorRestart))
-	r.Post("/server/tor/regenerate", torLoopbackOnly(s.handleTorRegenerate))
-	r.Post("/server/tor/vanity/start", torLoopbackOnly(s.handleTorVanityStart))
-	r.Post("/server/tor/vanity/apply", torLoopbackOnly(s.handleTorVanityApply))
-	r.Post("/server/tor/import-keys", torLoopbackOnly(s.handleTorImportKeys))
+	registry.Add(Route{Method: http.MethodGet, Path: "/server/tor/status", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorStatus)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/validate", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorValidate)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/restart", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorRestart)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/regenerate", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorRegenerate)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/vanity/start", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorVanityStart)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/vanity/apply", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorVanityApply)})
+	registry.Add(Route{Method: http.MethodPost, Path: "/server/tor/import-keys", Auth: "none", Internal: true, Handler: torLoopbackOnly(s.handleTorImportKeys)})
 	r.Post("/announcements/dismiss", s.handleAnnouncementDismiss)
 	r.Get("/sitemap.xml", s.handleSitemap)
 	r.Get("/feed.xml", s.handleAtomFeed)
@@ -145,7 +188,6 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	// Swagger UI + GraphiQL handlers and themes live in src/swagger and
 	// src/graphql. Their pinned UI assets use the server's embedded static
 	// tree under /static/vendor/ and load without a CDN.
-	apiBase := s.APIBasePath()
 	requestBaseURL := func(r *http.Request) string {
 		return strings.TrimSuffix(RequestBaseURL(r), "/")
 	}
@@ -163,133 +205,97 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 		_, _ = w.Write([]byte(graphqlpkg.ThemeCSS()))
 	})
 
-	// Unversioned API aliases (mounted to the same handlers as the current version,
-	// per AI.md PART 14 "Unversioned API aliases" — never redirect, never fork behavior).
-	r.Get("/api/swagger", swaggerSpec)
-	r.Get("/api/healthz", s.handleServerHealthz)
-	r.Get("/api/healthz.txt", s.handleServerHealthz)
-	r.Post("/api/graphql", graphqlQuery)
-	r.Get("/api/graphql", graphqlQuery)
+	// Unversioned API aliases are mounted from the same route definitions as their canonical endpoints.
 	// AI.md note: "Old paths removed: /openapi, /openapi.json, /graphql (GET and POST
 	// at root) are no longer served." The deprecated legacy aliases have therefore
 	// been deleted from both the root and the versioned tree.
 
 	// /api/autodiscover — unversioned, per AI.md PART 14. Returns server settings,
 	// config schema, and options for CLI/agent consumers.
-	r.Get("/api/autodiscover", s.handleAutodiscover)
-	if s.config.Server.Metrics.Enabled {
-		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics(r, "/api/metrics/"+service, service)
-		}
-		registerMetrics(r, "/api/metrics", "prometheus")
+	operationID, summary, requestModel, responseModel := swaggerpkg.CanonicalRouteModels(Version, apiVersion, "en", http.MethodGet, "/api/autodiscover")
+	if operationID == "" {
+		operationID = "getApiAutodiscover"
 	}
-
-	// Versioned API routes - ALL PUBLIC, NO AUTH
-	r.Route(apiBase, func(r chi.Router) {
-		// Add API version + no-cache headers to all versioned responses per AI.md PART 9.
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("X-API-Version", s.config.Server.APIVersion)
-				w.Header().Set("Cache-Control", "private, max-age=0, no-cache")
-				next.ServeHTTP(w, r)
-			})
-		})
-		r.Post("/server/mcp", s.handleMCP)
-
-		// API info
-		r.Get("/", s.handleAPIInfo)
-
-		// Versioned server API surface (canonical paths per AI.md PART 14).
-		r.Get("/server/healthz", s.handleServerHealthz)
-		r.Get("/server/healthz.txt", s.handleServerHealthz)
-		r.Get("/server/auth/check", s.handleAPITokenCheck)
-		if s.config.Server.Metrics.Enabled {
-			for _, service := range []string{"prometheus", "grafana", "loki"} {
-				registerMetrics(r, "/server/metrics/"+service, service)
-			}
-			registerMetrics(r, "/server/metrics", "prometheus")
-		}
-		r.Get("/server/about", s.handleServerAboutAPI)
-		r.Get("/server/help", s.handleServerHelpAPI)
-		if s.helpPageEnabled("/server/help/mcp") {
-			r.Get("/server/help/mcp", s.handleServerMCPHelpAPI)
-		}
-		r.Get("/server/privacy", s.handleServerPrivacyAPI)
-		r.Get("/server/preferences", s.handleServerPreferencesAPI)
-		r.Post("/server/preferences", s.handleServerPreferencesSaveAPI)
-		r.Get("/server/preferences/sync", s.handleServerPreferencesSyncAPI)
-		r.Get("/server/preferences/sync/import", s.handleServerPreferencesImportAPI)
-		r.Get("/server/preferences/tokens", s.handleOwnerTokenListAPI)
-		r.Post("/server/preferences/tokens/primary", s.handleOwnerTokenIssueAPI)
-		r.Post("/server/preferences/tokens/primary/reveal", s.handleOwnerTokenPrimaryRevealAPI)
-		r.Post("/server/preferences/tokens/primary/rotate", s.handleOwnerTokenPrimaryRotateAPI)
-		r.Delete("/server/preferences/tokens/primary", s.handleOwnerTokenPrimaryRevokeAPI)
-		r.Post("/server/preferences/tokens", s.handleOwnerTokenCreateLinkedAPI)
-		r.Post("/server/preferences/tokens/{id}/reveal", s.handleOwnerTokenLinkedActionAPI)
-		r.Post("/server/preferences/tokens/{id}/rotate", s.handleOwnerTokenLinkedActionAPI)
-		r.Patch("/server/preferences/tokens/{id}", s.handleOwnerTokenLinkedActionAPI)
-		r.Delete("/server/preferences/tokens/{id}", s.handleOwnerTokenLinkedActionAPI)
-		r.Get("/server/dpo", s.handleServerDPOAPI)
-		r.Get("/server/terms", s.handleServerTermsAPI)
-		r.Get("/server/contact", s.handleServerContactAPI)
-		r.Get("/server/security", s.handleServerSecurityAPI)
-		r.Get("/server/security/policy", s.handleServerSecurityPolicyAPI)
-		r.Get("/server/security/thanks", s.handleServerSecurityThanksAPI)
-		r.Post("/server/contact", s.handleContactSubmission)
-		r.Get("/server/swagger", swaggerSpec)
-		r.Post("/server/graphql", graphqlQuery)
-		r.Get("/server/graphql", graphqlQuery)
-
-		// Airport endpoints - JSON responses
-		r.Get("/airports", s.handleGetAirports)
-		r.Get("/airports.json", s.handleGetAirportsJSON)
-		r.Get("/airports.csv", s.handleGetAirportsCSV)
-		r.Get("/airports.geojson", s.handleGetAirportsGeoJSON)
-
-		// Airport by ident - with .txt extension support
-		r.Get("/airports/{ident}", s.handleGetAirportByIdent)
-		r.Get("/airports/{ident}.txt", s.handleGetAirportByIdentText)
-
-		// Search / nearby / within — canonical paths per AI.md route table.
-		r.Get("/airports/search", s.handleSearchAirports)
-		r.Get("/airports/search.txt", s.handleSearchAirportsText)
-		r.Get("/airports/nearby", s.handleNearbyAirports)
-		r.Get("/airports/nearby.txt", s.handleNearbyAirportsText)
-		r.Get("/airports/within", s.handleBBoxAirports)
-		r.Get("/airports/autocomplete", s.handleAutocomplete)
-
-		// Countries and states
-		r.Get("/countries", s.handleGetCountries)
-		r.Get("/countries.txt", s.handleGetCountriesText)
-		r.Get("/states/{country}", s.handleGetStates)
-
-		// Statistics
-		r.Get("/stats", s.handleAirportStats)
-		r.Get("/stats.txt", s.handleAirportStatsText)
-
-		// GeoIP endpoints
-		r.Get("/geoip", s.handleGeoIPLookup)
-		r.Get("/geoip.txt", s.handleGeoIPLookupText)
-		r.Get("/geoip/{ip}", s.handleGeoIPLookupIP)
-		r.Get("/geoip/{ip}.txt", s.handleGeoIPLookupIPText)
-		r.Get("/geoip/airports/nearby", s.handleGeoIPNearbyAirports)
-
-		// Settings (read-only, no auth needed)
-		r.Get("/settings", s.handleGetSettings)
+	registry.Add(Route{
+		Method: http.MethodGet, Path: "/api/autodiscover", OperationID: operationID, Summary: summary, Auth: "none", Listed: true,
+		Request: requestModel, Response: responseModel, Handler: s.handleAutodiscover,
 	})
 
-	// Metrics endpoint — only mounted when server.metrics.enabled is true
-	// (AI.md PART 20). The /server/metrics alias above serves browsers; this
-	// one is for Prometheus scrapers that follow the standard convention.
-	// Internal-only regardless of the optional bearer token below — deployments
-	// are still expected to firewall this path/port from public access. When
-	// disabled, the path is unregistered and falls through to the themed 404.
-	if s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled {
-		registerMetrics(r, "/metrics", "prometheus")
-		for _, service := range []string{"prometheus", "grafana", "loki"} {
-			registerMetrics(r, "/metrics/"+service, service)
-		}
+	// API aliases and versioned operations are registered from shared Route definitions.
+	registerVersioned(http.MethodGet, "/server/swagger", "none", swaggerSpec, "/api/swagger")
+	registerVersioned(http.MethodGet, "/server/healthz", "none", s.handleServerHealthz, "/api/healthz")
+	registerVersioned(http.MethodGet, "/server/healthz.txt", "none", s.handleServerHealthz)
+	registerVersioned(http.MethodGet, "/server/graphql", "none", graphqlQuery, "/api/graphql")
+	registerVersioned(http.MethodPost, "/server/graphql", "none", graphqlQuery, "/api/graphql")
+	registerVersioned(http.MethodPost, "/server/mcp", "token", s.handleMCP, "/api/mcp", "/mcp")
+	registerVersioned(http.MethodGet, "/", "none", s.handleAPIInfo)
+	registerVersioned(http.MethodGet, "/server/auth/check", "none", s.handleAPITokenCheck)
+	registerVersioned(http.MethodGet, "/server/about", "none", s.handleServerAboutAPI)
+	registerVersioned(http.MethodGet, "/server/help", "none", s.handleServerHelpAPI)
+	if s.helpPageEnabled("/server/help/mcp") {
+		registerVersioned(http.MethodGet, "/server/help/mcp", "none", s.handleServerMCPHelpAPI)
 	}
+	registerVersioned(http.MethodGet, "/server/privacy", "none", s.handleServerPrivacyAPI)
+	registerVersioned(http.MethodGet, "/server/preferences", "none", s.handleServerPreferencesAPI)
+	registerVersioned(http.MethodPost, "/server/preferences", "none", s.handleServerPreferencesSaveAPI)
+	registerVersioned(http.MethodGet, "/server/preferences/sync", "none", s.handleServerPreferencesSyncAPI)
+	registerVersioned(http.MethodGet, "/server/preferences/sync/import", "none", s.handleServerPreferencesImportAPI)
+	registerVersioned(http.MethodGet, "/server/preferences/tokens", "owner", s.handleOwnerTokenListAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens/primary", "none", s.handleOwnerTokenIssueAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens/primary/reveal", "owner", s.handleOwnerTokenPrimaryRevealAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens/primary/rotate", "owner", s.handleOwnerTokenPrimaryRotateAPI)
+	registerVersioned(http.MethodDelete, "/server/preferences/tokens/primary", "owner", s.handleOwnerTokenPrimaryRevokeAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens", "owner", s.handleOwnerTokenCreateLinkedAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens/{id}/reveal", "owner", s.handleOwnerTokenLinkedActionAPI)
+	registerVersioned(http.MethodPost, "/server/preferences/tokens/{id}/rotate", "owner", s.handleOwnerTokenLinkedActionAPI)
+	registerVersioned(http.MethodPatch, "/server/preferences/tokens/{id}", "owner", s.handleOwnerTokenLinkedActionAPI)
+	registerVersioned(http.MethodDelete, "/server/preferences/tokens/{id}", "owner", s.handleOwnerTokenLinkedActionAPI)
+	registerVersioned(http.MethodGet, "/server/dpo", "none", s.handleServerDPOAPI)
+	registerVersioned(http.MethodGet, "/server/terms", "none", s.handleServerTermsAPI)
+	registerVersioned(http.MethodGet, "/server/contact", "none", s.handleServerContactAPI)
+	registerVersioned(http.MethodGet, "/server/security", "none", s.handleServerSecurityAPI)
+	registerVersioned(http.MethodGet, "/server/security/policy", "none", s.handleServerSecurityPolicyAPI)
+	registerVersioned(http.MethodGet, "/server/security/thanks", "none", s.handleServerSecurityThanksAPI)
+	registerVersioned(http.MethodPost, "/server/contact", "none", s.handleContactSubmission)
+	registerVersioned(http.MethodGet, "/airports", "none", s.handleGetAirports)
+	registerVersioned(http.MethodGet, "/airports.json", "none", s.handleGetAirportsJSON)
+	registerVersioned(http.MethodGet, "/airports.csv", "none", s.handleGetAirportsCSV)
+	registerVersioned(http.MethodGet, "/airports.geojson", "none", s.handleGetAirportsGeoJSON)
+	registerVersioned(http.MethodGet, "/airports/{ident}", "none", s.handleGetAirportByIdent)
+	registerVersioned(http.MethodGet, "/airports/{ident}.txt", "none", s.handleGetAirportByIdent)
+	registerVersioned(http.MethodGet, "/airports/search", "none", s.handleSearchAirports)
+	registerVersioned(http.MethodGet, "/airports/search.txt", "none", s.handleSearchAirports)
+	registerVersioned(http.MethodGet, "/airports/nearby", "none", s.handleNearbyAirports)
+	registerVersioned(http.MethodGet, "/airports/nearby.txt", "none", s.handleNearbyAirports)
+	registerVersioned(http.MethodGet, "/airports/within", "none", s.handleBBoxAirports)
+	registerVersioned(http.MethodGet, "/airports/autocomplete", "none", s.handleAutocomplete)
+	registerVersioned(http.MethodGet, "/countries", "none", s.handleGetCountries)
+	registerVersioned(http.MethodGet, "/countries.txt", "none", s.handleGetCountries)
+	registerVersioned(http.MethodGet, "/states/{country}", "none", s.handleGetStates)
+	registerVersioned(http.MethodGet, "/stats", "none", s.handleAirportStats)
+	registerVersioned(http.MethodGet, "/stats.txt", "none", s.handleAirportStats)
+	registerVersioned(http.MethodGet, "/geoip", "none", s.handleGeoIPLookup)
+	registerVersioned(http.MethodGet, "/geoip.txt", "none", s.handleGeoIPLookup)
+	registerVersioned(http.MethodGet, "/geoip/{ip}", "none", s.handleGeoIPLookupIP)
+	registerVersioned(http.MethodGet, "/geoip/{ip}.txt", "none", s.handleGeoIPLookupIP)
+	registerVersioned(http.MethodGet, "/geoip/airports/nearby", "none", s.handleGeoIPNearbyAirports)
+	registerVersioned(http.MethodGet, "/settings", "none", s.handleGetSettings)
+
+	for _, metricsPath := range []string{"/server/metrics", "/server/metrics/prometheus", "/server/metrics/grafana", "/server/metrics/loki"} {
+		service := strings.TrimPrefix(metricsPath, "/server/metrics")
+		service = strings.TrimPrefix(service, "/")
+		if service == "" {
+			service = "prometheus"
+		}
+		registerMetrics(r, metricsPath, service)
+		registerMetrics(r, apiBase+metricsPath, service)
+	}
+	for _, service := range []string{"prometheus", "grafana", "loki"} {
+		registerMetrics(r, "/api/metrics/"+service, service)
+		registerMetrics(r, "/metrics/"+service, service)
+	}
+	registerMetrics(r, "/api/metrics", "prometheus")
+	registerMetrics(r, "/metrics", "prometheus")
 
 	// Debug endpoints — only mounted when --debug/DEBUG=true, per AI.md PART 6.
 	s.registerDebugRoutes(r)
@@ -305,48 +311,13 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
 		s.renderErrorPage(w, req, http.StatusMethodNotAllowed)
 	})
-
 }
 
 func (s *Server) openAPIRoutes() []swaggerpkg.OpenAPIRoute {
-	if s == nil || s.router == nil {
+	if s == nil || s.routeRegistry == nil {
 		return nil
 	}
-	apiBase := s.APIBasePath()
-	var routes []swaggerpkg.OpenAPIRoute
-	_ = chi.Walk(s.router, func(method, path string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		if path != apiBase && !strings.HasPrefix(path, apiBase+"/") {
-			return nil
-		}
-		path = strings.TrimPrefix(path, apiBase)
-		if path == "" {
-			path = "/"
-		}
-		auth := strings.Contains(path, "/metrics") || strings.HasPrefix(path, "/server/mcp") || path == "/server/auth/check"
-		if strings.HasPrefix(path, "/server/preferences/tokens") && (method != http.MethodPost || path != "/server/preferences/tokens/primary") {
-			auth = true
-		}
-		route := swaggerpkg.OpenAPIRoute{Method: method, Path: path, Summary: method + " " + path, Auth: auth}
-		if strings.Contains(path, "/metrics") {
-			route.MountedWhen = "server.metrics.enabled"
-			route.Mounted = s.config.Server.Metrics.Enabled
-		}
-		if strings.HasPrefix(path, "/debug/") {
-			route.MountedWhen = "--debug"
-			route.Mounted = mode.ShouldShowDebugEndpoints()
-			if strings.HasPrefix(path, "/debug/pprof/") {
-				route.MountedWhen = "--debug && server.debug.pprof"
-				route.Mounted = route.Mounted && s.config.Server.Debug.Pprof
-			} else if path == "/debug/vars" {
-				route.MountedWhen = "--debug && server.debug.runtime_endpoints"
-				route.Mounted = route.Mounted && s.config.Server.Debug.RuntimeEndpoints
-			}
-			route.Auth = true
-		}
-		routes = append(routes, route)
-		return nil
-	})
-	return routes
+	return s.routeRegistry.OpenAPIRoutes(s.APIBasePath())
 }
 
 func apiResponseHeaders(apiVersion string, next http.HandlerFunc) http.HandlerFunc {
@@ -358,116 +329,7 @@ func apiResponseHeaders(apiVersion string, next http.HandlerFunc) http.HandlerFu
 }
 
 func (s *Server) openAPIRouteSuperset() []swaggerpkg.OpenAPIRoute {
-	routes := s.openAPIRoutes()
-	// Root aliases and well-known resources are part of the embedded superset
-	// even though they are outside the versioned API namespace.
-	optionalRoot := []struct {
-		path, condition string
-		mounted         bool
-	}{
-		{"/healthz", "server.healthz.root.enabled", s.config.Server.Healthz.Root.Enabled},
-		{"/metrics", "server.metrics.root.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
-		{"/metrics/prometheus", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
-		{"/metrics/grafana", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
-		{"/metrics/loki", "server.metrics.root.enabled && server.metrics.enabled", s.config.Server.Metrics.Enabled && s.config.Server.Metrics.Root.Enabled},
-		{"/llms.txt", "always", true},
-		{"/.well-known/security.txt", "always", true},
-		{"/.well-known/llms.txt", "always", true},
-		{"/.well-known/pgp-key.asc", "security.publish_pgp_key", s.config.Web.Security.PublishPGPKey},
-	}
-	for _, endpoint := range optionalRoot {
-		mountedWhen := endpoint.condition
-		if mountedWhen == "always" {
-			mountedWhen = ""
-		}
-		routes = append(routes, swaggerpkg.OpenAPIRoute{
-			Method: http.MethodGet, Path: endpoint.path, Summary: http.MethodGet + " " + endpoint.path,
-			MountedWhen: mountedWhen, Mounted: endpoint.mounted,
-		})
-	}
-	aliases := []swaggerpkg.OpenAPIRoute{
-		{Method: http.MethodGet, Path: "/api/swagger", Summary: "GET /api/swagger"},
-		{Method: http.MethodGet, Path: "/api/healthz", Summary: "GET /api/healthz"},
-		{Method: http.MethodGet, Path: "/api/healthz.txt", Summary: "GET /api/healthz.txt"},
-		{Method: http.MethodPost, Path: "/api/graphql", Summary: "POST /api/graphql"},
-		{Method: http.MethodGet, Path: "/api/graphql", Summary: "GET /api/graphql"},
-		{Method: http.MethodPost, Path: "/api/mcp", Summary: "POST /api/mcp", Auth: true},
-		{Method: http.MethodPost, Path: "/mcp", Summary: "POST /mcp", Auth: true},
-		{Method: http.MethodGet, Path: "/api/autodiscover", Summary: "GET /api/autodiscover"},
-	}
-	routes = append(routes, aliases...)
-	for _, service := range []string{"", "/prometheus", "/grafana", "/loki"} {
-		path := "/api/metrics" + service
-		routes = append(routes, swaggerpkg.OpenAPIRoute{
-			Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
-			Auth: true, MountedWhen: "server.metrics.enabled", Mounted: s.config.Server.Metrics.Enabled,
-		})
-	}
-	metricsMounted := s.config.Server.Metrics.Enabled
-	for _, path := range []string{"/server/metrics", "/server/metrics/prometheus", "/server/metrics/grafana", "/server/metrics/loki"} {
-		found := false
-		for _, route := range routes {
-			if route.Method == http.MethodGet && route.Path == path {
-				found = true
-				break
-			}
-		}
-		if !found {
-			routes = append(routes, swaggerpkg.OpenAPIRoute{
-				Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
-				Auth: true, MountedWhen: "server.metrics.enabled", Mounted: metricsMounted,
-			})
-		}
-	}
-	debugMounted := mode.ShouldShowDebugEndpoints()
-	debugPaths := []string{
-		"/debug/config", "/debug/routes", "/debug/cache", "/debug/db", "/debug/error500",
-		"/debug/scheduler", "/debug/memory", "/debug/goroutines", "/debug/error500",
-		"/debug/pprof/", "/debug/pprof/cmdline", "/debug/pprof/profile", "/debug/pprof/symbol",
-		"/debug/pprof/trace", "/debug/pprof/heap", "/debug/pprof/goroutine", "/debug/pprof/allocs",
-		"/debug/pprof/block", "/debug/pprof/mutex", "/debug/pprof/threadcreate", "/debug/vars",
-	}
-	for _, path := range debugPaths {
-		apiPath := "/api" + path
-		condition := "--debug"
-		mounted := debugMounted
-		if strings.HasPrefix(path, "/debug/pprof/") {
-			condition = "--debug && server.debug.pprof"
-			mounted = mounted && s.config.Server.Debug.Pprof
-		} else if path == "/debug/vars" {
-			condition = "--debug && server.debug.runtime_endpoints"
-			mounted = mounted && s.config.Server.Debug.RuntimeEndpoints
-		}
-		routes = append(routes, swaggerpkg.OpenAPIRoute{
-			Method: http.MethodGet, Path: apiPath, Summary: http.MethodGet + " " + apiPath,
-			Auth: true, MountedWhen: condition, Mounted: mounted,
-		})
-	}
-	for _, path := range debugPaths {
-		found := false
-		for _, route := range routes {
-			if route.Method == http.MethodGet && route.Path == path {
-				found = true
-				break
-			}
-		}
-		if !found {
-			condition := "--debug"
-			mounted := debugMounted
-			if strings.HasPrefix(path, "/debug/pprof/") {
-				condition = "--debug && server.debug.pprof"
-				mounted = mounted && s.config.Server.Debug.Pprof
-			} else if path == "/debug/vars" {
-				condition = "--debug && server.debug.runtime_endpoints"
-				mounted = mounted && s.config.Server.Debug.RuntimeEndpoints
-			}
-			routes = append(routes, swaggerpkg.OpenAPIRoute{
-				Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
-				Auth: true, MountedWhen: condition, Mounted: mounted,
-			})
-		}
-	}
-	return routes
+	return s.openAPIRoutes()
 }
 
 func OpenAPIRouteSupersetForBuild() []swaggerpkg.OpenAPIRoute {
@@ -480,8 +342,12 @@ func OpenAPIRouteSupersetForBuild() []swaggerpkg.OpenAPIRoute {
 	cfg.Server.Debug.RuntimeEndpoints = true
 	router := chi.NewRouter()
 	server := &Server{config: cfg, router: router}
-	server.registerRoutes(router, func(routeRouter chi.Router, path, _ string) {
-		routeRouter.Get(path, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.registerRoutes(router, func(_ chi.Router, path, _ string) {
+		handler := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
+		server.routeRegistry.Add(Route{
+			Method: http.MethodGet, Path: path, Summary: http.MethodGet + " " + path,
+			Auth: "service", Handler: handler, MountedWhen: "server.metrics.enabled", Mounted: cfg.Server.Metrics.Enabled,
+		})
 	})
 	return server.openAPIRouteSuperset()
 }

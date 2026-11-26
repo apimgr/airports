@@ -191,9 +191,9 @@ func maskEmails(line string) string {
 }
 
 // WriteAudit writes a line to audit.log, honoring the category's
-// events.* toggle and the mask_emails setting, per AI.md "Audit Log
-// Configuration". A disabled category is silently skipped (not an error) —
-// same convention as a disabled log file.
+// events.* toggle and masking email addresses before they are persisted.
+// A disabled category is silently skipped (not an error) — the same
+// convention as a disabled log file.
 func (m *LogManager) WriteAudit(category AuditCategory, line string) error {
 	if m.auditInitErr != nil {
 		return fmt.Errorf("logging: audit log initialization failed: %w", m.auditInitErr)
@@ -240,9 +240,7 @@ func (m *LogManager) writeAuditLocked(category AuditCategory, line string) error
 }
 
 func (m *LogManager) writeAuditEntryLocked(category AuditCategory, line string) error {
-	if m.cfg.Audit.MaskEmails {
-		line = maskEmails(line)
-	}
+	line = maskEmails(line)
 	activeInfo, statErr := os.Stat(m.audit.Path())
 	_, anchorExists, anchorErr := readAuditAnchor(m.dir, m.cfg.Audit.Filename)
 	if anchorErr != nil {
@@ -286,7 +284,7 @@ func (m *LogManager) AuditIntegrity() AuditIntegrityResult {
 }
 
 func (m *LogManager) lockAuditFile() (*flock.Flock, error) {
-	if err := os.MkdirAll(m.dir, 0700); err != nil {
+	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("logging: create audit log directory: %w", err)
 	}
 	filename := m.cfg.Audit.Filename

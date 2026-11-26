@@ -83,6 +83,7 @@ pipeline {
                     docker run --rm \
                         --name "${PROJECT_NAME}-openapi-gen" \
                         -v ${WORKSPACE}:/app \
+                        -v ${TMPDIR:-/tmp}/${INTERNAL_ORG}/${INTERNAL_NAME}-coverage:/cov \
                         -v ${GO_CACHE:-$HOME/go/pkg/mod}:/usr/local/share/go/pkg/mod \
                         -v ${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}:/usr/local/share/go/cache \
                         -w /app \
@@ -401,18 +402,50 @@ pipeline {
             }
         }
 
+        // GUI binaries use runtime-loaded platform graphics libraries and remain separate from static CLI builds.
+        stage('Build GUI CLI') {
+            when { expression { fileExists('src/client/gui') } }
+            agent { label 'amd64' }
+            steps {
+                sh '''
+                    for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+                        os=${target%/*}
+                        arch=${target#*/}
+                        ext=""
+                        [ "$os" = windows ] && ext=".exe"
+                        docker run --rm \\
+                            --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \\
+                            -v ${WORKSPACE}:/app \\
+                            -v ${GO_CACHE:-$HOME/go/pkg/mod}:/usr/local/share/go/pkg/mod \\
+                            -v ${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}:/usr/local/share/go/cache \\
+                            -w /app \\
+                            -e CGO_ENABLED=0 -e GOOS="$os" -e GOARCH="$arch" \\
+                            casjaysdev/go:latest \\
+                            go build -buildvcs=false -trimpath -tags gui -ldflags "${CLI_LDFLAGS}" \\
+                            -o ${BINDIR}/${PROJECT_NAME}-cli-gui-${os}-${arch}${ext} ./src/client
+                    done
+                '''
+            }
+        }
+
         stage('Test') {
             agent { label 'amd64' }
             steps {
                 sh '''
+                    set -eu
+                    COV_PARENT="${TMPDIR:-/tmp}/${INTERNAL_ORG}"
+                    mkdir -p "$COV_PARENT"
+                    COVDIR=$(mktemp -d "$COV_PARENT/${INTERNAL_NAME}-XXXXXX")
+                    trap 'rm -rf "$COVDIR"' EXIT
                     docker run --rm \
                         --name "${PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
                         -v ${WORKSPACE}:/app \
+                        -v "$COVDIR:/cov" \
                         -v ${GO_CACHE:-$HOME/go/pkg/mod}:/usr/local/share/go/pkg/mod \
                         -v ${GO_BUILD:-$HOME/.cache/go-build/${PROJECT_NAME}}:/usr/local/share/go/cache \
                         -w /app \
                         casjaysdev/go:latest \
-                        go test -v -cover ./...
+                        sh -c 'mkdir -p /cov/data && TMPDIR=/cov go test -v -cover ./... -args -test.gocoverdir=/cov/data && go tool covdata textfmt -i=/cov/data -o=/cov/coverage.out && PCT=$(go tool cover -func=/cov/coverage.out | awk "/^total:/ {gsub(\"%\",\"\",\$3); print int(\$3)}") && test "$PCT" -ge 60'
                 '''
             }
         }

@@ -57,6 +57,33 @@ func TestOpen_SQLiteWithURL(t *testing.T) {
 	}
 }
 
+func TestHealthProbeChecksDatabaseHandleAndStore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	database, err := Open(config.DatabaseConfig{URL: filepath.Join(t.TempDir(), "health.db")}, "airports-health-test")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := HealthProbe(ctx, database); err != nil {
+		t.Fatalf("HealthProbe(*sql.DB): %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := HealthProbe(ctx, database); err == nil {
+		t.Fatal("HealthProbe on a closed database succeeded")
+	}
+
+	store, err := OpenStore(config.DatabaseConfig{URL: filepath.Join(t.TempDir(), "store-health.db")}, "airports-health-test")
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+	if err := HealthProbe(ctx, store); err != nil {
+		t.Fatalf("HealthProbe(*Store): %v", err)
+	}
+}
+
 func TestOpenInitializesGeneratedSecrets(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "server.db")
 	first, err := Open(config.DatabaseConfig{URL: dsn}, "airports-test")

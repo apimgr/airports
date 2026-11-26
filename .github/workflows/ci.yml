@@ -39,12 +39,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Run tests with coverage
         run: |
+          set -eu
           mkdir -p "/tmp/${{ github.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
-          echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
-      - name: Enforce coverage threshold
-        run: |
+          trap 'rm -rf "$COVDIR"' EXIT
+          mkdir -p "$COVDIR/data"
+          TMPDIR="$COVDIR" go test -cover ./... -args -test.gocoverdir="$COVDIR/data"
+          go tool covdata textfmt -i="$COVDIR/data" -o="$COVDIR/coverage.out"
           THRESHOLD=60
           PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
           if [ "$PCT" -lt "$THRESHOLD" ]; then

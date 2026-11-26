@@ -83,8 +83,7 @@ RUN chmod 755 /usr/local/bin/*
 # MODE is never baked into the image; the binary defaults to production and
 # compose sets MODE explicitly per AI.md PART 26.
 ENV TZ=America/New_York \
-    PORT=80 \
-    ADDRESS=0.0.0.0
+    PORT=80
 
 EXPOSE 80
 

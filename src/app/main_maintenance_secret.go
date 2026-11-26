@@ -19,7 +19,7 @@ import (
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/logging"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/security/pgp"
 	"github.com/apimgr/airports/src/server"
 	"github.com/apimgr/airports/src/service"

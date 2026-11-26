@@ -62,7 +62,7 @@ func (s *Server) handleGetAirportsCSV(w http.ResponseWriter, r *http.Request) {
 	writer := csv.NewWriter(w)
 
 	// Write header
-	_ = writer.Write([]string{"icao", "iata", "name", "city", "state", "country", "elevation", "lat", "lon", "tz"})
+	_ = writer.Write([]string{"icao", "iata", "name", "city", "state", "country", "elevation", "lat", "lon", "tz", "type"})
 
 	// Write data
 	airports := s.airports.GetAll(100000, 0) // Get all
@@ -73,6 +73,7 @@ func (s *Server) handleGetAirportsCSV(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%.6f", a.Lat),
 			fmt.Sprintf("%.6f", a.Lon),
 			a.Tz,
+			a.Type,
 		})
 	}
 
@@ -105,8 +106,11 @@ func (s *Server) handleGetAirportsGeoJSON(w http.ResponseWriter, r *http.Request
 				"city":      a.City,
 				"country":   a.Country,
 				"elevation": a.Elevation,
-				"timezone":  a.Tz,
+				"type":      a.Type,
 			},
+		}
+		if a.Tz != "" {
+			feature["properties"].(map[string]interface{})["timezone"] = a.Tz
 		}
 		features = append(features, feature)
 	}
@@ -135,26 +139,6 @@ func (s *Server) handleGetAirportByIdent(w http.ResponseWriter, r *http.Request)
 	s.respondItem(w, http.StatusOK, airport)
 }
 
-// handleGetAirportByIdentText returns a single airport as plain text
-func (s *Server) handleGetAirportByIdentText(w http.ResponseWriter, r *http.Request) {
-	s.metrics.airportLookupTotal.WithLabelValues("text").Inc()
-	code := chi.URLParam(r, "ident")
-	// Remove .txt extension if present
-	code = strings.TrimSuffix(code, ".txt")
-
-	airport, err := s.airports.GetByCode(code)
-	if err != nil {
-		s.respondError(w, r, http.StatusNotFound, "NOT_FOUND", "errors.airport_not_found", "ident", code)
-		return
-	}
-
-	text := fmt.Sprintf("ICAO: %s\nIATA: %s\nName: %s\nCity: %s\nCountry: %s\nLatitude: %.6f\nLongitude: %.6f\nElevation: %d ft\nTimezone: %s\n",
-		airport.ICAO, airport.IATA, airport.Name, airport.City, airport.Country,
-		airport.Lat, airport.Lon, airport.Elevation, airport.Tz)
-
-	s.respondText(w, http.StatusOK, text)
-}
-
 // handleSearchAirports searches for airports
 func (s *Server) handleSearchAirports(w http.ResponseWriter, r *http.Request) {
 	s.metrics.airportSearchTotal.WithLabelValues("json").Inc()
@@ -180,28 +164,6 @@ func (s *Server) handleSearchAirports(w http.ResponseWriter, r *http.Request) {
 		results = s.airports.Search(query, limit, int(offset))
 	}
 	s.respondList(w, http.StatusOK, results, page, limit, total)
-}
-
-// handleSearchAirportsText returns search results as plain text
-func (s *Server) handleSearchAirportsText(w http.ResponseWriter, r *http.Request) {
-	s.metrics.airportSearchTotal.WithLabelValues("text").Inc()
-	query := r.URL.Query().Get("q")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-
-	airports := s.airports.Search(query, limit, 0)
-
-	var sb strings.Builder
-	_, _ = fmt.Fprintf(&sb, "Search: %s\nResults: %d\n\n", query, len(airports))
-
-	for _, a := range airports {
-		_, _ = fmt.Fprintf(&sb, "%s (%s) - %s, %s\n", a.ICAO, a.IATA, a.Name, a.City)
-	}
-
-	s.respondText(w, http.StatusOK, sb.String())
 }
 
 // handleNearbyAirports finds airports near coordinates
@@ -377,20 +339,6 @@ func (s *Server) handleGetCountries(w http.ResponseWriter, r *http.Request) {
 	s.respondItem(w, http.StatusOK, countries)
 }
 
-// handleGetCountriesText returns list of countries as text
-func (s *Server) handleGetCountriesText(w http.ResponseWriter, r *http.Request) {
-	countries := s.airports.GetCountries()
-
-	var sb strings.Builder
-	_, _ = fmt.Fprintf(&sb, "Countries with airports: %d\n\n", len(countries))
-
-	for name, count := range countries {
-		_, _ = fmt.Fprintf(&sb, "%s\t%d\n", name, count)
-	}
-
-	s.respondText(w, http.StatusOK, sb.String())
-}
-
 // handleGetStates returns list of states in a country
 func (s *Server) handleGetStates(w http.ResponseWriter, r *http.Request) {
 	country := chi.URLParam(r, "country")
@@ -402,16 +350,6 @@ func (s *Server) handleGetStates(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAirportStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.airports.Stats()
 	s.respondItem(w, http.StatusOK, stats)
-}
-
-// handleAirportStatsText returns statistics as text
-func (s *Server) handleAirportStatsText(w http.ResponseWriter, r *http.Request) {
-	stats := s.airports.Stats()
-
-	text := fmt.Sprintf("Airports Statistics\n\nTotal Airports: %d\nCountries: %d\n",
-		stats["total_airports"], stats["countries"])
-
-	s.respondText(w, http.StatusOK, text)
 }
 
 // handleGeoIPLookup looks up current request IP
@@ -463,24 +401,6 @@ func (s *Server) handleGeoIPLookupIP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.respondItem(w, http.StatusOK, location)
-}
-
-// handleGeoIPLookupIPText returns specific IP lookup as text
-func (s *Server) handleGeoIPLookupIPText(w http.ResponseWriter, r *http.Request) {
-	ipStr := chi.URLParam(r, "ip")
-	ipStr = strings.TrimSuffix(ipStr, ".txt")
-
-	location, err := s.geoip.LookupString(ipStr)
-	if err != nil {
-		log.Printf("handleGeoIPLookupIPText: lookup failed for %s: %v", ipStr, err)
-		s.respondError(w, r, http.StatusBadRequest, "BAD_REQUEST", "errors.invalid_ip")
-		return
-	}
-
-	text := fmt.Sprintf("IP: %s\nCountry: %s\nCity: %s\nLatitude: %.4f\nLongitude: %.4f\n",
-		ipStr, location.Country, location.City, location.Latitude, location.Longitude)
-
-	s.respondText(w, http.StatusOK, text)
 }
 
 // handleGeoIPNearbyAirports finds airports near IP location

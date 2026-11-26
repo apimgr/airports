@@ -38,6 +38,10 @@
                 <span class="detail-label">{{t "airport.icao_label"}}</span>
                 <span class="detail-value">{{.Airport.ICAO}}</span>
             </div>
+            <div class="detail-item">
+                <span class="detail-label">{{t "airport.type_label"}}</span>
+                <span class="detail-value">{{.Airport.Type}}</span>
+            </div>
             {{if .Airport.IATA}}
             <div class="detail-item">
                 <span class="detail-label">{{t "airport.iata_label"}}</span>
@@ -48,10 +52,12 @@
                 <span class="detail-label">{{t "airport.elevation_label"}}</span>
                 <span class="detail-value">{{tf "airport.elevation_value" "feet" .Airport.Elevation "meters" .ElevationMeters}}</span>
             </div>
+            {{if .Airport.Tz}}
             <div class="detail-item">
                 <span class="detail-label">{{t "airport.timezone_label"}}</span>
                 <span class="detail-value">{{.Airport.Tz}}</span>
             </div>
+            {{end}}
         </div>
     </div>
 

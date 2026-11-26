@@ -23,7 +23,6 @@ func TestShouldSuppressHealthAccessLog(t *testing.T) {
 		{name: "frontend health", path: "/server/healthz", status: http.StatusOK, want: true},
 		{name: "versioned API health", path: "/api/v1/server/healthz", status: http.StatusOK, want: true},
 		{name: "versioned API text health", path: "/api/v1/server/healthz.txt", status: http.StatusOK, want: true},
-		{name: "health text alias", path: "/api/healthz.txt", status: http.StatusOK, want: true},
 		{name: "failed health", path: "/server/healthz", status: http.StatusServiceUnavailable},
 		{name: "ordinary route", path: "/server/about", status: http.StatusOK},
 		{name: "lookalike route", path: "/api/v1/server/healthz/private", status: http.StatusOK},

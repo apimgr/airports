@@ -230,6 +230,44 @@ func TestBuildStampCookieAndVersionPurgeAreScoped(t *testing.T) {
 	}
 }
 
+func TestManifestCanonicalRouteAndCacheHeaders(t *testing.T) {
+	s := newTestServer(t)
+	request := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	s.router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("manifest status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-cache, no-transform" {
+		t.Errorf("Cache-Control = %q, want no-cache, no-transform", got)
+	}
+	if got, want := response.Header().Get("ETag"), `"`+currentBuildStamp()+`"`; got != want {
+		t.Errorf("ETag = %q, want %q", got, want)
+	}
+	if response.Header().Get("Content-Encoding") != "" {
+		t.Errorf("manifest unexpectedly transformed with Content-Encoding %q", response.Header().Get("Content-Encoding"))
+	}
+	if !strings.Contains(response.Body.String(), `"start_url"`) {
+		t.Error("manifest body is missing the start URL")
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	request.Header.Set("If-None-Match", `W/"`+currentBuildStamp()+`"`)
+	response = httptest.NewRecorder()
+	s.router.ServeHTTP(response, request)
+	if response.Code != http.StatusNotModified || response.Body.Len() != 0 {
+		t.Errorf("conditional manifest response = %d %q, want 304 with no body", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
+	response = httptest.NewRecorder()
+	s.router.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Errorf("legacy manifest route status = %d, want 404", response.Code)
+	}
+}
+
 func TestRenderedPublicPagesKeepNoStoreAndMarkSharedFormsPublic(t *testing.T) {
 	s := newTestServer(t)
 	r := httptest.NewRequest(http.MethodGet, "/server/about", nil)
@@ -304,10 +342,29 @@ func TestServerPageAPIUsesOperatorContentSource(t *testing.T) {
 	}
 }
 
+func TestOperatorContentHidesUnexposedOverlayAddresses(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.Tor.OnionAddress = "hidden.example.onion"
+	s.config.Server.Branding.Content = map[string]config.BrandingContent{
+		"about": {Format: "md", Body: "Tor: {onion_address}"},
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/server/about", nil)
+	format, body, ok := s.operatorContentSource(r, "about")
+	if !ok || format != "markdown" || strings.Contains(body, "hidden.example.onion") {
+		t.Fatalf("unexposed Tor address was published: format=%q body=%q ok=%v", format, body, ok)
+	}
+	s.config.Server.Tor.Expose = true
+	_, body, ok = s.operatorContentSource(r, "about")
+	if !ok || !strings.Contains(body, "hidden.example.onion") {
+		t.Fatalf("exposed Tor address was omitted: body=%q ok=%v", body, ok)
+	}
+}
+
 func TestDefaultSecurityPolicyContainsRequiredSectionsAndScope(t *testing.T) {
 	s := newTestServer(t)
 	s.config.Server.FQDN = "ignored.example.org"
 	s.config.Server.Tor.OnionAddress = "example.onion"
+	s.config.Server.Tor.Expose = true
 	s.urlResolver = urlvars.NewURLResolverManager(urlvars.URLResolverOptions{DomainEnv: "airports.example.com"})
 	r := httptest.NewRequest(http.MethodGet, "/server/security/policy", nil)
 	policy := s.defaultSecurityPolicy(r)

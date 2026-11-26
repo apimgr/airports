@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-const maxRecentLogEntries = 10000
-const maxRecentLogLineRunes = 512
+const (
+	maxRecentLogEntries   = 10000
+	maxRecentLogLineRunes = 512
+)
 
 var (
 	credentialFieldPattern = regexp.MustCompile(`(?i)(["']?[a-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|authorization)[a-z0-9_.-]*["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&]+)`)

@@ -505,7 +505,7 @@ func resolveI2PDBinary(configured string) (string, error) {
 		locations = append(locations, "/opt/homebrew/bin/i2pd")
 	}
 	for _, candidate := range locations {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 			return candidate, nil
 		}
 	}

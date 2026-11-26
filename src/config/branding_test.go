@@ -12,11 +12,11 @@ import (
 func TestLoadBrandingDropIn(t *testing.T) {
 	configDir := newTestDir(t)
 	dropInDir := filepath.Join(configDir, "yaml.d")
-	if err := os.Mkdir(dropInDir, 0700); err != nil {
+	if err := os.Mkdir(dropInDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dropInDir, "branding.yml")
-	if err := os.WriteFile(path, []byte("server:\n  branding:\n    title: Custom airports\n    content:\n      about:\n        format: md\n        body:\n          default: About text\n          fr: Texte à propos\nweb:\n  ui:\n    theme: light\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  branding:\n    title: Custom airports\n    content:\n      about:\n        format: md\n        body:\n          default: About text\n          fr: Texte à propos\nweb:\n  ui:\n    theme: light\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultApplicationConfig()
@@ -34,7 +34,7 @@ func TestLoadBrandingDropIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0600 {
+	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("branding drop-in mode = %04o, want 0600", got)
 	}
 }
@@ -42,7 +42,7 @@ func TestLoadBrandingDropIn(t *testing.T) {
 func TestLoadBrandingDropInMergesEveryOrderedAreaFile(t *testing.T) {
 	configDir := newTestDir(t)
 	dropInDir := filepath.Join(configDir, "yaml.d")
-	if err := os.Mkdir(dropInDir, 0700); err != nil {
+	if err := os.Mkdir(dropInDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	files := map[string]string{
@@ -52,11 +52,11 @@ func TestLoadBrandingDropInMergesEveryOrderedAreaFile(t *testing.T) {
 		"30-ignore.yml.bak": "server:\n  branding:\n    title: Backup\n",
 	}
 	for name, contents := range files {
-		if err := os.WriteFile(filepath.Join(dropInDir, name), []byte(contents), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dropInDir, name), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Mkdir(filepath.Join(dropInDir, "nested.yml"), 0700); err != nil {
+	if err := os.Mkdir(filepath.Join(dropInDir, "nested.yml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultApplicationConfig()
@@ -74,13 +74,13 @@ func TestLoadBrandingDropInMergesEveryOrderedAreaFile(t *testing.T) {
 func TestLoadBrandingDropInIgnoresInvalidFileWithoutPartialChanges(t *testing.T) {
 	configDir := newTestDir(t)
 	dropInDir := filepath.Join(configDir, "yaml.d")
-	if err := os.Mkdir(dropInDir, 0700); err != nil {
+	if err := os.Mkdir(dropInDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dropInDir, "10-good.yml"), []byte("server:\n  branding:\n    title: Good\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dropInDir, "10-good.yml"), []byte("server:\n  branding:\n    title: Good\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dropInDir, "20-invalid.yml"), []byte("server:\n  branding:\n    title: Partial\n    description: [bad\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dropInDir, "20-invalid.yml"), []byte("server:\n  branding:\n    title: Partial\n    description: [bad\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultApplicationConfig()
@@ -96,15 +96,15 @@ func TestMigrateLegacyBranding(t *testing.T) {
 	configDir := newTestDir(t)
 	serverPath := filepath.Join(configDir, "server.yml")
 	data := []byte("server:\n  title: Legacy title\n  branding:\n    description: Legacy description\n    logo_url: https://example.com/logo.svg\n    primary_color: '#123456'\n    footer_text: 'A & B'\n  seo:\n    keywords: [airports]\n    opengraph:\n      image: https://example.com/share.png\n    twitter:\n      site: '@airports'\n  pages:\n    about:\n      content: About text\nweb:\n  ui:\n    theme: light\n    logo: old-logo.svg\n  footer:\n    custom_html: '<p>Legacy footer</p>'\n")
-	if err := os.WriteFile(serverPath, data, 0600); err != nil {
+	if err := os.WriteFile(serverPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dropInDir := filepath.Join(configDir, "yaml.d")
-	if err := os.Mkdir(dropInDir, 0700); err != nil {
+	if err := os.Mkdir(dropInDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	existing := []byte("server:\n  branding:\n    title: Drop-in title\n    content:\n      about:\n        format: html\n        body: '<p>Drop-in about</p>'\nweb:\n  ui:\n    theme: dark\n")
-	if err := os.WriteFile(filepath.Join(dropInDir, "branding.yml"), existing, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dropInDir, "branding.yml"), existing, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := migrateLegacyBranding(serverPath, data)
@@ -155,7 +155,7 @@ func TestMigrateLegacyAreaSectionsAndSecrets(t *testing.T) {
 	configDir := newTestDir(t)
 	serverPath := filepath.Join(configDir, "server.yml")
 	input := []byte("server:\n  port: 8080\n  token: legacy-token\n  pages:\n    contact:\n      enabled: true\n      captcha_secret_key: captcha-secret\n  notifications:\n    email:\n      smtp:\n        host: mail.example.test\n        password: smtp-secret\nweb:\n  robots:\n    enabled: true\ndata:\n  cve:\n    api_key: cve-secret\n")
-	if err := os.WriteFile(serverPath, input, 0600); err != nil {
+	if err := os.WriteFile(serverPath, input, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	migrated, err := migrateLegacyBranding(serverPath, input)

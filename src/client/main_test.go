@@ -23,7 +23,7 @@ import (
 // per project convention, and returns it plus automatic cleanup.
 func testTempDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
+	if err := os.MkdirAll("/tmp/apimgr", 0o755); err != nil {
 		t.Fatalf("MkdirAll base: %v", err)
 	}
 	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-*")
@@ -452,11 +452,11 @@ func TestCliConfigPath(t *testing.T) {
 
 	t.Run("bare-name-existing-yaml-file-detected", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		yamlPath := filepath.Join(confDir, "existing.yaml")
-		if err := os.WriteFile(yamlPath, []byte("server_url: x\n"), 0600); err != nil {
+		if err := os.WriteFile(yamlPath, []byte("server_url: x\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		got, err := cliConfigPath("existing")
@@ -470,15 +470,15 @@ func TestCliConfigPath(t *testing.T) {
 
 	t.Run("bare-name-existing-yml-file-preferred-over-yaml", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		ymlPath := filepath.Join(confDir, "both.yml")
 		yamlPath := filepath.Join(confDir, "both.yaml")
-		if err := os.WriteFile(ymlPath, []byte("server_url: x\n"), 0600); err != nil {
+		if err := os.WriteFile(ymlPath, []byte("server_url: x\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
-		if err := os.WriteFile(yamlPath, []byte("server_url: y\n"), 0600); err != nil {
+		if err := os.WriteFile(yamlPath, []byte("server_url: y\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		got, err := cliConfigPath("both")
@@ -521,7 +521,7 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("saved file missing: %v", err)
 		}
-		if info.Mode().Perm() != 0600 {
+		if info.Mode().Perm() != 0o600 {
 			t.Errorf("saved config file perms = %v, want 0600", info.Mode().Perm())
 		}
 
@@ -543,11 +543,11 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 
 	t.Run("legacy-color-is-read-and-canonicalized-on-save", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("create config directory: %v", err)
 		}
 		legacyPath := filepath.Join(confDir, "legacy.yml")
-		if err := os.WriteFile(legacyPath, []byte("color: no\n"), 0600); err != nil {
+		if err := os.WriteFile(legacyPath, []byte("color: no\n"), 0o600); err != nil {
 			t.Fatalf("write legacy config: %v", err)
 		}
 		cfg, err := loadCLIConfig("legacy")
@@ -575,11 +575,11 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 
 	t.Run("legacy-root-token-migrates-to-auth-section", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("create config directory: %v", err)
 		}
 		legacyPath := filepath.Join(confDir, "legacy-token.yml")
-		if err := os.WriteFile(legacyPath, []byte("token: old-token\n"), 0600); err != nil {
+		if err := os.WriteFile(legacyPath, []byte("token: old-token\n"), 0o600); err != nil {
 			t.Fatalf("write legacy token config: %v", err)
 		}
 		cfg, err := loadCLIConfig("legacy-token")
@@ -600,11 +600,11 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 
 	t.Run("boolean-output-color-is-accepted", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("create config directory: %v", err)
 		}
 		path := filepath.Join(confDir, "boolean.yml")
-		if err := os.WriteFile(path, []byte("output:\n  color: false\n"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("output:\n  color: false\n"), 0o600); err != nil {
 			t.Fatalf("write boolean config: %v", err)
 		}
 		cfg, err := loadCLIConfig("boolean")
@@ -615,11 +615,11 @@ func TestLoadSaveCLIConfig(t *testing.T) {
 
 	t.Run("invalid-yaml-returns-error", func(t *testing.T) {
 		confDir := filepath.Join(dir, "apimgr", "airports")
-		if err := os.MkdirAll(confDir, 0700); err != nil {
+		if err := os.MkdirAll(confDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		badPath := filepath.Join(confDir, "bad.yml")
-		if err := os.WriteFile(badPath, []byte("not: valid: yaml: [["), 0600); err != nil {
+		if err := os.WriteFile(badPath, []byte("not: valid: yaml: [["), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		_, err := loadCLIConfig("bad")
@@ -657,10 +657,10 @@ func TestLoadCLIConfigCanonicalizesUpdateChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cliConfigPath: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("update:\n  channel: daily\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("update:\n  channel: daily\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	cfg, err := loadCLIConfig("channel-alias")
@@ -685,7 +685,7 @@ func TestIsTTY(t *testing.T) {
 	dir := testTempDir(t)
 	t.Run("regular-file-is-not-tty", func(t *testing.T) {
 		path := filepath.Join(dir, "plain.txt")
-		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		f, err := os.Open(path)
@@ -700,7 +700,7 @@ func TestIsTTY(t *testing.T) {
 
 	t.Run("closed-file-stat-error", func(t *testing.T) {
 		path := filepath.Join(dir, "closed.txt")
-		if err := os.WriteFile(path, []byte("x"), 0600); err != nil {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		f, err := os.Open(path)
@@ -875,7 +875,7 @@ func TestDispatch(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/airports/search"):
 			q := r.URL.Query().Get("q")
-			if q != "kennedy airport" && q != "golang tutorials" && q != "frobnicate" {
+			if q != "kennedy airport" && q != "golang tutorials" && q != "frobnicate" && q != "version" {
 				t.Errorf("search q = %q, want a query from a dispatch case", q)
 			}
 			if r.URL.Query().Get("limit") != "20" {
@@ -913,8 +913,8 @@ func TestDispatch(t *testing.T) {
 		{"nearby-ok-with-n", "nearby", []string{"40.7128", "-74.0060", "5"}, false},
 		{"nearby-missing-args", "nearby", []string{"40.7128"}, true},
 		{"health-ok", "health", nil, false},
-		{"version-ok", "version", nil, false},
 		{"bare-single-search-term", "frobnicate", nil, false},
+		{"version-is-a-search-term", "version", nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -923,15 +923,6 @@ func TestDispatch(t *testing.T) {
 				t.Errorf("dispatch(%q, %v) error = %v, wantErr %v", tt.cmd, tt.args, err, tt.wantErr)
 			}
 		})
-	}
-}
-
-// Covers dispatch's "version" command server-unreachable branch specifically:
-// it must print a warning but return nil (client version alone is enough).
-func TestDispatchVersionServerUnreachable(t *testing.T) {
-	c := &client{baseURL: "http://127.0.0.1:1", apiVersion: "v1", http: http.DefaultClient}
-	if err := dispatch(c, "version", nil, "json", "en"); err != nil {
-		t.Errorf("dispatch(version) with unreachable server: got error %v, want nil", err)
 	}
 }
 

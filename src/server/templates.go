@@ -130,16 +130,18 @@ var i18nPlaceholderFuncs = template.FuncMap{
 	"healthCheckLabel": func(string) string { return "" },
 }
 
-var seoMetaNamePattern = regexp.MustCompile(`^[a-z0-9:_.-]+$`)
-var seoCustomTagNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-var seoVerificationValuePatterns = map[string]*regexp.Regexp{
-	"google":    regexp.MustCompile(`^[A-Za-z0-9_-]{1,43}$`),
-	"bing":      regexp.MustCompile(`^[A-F0-9]{1,32}$`),
-	"yandex":    regexp.MustCompile(`^[a-f0-9]{1,32}$`),
-	"baidu":     regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`),
-	"pinterest": regexp.MustCompile(`^[a-f0-9]{1,32}$`),
-	"facebook":  regexp.MustCompile(`^[a-z0-9]{1,64}$`),
-}
+var (
+	seoMetaNamePattern           = regexp.MustCompile(`^[a-z0-9:_.-]+$`)
+	seoCustomTagNamePattern      = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	seoVerificationValuePatterns = map[string]*regexp.Regexp{
+		"google":    regexp.MustCompile(`^[A-Za-z0-9_-]{1,43}$`),
+		"bing":      regexp.MustCompile(`^[A-F0-9]{1,32}$`),
+		"yandex":    regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+		"baidu":     regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`),
+		"pinterest": regexp.MustCompile(`^[a-f0-9]{1,32}$`),
+		"facebook":  regexp.MustCompile(`^[a-z0-9]{1,64}$`),
+	}
+)
 
 func humanizePrivacyLabel(value string) string {
 	words := strings.Fields(strings.ReplaceAll(strings.ReplaceAll(value, "_", " "), "-", " "))
@@ -761,6 +763,13 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 		return err
 	}
 	clone = clone.Funcs(template.FuncMap{
+		"markdownToHTML": func(source string) template.HTML {
+			body := renderOperatorMarkdown(source)
+			if s.isTorRequest(r) {
+				body = stripTorExternalLinks(body, r.Host)
+			}
+			return template.HTML(sanitizeOperatorHTML(body, false))
+		},
 		"healthCheckLabel": func(key string) string {
 			translationKey := "health.check." + key
 			translated := i18n.TranslateText(lang, translationKey)

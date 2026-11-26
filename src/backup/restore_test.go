@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -196,10 +198,16 @@ func buildMaliciousContainer(t *testing.T, path string) {
 	}
 
 	payload := tarBuf.Bytes()
+	fileDigest := sha256.Sum256(evil)
+	file := BackupFile{Path: "config/../../../../etc/passwd", Size: int64(len(evil)), SHA256: hex.EncodeToString(fileDigest[:])}
+	checksum := sha256.Sum256([]byte(file.SHA256 + "  " + file.Path + "\n"))
 	manifest := &Manifest{
-		Version:   ManifestVersion,
-		CreatedBy: "test",
-		Checksum:  checksumOf(payload),
+		Version:    ManifestVersion,
+		CreatedBy:  "test",
+		Type:       "full",
+		SnapshotAt: "2025-01-15T10:30:00Z",
+		Files:      []BackupFile{file},
+		Checksum:   hex.EncodeToString(checksum[:]),
 	}
 	manifestJSON, err := manifest.Marshal()
 	if err != nil {
@@ -288,5 +296,73 @@ func TestExtractTarGzRejectsSymlinkedDestinationAncestor(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outsideDir, "secret.txt")); !os.IsNotExist(err) {
 		t.Fatalf("symlink target was modified, stat error = %v", err)
+	}
+}
+
+func TestValidateExpandedArchiveLimits(t *testing.T) {
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	for _, entry := range []struct{ name, data string }{{"config/a", "abc"}, {"data/b", "def"}} {
+		if err := tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o600, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(entry.data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data := archive.Bytes()
+	base := RestoreLimits{MaxArchiveSize: 1 << 20, MaxExpandedSize: 16, MaxFiles: 2, MaxFileSize: 3, MaxRatio: 100}
+	if err := validateExpandedArchive(data, 1<<20, base); err != nil {
+		t.Fatalf("valid archive: %v", err)
+	}
+	if err := validateExpandedArchive(data, 1<<20, RestoreLimits{MaxExpandedSize: 16, MaxFiles: 1, MaxFileSize: 3, MaxRatio: 100}); err == nil {
+		t.Fatal("max_files limit was not enforced")
+	}
+	if err := validateExpandedArchive(data, 1<<20, RestoreLimits{MaxExpandedSize: 5, MaxFiles: 2, MaxFileSize: 3, MaxRatio: 100}); err == nil {
+		t.Fatal("max_expanded_size limit was not enforced")
+	}
+	if err := validateExpandedArchive(data, 1<<20, RestoreLimits{MaxExpandedSize: 16, MaxFiles: 2, MaxFileSize: 2, MaxRatio: 100}); err == nil {
+		t.Fatal("max_file_size limit was not enforced")
+	}
+	if err := validateExpandedArchive(data, 1, RestoreLimits{MaxExpandedSize: 16, MaxFiles: 2, MaxFileSize: 3, MaxRatio: 1}); err == nil {
+		t.Fatal("max_ratio limit was not enforced")
+	}
+}
+
+func TestValidateExpandedArchiveRejectsUnsafeEntries(t *testing.T) {
+	cases := []tar.Header{
+		{Name: "", Typeflag: tar.TypeReg},
+		{Name: "/absolute", Typeflag: tar.TypeReg},
+		{Name: "../escape", Typeflag: tar.TypeReg},
+		{Name: "C:/drive", Typeflag: tar.TypeReg},
+		{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "target"},
+		{Name: "hardlink", Typeflag: tar.TypeLink, Linkname: "target"},
+		{Name: "device", Typeflag: tar.TypeChar},
+		{Name: "pipe", Typeflag: tar.TypeFifo},
+		{Name: "setuid", Typeflag: tar.TypeReg, Mode: 0o4755},
+	}
+	for _, header := range cases {
+		var archive bytes.Buffer
+		gz := gzip.NewWriter(&archive)
+		tarWriter := tar.NewWriter(gz)
+		if err := tarWriter.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+		if err := tarWriter.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateExpandedArchive(archive.Bytes(), 1<<20, RestoreLimits{}); err == nil {
+			t.Errorf("unsafe entry %q was accepted", header.Name)
+		}
 	}
 }

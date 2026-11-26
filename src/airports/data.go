@@ -20,7 +20,8 @@ type Airport struct {
 	Elevation int     `json:"elevation"` // In feet (source data)
 	Lat       float64 `json:"lat"`
 	Lon       float64 `json:"lon"`
-	Tz        string  `json:"tz"`
+	Tz        string  `json:"tz,omitempty"`
+	Type      string  `json:"type"`
 }
 
 // AirportWithDistance includes distance from search point

@@ -23,7 +23,7 @@ import (
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/logging"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/security/pgp"
 	"github.com/apimgr/airports/src/server"
 	"github.com/apimgr/airports/src/service"
@@ -223,7 +223,7 @@ func generatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPat
 	if err := pgp.WritePrivate(privatePath, secret, key.Private); err != nil {
 		return err
 	}
-	if err := atomicPGPWrite(publicPath, key.Public, 0600); err != nil {
+	if err := atomicPGPWrite(publicPath, key.Public, 0o600); err != nil {
 		_ = os.Remove(privatePath)
 		return err
 	}
@@ -407,16 +407,16 @@ func applyPGPRotationJournal(database db.Handle, configDir string) error {
 		return err
 	}
 	keyDir := filepath.Join(configDir, "security")
-	if err := os.MkdirAll(keyDir, 0700); err != nil {
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		return err
 	}
-	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.priv.old.asc.enc"), oldPrivate, 0600); err != nil {
+	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.priv.old.asc.enc"), oldPrivate, 0o600); err != nil {
 		return err
 	}
-	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.priv.asc.enc"), newPrivate, 0600); err != nil {
+	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.priv.asc.enc"), newPrivate, 0o600); err != nil {
 		return err
 	}
-	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.pub.asc"), newPublic, 0600); err != nil {
+	if err := atomicPGPWrite(filepath.Join(keyDir, "pgp.pub.asc"), newPublic, 0o600); err != nil {
 		return err
 	}
 	if err := savePGPMetadata(database, metadata); err != nil {
@@ -477,7 +477,7 @@ func publishPGPKey(database db.Handle, keyDir, publicPath string, keyservers []s
 	if err != nil {
 		return err
 	}
-	if err := atomicPGPWrite(filepath.Join(keyDir, "keyservers.state"), append(state, '\n'), 0600); err != nil {
+	if err := atomicPGPWrite(filepath.Join(keyDir, "keyservers.state"), append(state, '\n'), 0o600); err != nil {
 		return err
 	}
 	if len(failures) > 0 {
@@ -589,7 +589,7 @@ func savePGPKeyserverState(path string, meta pgpMetadata) error {
 	if err != nil {
 		return err
 	}
-	return atomicPGPWrite(path, append(state, '\n'), 0600)
+	return atomicPGPWrite(path, append(state, '\n'), 0o600)
 }
 
 func postPGPKey(endpoint string, public []byte) (resultErr error) {
@@ -621,7 +621,7 @@ func exportPublicPGPKey(source, target string) error {
 	if err != nil {
 		return err
 	}
-	return atomicPGPWrite(target, content, 0600)
+	return atomicPGPWrite(target, content, 0o600)
 }
 
 func exportPrivatePGPKey(database db.Handle, secret []byte, source, target string, logs *logging.LogManager, reason string) error {
@@ -719,12 +719,12 @@ func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, conf
 	}
 	rollback := func() {
 		if len(oldCipher) > 0 {
-			_ = atomicPGPWrite(privatePath, oldCipher, 0600)
+			_ = atomicPGPWrite(privatePath, oldCipher, 0o600)
 		} else {
 			_ = os.Remove(privatePath)
 		}
 		if len(oldPublic) > 0 {
-			_ = atomicPGPWrite(publicPath, oldPublic, 0600)
+			_ = atomicPGPWrite(publicPath, oldPublic, 0o600)
 		} else {
 			_ = os.Remove(publicPath)
 		}
@@ -770,11 +770,11 @@ func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, conf
 			return fmt.Errorf("PGP import committed; startup recovery will finish key-file activation: %w", err)
 		}
 	} else {
-		if err := atomicPGPWrite(privatePath, newCipher, 0600); err != nil {
+		if err := atomicPGPWrite(privatePath, newCipher, 0o600); err != nil {
 			rollback()
 			return err
 		}
-		if err := atomicPGPWrite(publicPath, public, 0600); err != nil {
+		if err := atomicPGPWrite(publicPath, public, 0o600); err != nil {
 			rollback()
 			return err
 		}
@@ -807,7 +807,7 @@ func deletePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath,
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(stagingDir, 0700); err != nil {
+	if err := os.Chmod(stagingDir, 0o700); err != nil {
 		_ = os.RemoveAll(stagingDir)
 		return err
 	}
@@ -941,7 +941,7 @@ func readRequiredPGPInput(prompt string, maxLength int) (string, error) {
 
 func atomicPGPWrite(path string, content []byte, mode os.FileMode) (resultErr error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	temporary, err := os.CreateTemp(dir, ".pgp-write-*")
@@ -973,7 +973,7 @@ func atomicPGPWrite(path string, content []byte, mode os.FileMode) (resultErr er
 }
 
 func writeExclusivePrivateFile(path string, content []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		if s.enforceOwnerTokenAuthFailure(w, r) {
 			return
 		}
-		s.logRevokedCLIToken(r)
+		s.logRejectedCLIToken(r)
 		w.Header().Set("WWW-Authenticate", `Bearer`)
 		writeMCPRPCError(w, http.StatusUnauthorized, nil, -32001, "A valid Bearer token is required.")
 		return
@@ -139,7 +139,7 @@ func (s *Server) dispatchMCP(r *http.Request, request mcpRequest, version string
 	case "ping":
 		return map[string]interface{}{}, 0, ""
 	case "tools/list":
-		tools := s.mcpTools()
+		tools := s.mcpToolsForRequest(r)
 		for i := range tools {
 			tools[i].method = ""
 			tools[i].path = ""
@@ -148,7 +148,7 @@ func (s *Server) dispatchMCP(r *http.Request, request mcpRequest, version string
 	case "tools/call":
 		name, _ := request.Params["name"].(string)
 		arguments, _ := request.Params["arguments"].(map[string]interface{})
-		for _, tool := range s.mcpTools() {
+		for _, tool := range s.mcpToolsForRequest(r) {
 			if tool.Name == name {
 				return s.callMCPTool(r, tool, arguments)
 			}
@@ -160,31 +160,46 @@ func (s *Server) dispatchMCP(r *http.Request, request mcpRequest, version string
 }
 
 func (s *Server) mcpTools() []mcpTool {
-	registered := make(map[string]bool)
-	_ = chi.Walk(s.router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
-		registered[method+" "+route] = true
+	return s.mcpToolsForRequest(nil)
+}
+
+func (s *Server) mcpToolsForRequest(request *http.Request) []mcpTool {
+	if s.routeRegistry == nil {
 		return nil
-	})
+	}
 	apiPrefix := s.APIBasePath()
 	apiPrefix = strings.TrimSuffix(apiPrefix, "/")
-	openAPIRoutes := s.openAPIRouteSuperset()
+	openAPIRoutes := s.routeRegistry.MCPRoutes(s.APIBasePath())
 	openAPI := swagger.BuildEmbeddedSpecWithRoutes(Version, s.config.Server.APIVersion, "en", openAPIRoutes)
 	swagger.FilterMountedRoutes(openAPI, openAPIRoutes)
+	routesByOperation := make(map[string]Route)
+	for _, route := range s.routeRegistry.Snapshot() {
+		if route.OperationID != "" {
+			routesByOperation[route.OperationID] = route
+		}
+	}
 	paths, _ := openAPI["paths"].(map[string]interface{})
 	tools := make([]mcpTool, 0, len(paths))
 	for apiPath, rawPathItem := range paths {
 		pathItem, _ := rawPathItem.(map[string]interface{})
 		for methodName, rawOperation := range pathItem {
 			method := strings.ToUpper(methodName)
-			if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete || !registered[method+" "+apiPrefix+apiPath] {
+			if method != http.MethodGet && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
 				continue
 			}
-			if apiPath == "/server/mcp" || strings.HasPrefix(apiPath, "/server/preferences/tokens") {
+			if apiPath == "/server/mcp" || strings.HasPrefix(apiPath, "/server/preferences/") || apiPath == "/server/preferences" {
 				continue
 			}
 			operation, _ := rawOperation.(map[string]interface{})
 			name, _ := operation["operationId"].(string)
 			if name == "" {
+				continue
+			}
+			route, exists := routesByOperation[name]
+			if !exists || (route.MountedWhen != "" && !route.Mounted) || !s.mcpRouteAvailable(route, request) {
+				continue
+			}
+			if route.Path != apiPrefix && !strings.HasPrefix(route.Path, apiPrefix+"/") {
 				continue
 			}
 			description, _ := operation["description"].(string)
@@ -255,6 +270,29 @@ func (s *Server) mcpTools() []mcpTool {
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	return tools
+}
+
+func (s *Server) mcpRouteAvailable(route Route, request *http.Request) bool {
+	if route.Internal || route.Auth == "service" {
+		return false
+	}
+	if request == nil {
+		return route.Auth == "none"
+	}
+	switch route.Auth {
+	case "none":
+		return true
+	case "token":
+		return s.validAPIBearer(request)
+	case "owner":
+		identity, ok := s.ownerTokenFromBearer(request, false)
+		return ok && identity.Kind != "operator"
+	case "operator":
+		identity, ok := s.ownerTokenFromBearer(request, false)
+		return ok && identity.Kind == "operator"
+	default:
+		return false
+	}
 }
 
 func (s *Server) callMCPTool(r *http.Request, tool mcpTool, arguments map[string]interface{}) (interface{}, int, string) {

@@ -420,7 +420,8 @@
     "api_response_heading": "API 响应",
     "not_found_title": "未找到机场",
     "not_found_body": "在我们的数据库中未找到机场代码“{code}”。",
-    "search_airports_button": "搜索机场"
+    "search_airports_button": "搜索机场",
+    "type_label": "机场类型"
   },
   "stats": {
     "title": "数据库统计",
@@ -458,10 +459,11 @@
     "link_help": "帮助和 API 文档",
     "link_swagger": "OpenAPI / Swagger UI",
     "link_graphql": "GraphQL 试验场",
+    "airport_data_attribution": "OurAirports 提供的机场数据（公有领域）",
     "attribution_heading": "数据来源署名",
     "license_version": "许可证：{license} · 版本：{version}",
     "tagline": "全球机场参考数据。",
-    "description": "Airports 是一个全栈 Go Web 应用程序，提供全面的全球机场信息。它通过版本化的 REST API、GraphQL 端点和服务器端渲染的 Web 界面，提供超过 35,000 个机场的数据——ICAO/IATA 代码、名称、城市、国家、坐标、海拔和类型。",
+    "description": "Airports 是一个全栈 Go Web 应用程序，提供全面的全球机场信息。它通过版本化的 REST API、GraphQL 端点和服务器端渲染的 Web 界面，提供超过 48,071 个机场的数据——ICAO/IATA 代码、名称、城市、国家、坐标、海拔和类型。",
     "feature_rest": "只读 REST API，支持 JSON、CSV 和 GeoJSON 导出",
     "feature_graphql": "带交互式演练场的 GraphQL 端点",
     "feature_swagger": "OpenAPI / Swagger 文档",
@@ -470,7 +472,9 @@
     "feature_webui": "服务器端渲染的 Web 界面（深色/浅色/自动主题，移动优先 PWA）",
     "feature_cli": "用于终端的 CLI 客户端（airports-cli）",
     "feature_binary": "单一自包含静态二进制文件",
-    "asn_attribution": "ASN 和国家/地区数据由 iptoasn.com (PDDL) 提供。"
+    "asn_attribution": "ASN 和国家/地区数据由 iptoasn.com (PDDL) 提供。",
+    "airport_data_snapshot": "来源：OurAirports，提交 a537e082ac8c8fe6ab509df1f128cc6704fe73c1，获取日期 2026-11-26。包含 48,071 条小型、中型和大型机场记录；不包含直升机场、水上飞机基地、气球港和已关闭设施。",
+    "airport_timezone_attribution": "时区数据：mwgg/Airports，提交 a89e4e0dda9d9878337e2da190ebe1ef1d6af705，获取日期 2026-11-26。其 README 注明 TimeZoneDB 和 TimeAPI 来源；无可用时区时会省略该字段。"
   },
   "contact": {
     "honeypot_label": "请将此字段留空",
@@ -704,7 +708,7 @@
     "collect_geoip_label": "用于 GeoIP 查询的调用方 IP",
     "collect_geoip_desc": "仅在请求时用于在主页上显示附近的机场。该 IP 从不持久化存储，从不与结果关联记录，也从不与第三方共享。",
     "not_collect_heading": "我们不收集的信息",
-    "not_collect_accounts": "没有用户账户，没有电子邮件地址，没有个人资料数据。",
+    "not_collect_accounts": "我们不收集个人资料或电子邮件地址。匿名所有者令牌可用于管理您创建的资源。",
     "not_collect_analytics": "没有第三方分析、没有广告网络、没有标签管理器。",
     "third_party_heading": "第三方服务",
     "third_party_desc": "GeoIP 数据库在服务器启动时从公共 CDN 下载，并每周更新。运行时不会向任何第三方发送请求数据。",
@@ -712,9 +716,9 @@
     "api_cookie_essential_desc": "主题偏好（深色/浅色/自动）仅存储在 localStorage 中。没有服务器端会话 Cookie。",
     "api_cookie_preferences_desc": "没有用户帐户或服务器端偏好设置。",
     "api_cookie_analytics_desc": "没有任何形式的分析或跟踪。",
-    "api_retention_period": "不收集或保留任何个人数据。",
-    "api_consent_message": "本服务不收集任何个人数据。",
-    "api_data_usage": "机场数据为公开参考数据，仅供只读访问。不存储任何用户数据。",
+    "api_retention_period": "您创建的资源会保留至过期或使用所有者令牌删除。偏好设置仅保存在浏览器 Cookie 中。运行日志遵循配置的保留策略。",
+    "api_consent_message": "您创建的资源与所有者令牌关联，不会创建用户账户。",
+    "api_data_usage": "机场数据是公开参考数据。您创建的资源与所有者令牌关联，可使用该令牌管理。",
     "analytics_label": "分析",
     "ccpa_description": "管理您对出售或共享个人信息的选择退出偏好。",
     "ccpa_heading": "加州隐私选择",
@@ -732,9 +736,9 @@
     "data_sold": "个人信息可能会如上所述被出售。",
     "data_storage_heading": "存储与共享",
     "data_usage_heading": "我们如何使用数据",
-    "deletion_right": "您可以请求删除符合条件的个人数据。",
+    "deletion_right": "您可以删除与所有者令牌关联的资源。",
     "essential_label": "必备",
-    "export_right": "您可以请求导出符合条件的个人数据。",
+    "export_right": "您可以导出与所有者令牌关联的资源。",
     "no_sharing": "我们不共享个人数据。",
     "no_third_parties": "未配置第三方服务。",
     "not_stored_on_server": "首选项数据未存储在此服务器上。",
@@ -756,9 +760,9 @@
     "consent_message_sold": "本网站使用 Cookie 提供必要功能，并在您同意后用于偏好设置和分析。个人信息可能会按本政策所述进行共享或出售。",
     "analytics_not_sold": "分析数据经过匿名化，绝不会出售。",
     "analytics_sold": "分析数据可能会与第三方共享。",
-    "retention_default": "Airports 不维护用户账户或个人资料。速率限制记录按配置的期限保留，并在过期后删除。请求日志遵循配置的轮换和保留策略。分析数据的保留期限由配置的服务提供方决定。",
-    "data_usage_default": "**Airports 处理信息的用途包括：**\n\n- **提供机场数据：**提供搜索、地理查询和机场信息。\n- **保护服务：**使用经过哈希处理的客户端 IP 标识符实施速率限制并检测滥用。\n- **运行服务：**仅在配置日志记录时使用请求日志，并按既定策略保留。\n- **改善体验：**仅在配置分析服务且获得同意时发送分析数据。\n\nAirports 不提供用户账户或个人资料，因此不提供账户数据导出或删除功能。",
-    "data_usage_sold": "**Airports 处理信息的用途包括：**\n\n- **提供机场数据：**提供搜索、地理查询和机场信息。\n- **保护服务：**使用经过哈希处理的客户端 IP 标识符实施速率限制并检测滥用。\n- **运行服务：**仅在配置日志记录时使用请求日志，并按既定策略保留。\n- **改善体验：**仅在配置分析服务且获得同意时发送分析数据。\n\n启用数据出售选项后，运营者可能按所列共享条件共享或出售数据。您可以使用下方控件选择退出。",
+    "retention_default": "访客创建的资源与匿名所有者令牌关联，并保留至过期或使用该令牌删除。速率限制记录按配置期限保留，并在过期后删除。请求日志遵循配置的轮换和保留策略。分析数据的保留期限由配置的服务提供方决定。",
+    "data_usage_default": "**Airports 处理信息的用途包括：**\n\n- **提供机场数据：**提供搜索、地理查询和机场信息。\n- **保护服务：**使用经过哈希处理的客户端 IP 标识符实施速率限制并检测滥用。\n- **运行服务：**仅在配置日志记录时使用请求日志，并按既定策略保留。\n- **改善体验：**仅在配置分析服务且获得同意时发送分析数据。\n\n访客创建的资源与匿名所有者令牌关联。所有者可使用该令牌导出或删除资源。",
+    "data_usage_sold": "**Airports 处理信息的用途包括：**\n\n- **提供机场数据：**提供搜索、地理查询和机场信息。\n- **保护服务：**使用经过哈希处理的客户端 IP 标识符实施速率限制并检测滥用。\n- **运行服务：**仅在配置日志记录时使用请求日志，并按既定策略保留。\n- **改善体验：**仅在配置分析服务且获得同意时发送分析数据。\n\n访客创建的资源与匿名所有者令牌关联。所有者可使用该令牌导出或删除资源。启用数据出售选项后，运营者可能按所列共享条件共享或出售数据。您可以使用下方控件选择退出。",
     "data_security_default": "**数据保护方式：**\n\n- 速率限制存储使用经过哈希处理的客户端 IP 标识符。\n- 请求日志的保留和轮换由服务器配置控制。\n- 服务器运营者启用后使用 HTTPS/TLS。",
     "sharing_analytics": "仅在配置分析服务且访客同意时共享分析数据；数据可能包括匿名页面浏览、浏览器类型和国家/地区。",
     "sharing_email": "配置 SMTP 后会发送电子邮件；相关数据可能包括发件人邮箱地址和消息内容。",
@@ -1125,5 +1129,16 @@
     "templates.update_staged.body": "更新已分阶段进行\n\n来自：{app_name} ({fqdn})\n时间: {timestamp}\n\n版本 {new_version} 已暂存，需要重新启动才能应用。\n\n运行：{manual_command}\n\n--\n{app_name}\n{app_url}",
     "templates.maintenance_exhausted.subject": "自动恢复已停止 - {app_name}",
     "templates.maintenance_exhausted.body": "{app_name} 在 {attempts} 次恢复失败后仍处于只读维护模式。\n\n原因：{reason}\n需要管理员处理。请排除原因并重新启动服务。"
+  },
+  "plurals": {
+    "duration.seconds.other": "秒",
+    "duration.minutes.other": "分钟",
+    "duration.hours.other": "小时",
+    "duration.days.other": "天",
+    "size.bytes.other": "字节",
+    "size.kilobytes.other": "千字节",
+    "size.megabytes.other": "兆字节",
+    "size.gigabytes.other": "吉字节",
+    "size.terabytes.other": "太字节"
   }
 }

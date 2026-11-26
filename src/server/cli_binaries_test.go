@@ -17,16 +17,16 @@ import (
 
 func writeCLIReleaseFixture(t *testing.T, directory, binary string, contents []byte, checksum string) {
 	t.Helper()
-	if err := os.MkdirAll(directory, 0700); err != nil {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, binary), contents, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, binary), contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "version.txt"), []byte("1.2.3\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "version.txt"), []byte("1.2.3\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "sha256.txt"), []byte(fmt.Sprintf("%s  %s\n", checksum, binary)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "sha256.txt"), []byte(fmt.Sprintf("%s  %s\n", checksum, binary)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

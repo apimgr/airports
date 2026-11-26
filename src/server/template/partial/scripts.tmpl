@@ -1,3 +1,3 @@
 {{define "scripts"}}
-<script src="{{.BaseURL}}/static/js/app.js?v={{.AssetStamp}}"></script>
+<script src="{{.BaseURL}}/static/js/app.js?v={{.AssetStamp}}"{{if .TrackingEnabled}} data-provider="{{.TrackingType}}" data-id="{{.TrackingID}}" data-url="{{.TrackingURL}}"{{end}}></script>
 {{end}}

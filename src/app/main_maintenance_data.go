@@ -19,7 +19,7 @@ import (
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/logging"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/server"
 	"github.com/apimgr/airports/src/service"
 )
@@ -222,10 +222,10 @@ func exportOwnerData(database db.Handle, logsDir string, logConfig logging.LogMa
 }
 
 func writeOwnerExport(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
@@ -318,7 +318,8 @@ func recordComplianceEvent(database db.Handle, event, owner, details string) err
 
 func recordComplianceEventTx(tx interface {
 	Exec(string, ...any) (sql.Result, error)
-}, event, owner, details string) error {
+}, event, owner, details string,
+) error {
 	_, err := tx.Exec(`INSERT INTO compliance_events(event, owner_ref, details) VALUES(?,?,?)`, event, owner, details)
 	return err
 }

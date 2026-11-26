@@ -13,6 +13,12 @@ func TestEncryptDecryptArchiveRoundTrip(t *testing.T) {
 	if len(blob) == 0 {
 		t.Fatalf("EncryptArchive returned empty blob")
 	}
+	if string(blob[:5]) != "BKUP1" {
+		t.Fatalf("header magic = %q", blob[:5])
+	}
+	if header, err := ParseEncryptionHeader(blob); err != nil || header.BaseName != "" {
+		t.Fatalf("ParseEncryptionHeader() = %+v, %v", header, err)
+	}
 
 	got, err := DecryptArchive(password, blob)
 	if err != nil {
@@ -20,6 +26,32 @@ func TestEncryptDecryptArchiveRoundTrip(t *testing.T) {
 	}
 	if string(got) != string(plaintext) {
 		t.Fatalf("round trip mismatch: got %q want %q", got, plaintext)
+	}
+}
+
+func TestEncryptArchiveWithBaseHeader(t *testing.T) {
+	blob, err := EncryptArchiveWithBase("secret", []byte("payload"), "base.tar.gz.enc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := ParseEncryptionHeader(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.BaseName != "base.tar.gz.enc" {
+		t.Fatalf("BaseName = %q", header.BaseName)
+	}
+	match, err := PasswordMatchesHeader("secret", header)
+	if err != nil || !match {
+		t.Fatalf("password match = %v, %v", match, err)
+	}
+	match, err = PasswordMatchesHeader("wrong", header)
+	if err != nil || match {
+		t.Fatalf("wrong password match = %v, %v", match, err)
+	}
+	blob[53], blob[54] = 1, 0
+	if _, err := ParseEncryptionHeader(blob); err == nil {
+		t.Fatal("expected malformed base length error")
 	}
 }
 

@@ -95,7 +95,7 @@ func TestSaveKeyEnforcesRestrictedPerms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat saved Tor key: %v", err)
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("saved key permissions = %04o, want 0600", info.Mode().Perm())
 	}
 }

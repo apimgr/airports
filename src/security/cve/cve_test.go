@@ -503,7 +503,7 @@ func TestLoadWatermarkMissingFileIsNotError(t *testing.T) {
 
 func TestLoadIndexCorruptFile(t *testing.T) {
 	s := newTestService(t, "http://unused")
-	if err := os.WriteFile(filepath.Join(s.dir, indexFileName), []byte("not json"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(s.dir, indexFileName), []byte("not json"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	if _, err := s.loadIndex(); err == nil {
@@ -513,7 +513,7 @@ func TestLoadIndexCorruptFile(t *testing.T) {
 
 func TestLoadWatermarkCorruptFile(t *testing.T) {
 	s := newTestService(t, "http://unused")
-	if err := os.WriteFile(filepath.Join(s.dir, watermarkFileName), []byte("not json"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(s.dir, watermarkFileName), []byte("not json"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	if _, err := s.loadWatermark(); err == nil {

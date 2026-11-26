@@ -58,11 +58,11 @@ func TestDownloadVerifiedFile(t *testing.T) {
 func TestNewGeoIPService(t *testing.T) {
 	tmpDir := t.TempDir()
 	geoipDir := filepath.Join(tmpDir, "geoip")
-	if err := os.MkdirAll(geoipDir, 0700); err != nil {
+	if err := os.MkdirAll(geoipDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"dbip-city-ipv4.mmdb", "dbip-city-ipv6.mmdb", "iptoasn-country.mmdb", "iptoasn-asn.mmdb"} {
-		if err := os.WriteFile(filepath.Join(geoipDir, name), []byte("invalid database"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(geoipDir, name), []byte("invalid database"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -130,7 +130,7 @@ func TestNewGeoIPServiceFailOpen(t *testing.T) {
 	if statErr != nil {
 		t.Fatalf("GeoIP directory not created: %v", statErr)
 	}
-	if perm := info.Mode().Perm(); perm != 0700 {
+	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Errorf("GeoIP directory permissions = %o, want 0700", perm)
 	}
 }

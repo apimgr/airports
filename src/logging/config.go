@@ -25,7 +25,7 @@ type FileConfig struct {
 }
 
 // AuditFileConfig extends FileConfig with the audit log's event-category
-// toggles and PII-handling flags, per AI.md "Audit Log Configuration".
+// toggles and user-agent handling, per AI.md "Audit Log Configuration".
 type AuditFileConfig struct {
 	FileConfig
 	// IncludeUserAgent includes the request User-Agent string in audit
@@ -33,9 +33,6 @@ type AuditFileConfig struct {
 	IncludeUserAgent bool
 	// Events toggles which audit event categories are logged.
 	Events AuditEventsConfig
-	// MaskEmails masks email addresses in audit log lines when true.
-	// Defaults to true per AI.md "Sane Defaults".
-	MaskEmails bool
 }
 
 // AuditEventsConfig toggles which audit event categories are written,
@@ -146,7 +143,6 @@ func DefaultLogManagerConfig() LogManagerConfig {
 				Backup:        true,
 				Server:        true,
 			},
-			MaskEmails: true,
 		},
 		Security: FileConfig{
 			Enabled:  true,

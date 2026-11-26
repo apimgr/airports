@@ -2,6 +2,7 @@ package data
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -58,5 +59,34 @@ func TestEmbeddedDataDirect(t *testing.T) {
 	}
 	if !found {
 		t.Error("airports.json not present in EmbeddedData")
+	}
+}
+
+func TestAirportDatasetHasCurrentProvenance(t *testing.T) {
+	type record struct {
+		Type   string `json:"type"`
+		TZ     string `json:"tz"`
+		Source string `json:"source"`
+	}
+	var records map[string]record
+	if err := json.Unmarshal(AirportsJSON, &records); err != nil {
+		t.Fatalf("decode embedded airport data: %v", err)
+	}
+	if len(records) != 48071 {
+		t.Fatalf("embedded airport count = %d, want 48071 for the pinned snapshot", len(records))
+	}
+	for ident, airport := range records {
+		if airport.Type != "small_airport" && airport.Type != "medium_airport" && airport.Type != "large_airport" {
+			t.Errorf("%s has excluded airport type %q", ident, airport.Type)
+		}
+		if airport.Source != "OurAirports" && airport.Source != "OurAirports; mwgg/Airports (timezone)" {
+			t.Errorf("%s has invalid provenance source %q", ident, airport.Source)
+		}
+		if airport.TZ == "" && strings.Contains(airport.Source, "mwgg/Airports") {
+			t.Errorf("%s names a timezone source but has no timezone value", ident)
+		}
+		if airport.TZ != "" && !strings.Contains(airport.Source, "mwgg/Airports") {
+			t.Errorf("%s has a timezone without naming its source", ident)
+		}
 	}
 }

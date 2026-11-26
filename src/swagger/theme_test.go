@@ -37,8 +37,8 @@ func TestRenderSwaggerHTML(t *testing.T) {
 			if !strings.Contains(html, `src="/static/js/app.js"`) {
 				t.Error("output missing shared app.js script tag")
 			}
-			if !strings.Contains(html, "/static/js/docs-swagger.js") {
-				t.Error("output missing Swagger UI bootstrap script")
+			if strings.Contains(html, "/static/js/docs-swagger.js") {
+				t.Error("output includes a separate Swagger UI bootstrap script")
 			}
 			if strings.Contains(html, "<style") {
 				t.Error("output contains inline styles")

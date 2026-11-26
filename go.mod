@@ -18,6 +18,7 @@ require (
 	github.com/gogpu/ui v0.1.54
 	github.com/google/uuid v1.6.0
 	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/miekg/dns v1.1.72
 	github.com/oschwald/maxminddb-golang v1.13.0
 	github.com/pires/go-proxyproto v0.15.0
 	github.com/prometheus/client_golang v1.23.2
@@ -188,7 +189,6 @@ require (
 	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mimuret/golang-iij-dpf v0.9.1 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect

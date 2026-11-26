@@ -572,7 +572,6 @@ func ApplySecurityReportUpdate(db dbpkg.Handle, trackingID string, update Securi
 	}
 
 	return dbpkg.Transaction(context.Background(), db, func(tx *dbpkg.TransactionHandle) error {
-
 		var oldStatus, creditPreference, severity string
 		var creditName sql.NullString
 		if err := tx.QueryRow(`SELECT status, credit_pref, credit_name, severity FROM security_reports WHERE tracking_id = ?`, trackingID).Scan(&oldStatus, &creditPreference, &creditName, &severity); err != nil {

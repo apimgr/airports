@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/apimgr/airports/src/config"
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 )
 
 // Open opens a database/sql handle for compatibility callers. New production

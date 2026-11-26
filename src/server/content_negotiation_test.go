@@ -104,13 +104,14 @@ func TestGeneratedResourcesHonorBaseURL(t *testing.T) {
 		want []string
 	}{
 		{path: "/server/docs/swagger", want: []string{`data-spec-url="/myproject/api/v1/server/swagger"`, `href="/myproject/static/css/common.css?v=`, `href="/myproject/server/docs/graphql"`}},
-		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/static/vendor/graphiql/react.production.min.js?v=`, `src="/myproject/static/js/docs-graphql.js?v=`, `href="/myproject/server/docs/swagger"`}},
+		{path: "/server/docs/graphql", want: []string{`data-endpoint-url="/myproject/api/v1/server/graphql"`, `src="/myproject/static/vendor/graphiql/react.production.min.js?v=`, `src="/myproject/static/js/app.js?v=`, `href="/myproject/server/docs/swagger"`}},
 		{path: "/api/swagger", want: []string{`"url": "/myproject/api/v1"`}},
 	}
 	for _, tc := range routes {
 		t.Run(tc.path, func(t *testing.T) {
 			request := httptest.NewRequest("GET", tc.path, nil)
 			request.RemoteAddr = "10.0.0.5:443"
+			request.Header.Set("User-Agent", "Mozilla/5.0")
 			request.Header.Set("Accept", "text/html")
 			request.Header.Set("X-Forwarded-Prefix", "/myproject")
 			response := httptest.NewRecorder()

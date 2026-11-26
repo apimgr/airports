@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -73,13 +74,13 @@ func startI2PD(ctx context.Context, binary string, dirs I2PDirs, svc *I2PProvide
 		return "", fmt.Errorf("write empty tunnels.conf: %w", err)
 	}
 	tunnelsDir := filepath.Join(confDir, "tunnels.d")
-	if err := os.MkdirAll(tunnelsDir, 0700); err != nil {
+	if err := os.MkdirAll(tunnelsDir, 0o700); err != nil {
 		return "", fmt.Errorf("create empty tunnels.d: %w", err)
 	}
-	if err := os.Chmod(tunnelsDir, 0700); err != nil {
+	if err := os.Chmod(tunnelsDir, 0o700); err != nil {
 		return "", fmt.Errorf("secure tunnels.d: %w", err)
 	}
-	if err := os.MkdirAll(dirs.LogDir, 0700); err != nil {
+	if err := os.MkdirAll(dirs.LogDir, 0o700); err != nil {
 		return "", fmt.Errorf("create i2pd log directory: %w", err)
 	}
 	pidPath := filepath.Join(dataDir, "i2pd.pid")
@@ -256,14 +257,14 @@ func loadOrCreateDestination(conn net.Conn, reader *bufio.Reader, keysPath strin
 }
 
 func writeDestinationFile(path, private string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.OpenFile(path+".tmp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	tmp, err := os.OpenFile(path+".tmp", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(tmp, private); err != nil {
+	if _, err := io.WriteString(tmp, private); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 		return err

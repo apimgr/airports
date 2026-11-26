@@ -14,6 +14,7 @@ import (
 
 	"github.com/apimgr/airports/src/backup"
 	cachepkg "github.com/apimgr/airports/src/cache"
+	commonformat "github.com/apimgr/airports/src/common/format"
 	commonhttp "github.com/apimgr/airports/src/common/httputil"
 	"github.com/apimgr/airports/src/common/i18n"
 	dbpkg "github.com/apimgr/airports/src/db"
@@ -63,6 +64,8 @@ type HealthResponse struct {
 	PendingRestart bool `json:"pending_restart,omitempty"`
 	// RestartReason lists the names of restart-required settings that changed.
 	RestartReason []string `json:"restart_reason,omitempty"`
+	// Maintenance appears only while the process is in maintenance state.
+	Maintenance *MaintenanceHealthInfo `json:"maintenance,omitempty"`
 
 	// 3. Version & build info (PART 7: binary requirements)
 	Version   string    `json:"version"`
@@ -73,8 +76,6 @@ type HealthResponse struct {
 	Uptime    string    `json:"uptime"`
 	Mode      string    `json:"mode"`
 	Timestamp time.Time `json:"timestamp"`
-	// Maintenance appears only while the process is in maintenance state.
-	Maintenance *MaintenanceHealthInfo `json:"maintenance,omitempty"`
 
 	// 5. Features - PUBLIC only (PARTS 19, 31)
 	Features FeaturesInfo `json:"features"`
@@ -321,7 +322,7 @@ func checkDatabase(db dbpkg.Handle) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := dbpkg.HealthProbe(ctx, db); err != nil {
 		return "error"
 	}
 	return "ok"
@@ -435,11 +436,15 @@ func checkI2PStatus(state string) string {
 	}
 }
 
-func i2pFeatureInfo(mgr *i2p.I2PManager) I2PInfo {
+func i2pFeatureInfo(mgr *i2p.I2PManager, expose bool) I2PInfo {
 	if mgr == nil {
 		return mapI2PFeatureInfo("disabled", false, false, "", i2p.I2PProviderNone)
 	}
-	return mapI2PFeatureInfo(mgr.GetI2PStatus(), mgr.IsI2PEnabled(), mgr.IsI2PRunning(), mgr.EepsiteAddress(), mgr.GetI2PProvider())
+	hostname := ""
+	if expose {
+		hostname = mgr.EepsiteAddress()
+	}
+	return mapI2PFeatureInfo(mgr.GetI2PStatus(), mgr.IsI2PEnabled(), mgr.IsI2PRunning(), hostname, mgr.GetI2PProvider())
 }
 
 func mapI2PFeatureInfo(state string, enabled, running bool, hostname string, provider i2p.I2PProvider) I2PInfo {
@@ -467,7 +472,7 @@ func mapI2PFeatureInfo(state string, enabled, running bool, hostname string, pro
 // torFeatureInfo builds the features.tor object. Per AI.md PART 13, this
 // object is always present (unlike checks.tor) — Enabled/Running reflect
 // actual state even when Tor is fully disabled.
-func torFeatureInfo(mgr *tor.TorManager, check string) TorInfo {
+func torFeatureInfo(mgr *tor.TorManager, check string, expose bool) TorInfo {
 	if mgr == nil || !mgr.IsTorEnabled() {
 		return TorInfo{Status: "disabled"}
 	}
@@ -477,8 +482,11 @@ func torFeatureInfo(mgr *tor.TorManager, check string) TorInfo {
 	case "degraded":
 		info.Status = "unavailable"
 	case "ok":
-		info.Hostname = mgr.OnionAddress()
-		if info.Hostname == "" {
+		hostname := mgr.OnionAddress()
+		if expose {
+			info.Hostname = hostname
+		}
+		if hostname == "" {
 			info.Status = "starting"
 		} else {
 			info.Status = "healthy"
@@ -660,11 +668,11 @@ func buildHealthResponse(s *Server) HealthResponse {
 		},
 		Uptime:      uptime,
 		Mode:        s.config.Server.Mode,
-		Timestamp:   time.Now().UTC(),
+		Timestamp:   time.Now().UTC().Truncate(time.Second),
 		Maintenance: runtimeState.Maintenance,
 		Features: FeaturesInfo{
-			Tor:   torFeatureInfo(s.tor, checks.Tor),
-			I2P:   i2pFeatureInfo(s.i2p),
+			Tor:   torFeatureInfo(s.tor, checks.Tor, s.config.Server.Tor.Expose),
+			I2P:   i2pFeatureInfo(s.i2p, s.config.Server.I2P.Expose),
 			GeoIP: s.config.Server.GeoIP.Enabled,
 		},
 		Checks: checks,
@@ -770,6 +778,143 @@ func healthResponseText(resp HealthResponse) string {
 	return b.String()
 }
 
+// healthFrontendText renders the human-readable frontend text layout. API
+// routes use healthResponseText, whose dot notation and raw values are a
+// machine-facing contract.
+func healthFrontendText(lang string, resp HealthResponse) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s - %s\n\n", resp.Project.Name, resp.Project.Tagline)
+
+	label := func(key string) string { return i18n.TranslateText(lang, "health."+key) }
+	fmt.Fprintf(&b, "%-10s %s\n", label("status")+":", humanHealthStatus(lang, resp.Status))
+	fmt.Fprintf(&b, "%-10s %s\n", label("version")+":", resp.Version)
+	build := resp.Build.Commit
+	if buildDate := humanHealthTimestamp(parseBuildTimestamp(resp.Build.Date)); buildDate != "" {
+		build += " (" + buildDate + ")"
+	}
+	fmt.Fprintf(&b, "%-10s %s\n", label("build")+":", build)
+	fmt.Fprintf(&b, "%-10s %s\n", label("go_version")+":", resp.GoVersion)
+	fmt.Fprintf(&b, "%-10s %s\n", label("uptime")+":", commonformat.Duration(lang, parseCompactUptime(resp.Uptime)))
+	fmt.Fprintf(&b, "%-10s %s\n", label("mode")+":", resp.Mode)
+	checkedLabel := strings.TrimRight(label("last_checked"), ": ")
+	fmt.Fprintf(&b, "%-10s %s\n\n", checkedLabel+":", humanHealthTimestamp(resp.Timestamp))
+
+	b.WriteString(label("features") + "\n")
+	fmt.Fprintf(&b, "  %-16s %s\n", label("tor")+":", humanFeatureStatus(lang, resp.Features.Tor.Status, resp.Features.Tor.Hostname))
+	fmt.Fprintf(&b, "  %-16s %s\n", "I2P:", humanFeatureStatus(lang, resp.Features.I2P.Status, resp.Features.I2P.Hostname))
+	featureState := "disabled"
+	if resp.Features.GeoIP {
+		featureState = "enabled"
+	}
+	fmt.Fprintf(&b, "  %-16s %s\n\n", label("geoip")+":", i18n.TranslateText(lang, "common."+featureState))
+
+	b.WriteString(label("component_status") + "\n")
+	checks := []struct{ key, status string }{
+		{"database", resp.Checks.Database}, {"cache", resp.Checks.Cache}, {"disk", resp.Checks.Disk}, {"scheduler", resp.Checks.Scheduler},
+	}
+	if resp.Checks.Tor != "" {
+		checks = append(checks, struct{ key, status string }{"tor", resp.Checks.Tor})
+	}
+	if resp.Checks.I2P != "" {
+		checks = append(checks, struct{ key, status string }{"i2p", resp.Checks.I2P})
+	}
+	for _, check := range resp.Checks.Datasets {
+		checks = append(checks, struct{ key, status string }{check.Key, check.Status})
+	}
+	for _, check := range checks {
+		var checkLabel string
+		switch check.key {
+		case "database", "cache", "disk", "scheduler", "tor":
+			checkLabel = label(check.key)
+		case "i2p":
+			checkLabel = "I2P"
+		default:
+			checkLabel = i18n.TranslateText(lang, "health.check."+check.key)
+			if checkLabel == "health.check."+check.key {
+				checkLabel = i18n.TranslateFormattedText(lang, "health.check.unknown", "key", check.key)
+			}
+		}
+		fmt.Fprintf(&b, "  %-24s %s\n", checkLabel+":", humanCheckStatus(lang, check.status))
+	}
+
+	b.WriteString("\n" + label("server_statistics") + "\n")
+	fmt.Fprintf(&b, "  %-24s %s\n", label("total_requests")+":", commonformat.Count(lang, resp.Stats.RequestsTotal))
+	fmt.Fprintf(&b, "  %-24s %s\n", label("requests_24h")+":", commonformat.Count(lang, resp.Stats.Requests24h))
+	fmt.Fprintf(&b, "  %-24s %s\n", label("active_connections")+":", commonformat.Count(lang, int64(resp.Stats.ActiveConns)))
+	return b.String()
+}
+
+func humanFeatureStatus(lang, status, hostname string) string {
+	if status == "disabled" {
+		return i18n.TranslateText(lang, "common.disabled")
+	}
+	text := humanHealthStatus(lang, status)
+	if hostname != "" {
+		text += " - " + hostname
+	}
+	return text
+}
+
+func humanCheckStatus(lang, status string) string {
+	return humanHealthStatus(lang, status)
+}
+
+func humanHealthStatus(lang, status string) string {
+	switch status {
+	case "healthy", "unhealthy", "degraded", "restart_required", "maintenance", "shutting_down":
+		return i18n.TranslateText(lang, "health."+status)
+	case "ok":
+		return i18n.TranslateText(lang, "health.ok")
+	case "starting":
+		return i18n.TranslateText(lang, "common.loading")
+	case "unavailable", "error":
+		return i18n.TranslateText(lang, "common.error")
+	case "disabled":
+		return i18n.TranslateText(lang, "common.disabled")
+	default:
+		return status
+	}
+}
+
+func humanHealthTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format("January 02, 2006 at 15:04:05 MST")
+}
+
+func parseBuildTimestamp(value string) time.Time {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err == nil {
+		return parsed
+	}
+	return time.Time{}
+}
+
+func parseCompactUptime(value string) time.Duration {
+	var days, hours, minutes, seconds int64
+	for _, part := range strings.Fields(value) {
+		if len(part) < 2 {
+			continue
+		}
+		amount, err := strconv.ParseInt(part[:len(part)-1], 10, 64)
+		if err != nil {
+			continue
+		}
+		switch part[len(part)-1] {
+		case 'd':
+			days = amount
+		case 'h':
+			hours = amount
+		case 'm':
+			minutes = amount
+		case 's':
+			seconds = amount
+		}
+	}
+	return time.Duration(days)*24*time.Hour + time.Duration(hours)*time.Hour + time.Duration(minutes)*time.Minute + time.Duration(seconds)*time.Second
+}
+
 // wantsHealthzText reports whether r should receive the flattened
 // plain-text representation instead of HTML or JSON, per AI.md PART 14's
 // standard content-negotiation rules: an explicit Accept: text/plain, or
@@ -783,8 +928,8 @@ func wantsHealthzText(r *http.Request) bool {
 }
 
 // handleServerHealthz serves /server/healthz, /healthz (optional root
-// alias), /api/healthz, and /api/{api_version}/server/healthz — all four
-// routes are mounted to this single handler (AI.md PART 13: "No
+// alias), /api/healthz, /api/{api_version}/server/healthz, and its canonical
+// .txt suffix — all routes use this single handler (AI.md PART 13: "No
 // redirect, no forked logic, no separate formatter path"). Content
 // negotiation follows AI.md PART 14: browsers get HTML, text/plain or
 // non-interactive clients get flattened dot-notation text, everything
@@ -801,14 +946,37 @@ func (s *Server) handleServerHealthz(w http.ResponseWriter, r *http.Request) {
 	case !apiRoute && (format == "html" || format == "nojs"):
 		w.WriteHeader(statusCode)
 		lang := i18n.FromContext(r.Context())
+		maintenanceSince, maintenanceLastAttempt, maintenanceNextAttempt, maintenanceAttempts := "", "", "", ""
+		if resp.Maintenance != nil {
+			maintenanceSince = humanHealthTimestamp(resp.Maintenance.Since)
+			maintenanceAttempts = commonformat.Count(lang, int64(resp.Maintenance.SelfHealing.Attempts))
+			if resp.Maintenance.SelfHealing.LastAttempt != nil {
+				maintenanceLastAttempt = humanHealthTimestamp(*resp.Maintenance.SelfHealing.LastAttempt)
+			}
+			if resp.Maintenance.SelfHealing.NextAttempt != nil {
+				maintenanceNextAttempt = humanHealthTimestamp(*resp.Maintenance.SelfHealing.NextAttempt)
+			}
+		}
 		s.renderTemplate(w, r, "server_healthz", map[string]interface{}{
-			"Title":    fmt.Sprintf("%s - %s", resp.Project.Name, i18n.TranslateText(lang, "health.title")),
-			"Health":   resp,
-			"Requests": formatWithCommas(resp.Stats.RequestsTotal),
-			"Req24h":   formatWithCommas(resp.Stats.Requests24h),
+			"Title":                  fmt.Sprintf("%s - %s", resp.Project.Name, i18n.TranslateText(lang, "health.title")),
+			"Health":                 resp,
+			"Requests":               commonformat.Count(lang, resp.Stats.RequestsTotal),
+			"Req24h":                 commonformat.Count(lang, resp.Stats.Requests24h),
+			"ActiveConnections":      commonformat.Count(lang, int64(resp.Stats.ActiveConns)),
+			"Uptime":                 commonformat.Duration(lang, parseCompactUptime(resp.Uptime)),
+			"Timestamp":              humanHealthTimestamp(resp.Timestamp),
+			"BuildTimestamp":         humanHealthTimestamp(parseBuildTimestamp(resp.Build.Date)),
+			"MaintenanceSince":       maintenanceSince,
+			"MaintenanceLastAttempt": maintenanceLastAttempt,
+			"MaintenanceNextAttempt": maintenanceNextAttempt,
+			"MaintenanceAttempts":    maintenanceAttempts,
 		})
 	case wantsHealthzText(r):
-		s.respondText(w, statusCode, healthResponseText(resp))
+		body := healthResponseText(resp)
+		if !apiRoute {
+			body = healthFrontendText(i18n.FromContext(r.Context()), resp)
+		}
+		s.respondText(w, statusCode, body)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)

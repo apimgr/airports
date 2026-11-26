@@ -141,7 +141,7 @@ func TestPrivateKeyEncryptionAndAtomicStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("private key mode = %04o, want 0600", info.Mode().Perm())
 	}
 	stored, err := ReadPrivate(privatePath, secret)

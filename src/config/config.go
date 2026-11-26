@@ -98,6 +98,8 @@ type ServerConfig struct {
 	TrustedProxies TrustedProxiesConfig `yaml:"trusted_proxies"` // Additional trusted proxy IPs/CIDRs (private ranges always trusted)
 	// Limits configures HTTP request and connection limits (PART 12).
 	Limits LimitsConfig `yaml:"limits"`
+	// Restore sets backup archive expansion limits (PART 21).
+	Restore RestoreConfig `yaml:"restore"`
 	// Tokens controls owner token issuance and retention (PART 8).
 	Tokens OwnerTokensConfig `yaml:"tokens"`
 	// Compression controls response gzip settings (PART 12).
@@ -161,6 +163,43 @@ type LimitsConfig struct {
 	IdleTimeout  string `yaml:"idle_timeout"`
 }
 
+// RestoreConfig limits backup expansion before any destination is modified.
+type RestoreConfig struct {
+	MaxArchiveSize  string `yaml:"max_archive_size"`
+	MaxExpandedSize string `yaml:"max_expanded_size"`
+	MaxFiles        int    `yaml:"max_files"`
+	MaxFileSize     string `yaml:"max_file_size"`
+	MaxRatio        int    `yaml:"max_ratio"`
+}
+
+func (c RestoreConfig) MaxArchiveBytes() int64 { return restoreConfigBytes(c.MaxArchiveSize, 1<<30) }
+
+func (c RestoreConfig) MaxExpandedBytes() int64 { return restoreConfigBytes(c.MaxExpandedSize, 4<<30) }
+
+func (c RestoreConfig) MaxFileBytes() int64 { return restoreConfigBytes(c.MaxFileSize, 512<<20) }
+
+func restoreConfigBytes(value string, fallback int64) int64 {
+	value = strings.TrimSpace(strings.ToUpper(value))
+	units := []struct {
+		unit   string
+		factor int64
+	}{{"GIB", 1 << 30}, {"GB", 1 << 30}, {"G", 1 << 30}, {"MIB", 1 << 20}, {"MB", 1 << 20}, {"M", 1 << 20}, {"KIB", 1 << 10}, {"KB", 1 << 10}, {"K", 1 << 10}, {"B", 1}}
+	for _, suffix := range units {
+		if strings.HasSuffix(value, suffix.unit) {
+			number, err := strconv.ParseInt(strings.TrimSpace(strings.TrimSuffix(value, suffix.unit)), 10, 64)
+			if err != nil || number <= 0 || number > int64(^uint64(0)>>1)/suffix.factor {
+				return fallback
+			}
+			return number * suffix.factor
+		}
+	}
+	number, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || number <= 0 {
+		return fallback
+	}
+	return number
+}
+
 // CompressionConfig controls gzip response compression.
 type CompressionConfig struct {
 	Enabled bool     `yaml:"enabled"`
@@ -191,7 +230,7 @@ func parseConfigByteSize(raw string) (int64, error) {
 	for _, suffix := range []struct {
 		name       string
 		multiplier int64
-	}{{"GB", 1 << 30}, {"MB", 1 << 20}, {"KB", 1 << 10}, {"B", 1}} {
+	}{{"GIB", 1 << 30}, {"GB", 1 << 30}, {"G", 1 << 30}, {"MIB", 1 << 20}, {"MB", 1 << 20}, {"M", 1 << 20}, {"KIB", 1 << 10}, {"KB", 1 << 10}, {"K", 1 << 10}, {"B", 1}} {
 		if strings.HasSuffix(value, suffix.name) {
 			unit = suffix.multiplier
 			value = strings.TrimSpace(strings.TrimSuffix(value, suffix.name))
@@ -208,9 +247,11 @@ func parseConfigByteSize(raw string) (int64, error) {
 func (c LimitsConfig) ReadTimeoutDuration() time.Duration {
 	return parseLimitDuration(c.ReadTimeout, 30*time.Second)
 }
+
 func (c LimitsConfig) WriteTimeoutDuration() time.Duration {
 	return parseLimitDuration(c.WriteTimeout, 30*time.Second)
 }
+
 func (c LimitsConfig) IdleTimeoutDuration() time.Duration {
 	return parseLimitDuration(c.IdleTimeout, 120*time.Second)
 }
@@ -260,17 +301,24 @@ type OwnerTokensConfig struct {
 // controls the server-rendered site announcement banner (yaml path
 // web.ui.notifications) - the two never collide.
 type ServerNotificationsConfig struct {
-	WebUI   NotifyWebUIConfig `yaml:"webui"` // Toast position/duration
-	Email   NotifyEmailConfig `yaml:"email"` // Operator email notifications
-	DiskLow DiskLowConfig     `yaml:"disk_low"`
+	WebUI         NotifyWebUIConfig   `yaml:"webui"` // Toast position/duration
+	Email         NotifyEmailConfig   `yaml:"email"` // Operator email notifications
+	DiskLow       DiskLowConfig       `yaml:"disk_low"`
+	DatabaseError DatabaseErrorConfig `yaml:"database_error"`
 }
 
 // DiskLowConfig controls per-volume low-disk warnings and repeat cadence.
 type DiskLowConfig struct {
 	Enabled          bool   `yaml:"enabled"`
 	ThresholdPercent int    `yaml:"threshold_percent"`
-	CheckInterval    string `yaml:"check_interval"`
 	Repeat           string `yaml:"repeat"`
+}
+
+// DatabaseErrorConfig controls failed-probe thresholds and repeat notification cadence.
+type DatabaseErrorConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Failures int    `yaml:"failures"`
+	Repeat   string `yaml:"repeat"`
 }
 
 // NotifyWebUIConfig controls the public WebUI toast notification corner and
@@ -590,6 +638,7 @@ type SchedulerTasks struct {
 	CVEUpdate       TaskConfig       `yaml:"cve_update"`
 	UpdateCheck     TaskConfig       `yaml:"update_check"`
 	DiskCheck       TaskConfig       `yaml:"disk_check"`
+	DatabaseCheck   TaskConfig       `yaml:"database_check"`
 	TokenCleanup    TaskConfig       `yaml:"token_cleanup"`
 	LogRotation     TaskConfig       `yaml:"log_rotation"`
 	Backup          BackupTaskConfig `yaml:"backup"`
@@ -783,9 +832,6 @@ type LogAuditConfig struct {
 
 	// Events toggles which audit event categories are logged.
 	Events LogAuditEventsConfig `yaml:"events"`
-	// MaskEmails masks email addresses in audit log output. Defaults to
-	// true per AI.md "Sane Defaults".
-	MaskEmails bool `yaml:"mask_emails"`
 }
 
 // LogAuditEventsConfig toggles which audit event categories are written,
@@ -1225,7 +1271,7 @@ func LoadApplicationConfig(path string) (*ApplicationConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	if err := os.Chmod(path, 0600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil {
 		return nil, fmt.Errorf("failed to secure config file: %w", err)
 	}
 	previousConfig := current
@@ -1587,7 +1633,7 @@ func loadBrandingDropIn(cfg *ApplicationConfig, configDir string) error {
 		log.Printf("Warning: ignoring config drop-ins because yaml.d is not a real directory")
 		return nil
 	}
-	if err := os.Chmod(dropInDir, 0700); err != nil {
+	if err := os.Chmod(dropInDir, 0o700); err != nil {
 		log.Printf("Warning: ignoring config drop-ins because yaml.d permissions could not be secured: %v", err)
 		return nil
 	}
@@ -1633,7 +1679,7 @@ func loadBrandingDropIn(cfg *ApplicationConfig, configDir string) error {
 		if !info.Mode().IsRegular() {
 			continue
 		}
-		if err := os.Chmod(path, 0600); err != nil {
+		if err := os.Chmod(path, 0o600); err != nil {
 			log.Printf("Warning: ignoring config drop-in %s because permissions could not be secured: %v", path, err)
 			continue
 		}
@@ -1765,10 +1811,10 @@ func migrateLegacyBrandingOnly(serverPath string, data []byte) ([]byte, error) {
 		setConfigPath(brandingDocument, webUI, "web", "ui")
 	}
 	dropInDir := filepath.Join(filepath.Dir(serverPath), "yaml.d")
-	if err := os.MkdirAll(dropInDir, 0700); err != nil {
+	if err := os.MkdirAll(dropInDir, 0o700); err != nil {
 		return data, err
 	}
-	if err := os.Chmod(dropInDir, 0700); err != nil {
+	if err := os.Chmod(dropInDir, 0o700); err != nil {
 		return data, err
 	}
 	dropInPath := filepath.Join(dropInDir, "branding.yml")
@@ -1844,19 +1890,32 @@ func migrateLegacyAreaSections(serverPath string, data []byte) ([]byte, error) {
 		name string
 		file string
 	}{
-		{name: "cors", file: "web.yml"}, {name: "csrf", file: "web.yml"},
-		{name: "url_detection", file: "web.yml"}, {name: "compression", file: "web.yml"},
-		{name: "healthz", file: "web.yml"}, {name: "i18n", file: "web.yml"},
-		{name: "pages", file: "pages.yml"}, {name: "contact", file: "contact.yml"},
-		{name: "privacy", file: "privacy.yml"}, {name: "compliance", file: "privacy.yml"},
-		{name: "tracking", file: "privacy.yml"}, {name: "security", file: "security.yml"},
-		{name: "rate_limit", file: "security.yml"}, {name: "geoip", file: "security.yml"},
-		{name: "limits", file: "security.yml"}, {name: "tokens", file: "security.yml"},
-		{name: "logs", file: "logs.yml"}, {name: "metrics", file: "metrics.yml"},
-		{name: "notifications", file: "notifications.yml"}, {name: "tor", file: "tor.yml"},
-		{name: "i2p", file: "i2p.yml"}, {name: "maintenance", file: "maintenance.yml"},
-		{name: "scheduler", file: "maintenance.yml"}, {name: "update", file: "maintenance.yml"},
-		{name: "auto_update", file: "maintenance.yml"}, {name: "backup", file: "maintenance.yml"},
+		{name: "cors", file: "web.yml"},
+		{name: "csrf", file: "web.yml"},
+		{name: "url_detection", file: "web.yml"},
+		{name: "compression", file: "web.yml"},
+		{name: "healthz", file: "web.yml"},
+		{name: "i18n", file: "web.yml"},
+		{name: "pages", file: "pages.yml"},
+		{name: "contact", file: "contact.yml"},
+		{name: "privacy", file: "privacy.yml"},
+		{name: "compliance", file: "privacy.yml"},
+		{name: "tracking", file: "privacy.yml"},
+		{name: "security", file: "security.yml"},
+		{name: "rate_limit", file: "security.yml"},
+		{name: "geoip", file: "security.yml"},
+		{name: "limits", file: "security.yml"},
+		{name: "tokens", file: "security.yml"},
+		{name: "logs", file: "logs.yml"},
+		{name: "metrics", file: "metrics.yml"},
+		{name: "notifications", file: "notifications.yml"},
+		{name: "tor", file: "tor.yml"},
+		{name: "i2p", file: "i2p.yml"},
+		{name: "maintenance", file: "maintenance.yml"},
+		{name: "scheduler", file: "maintenance.yml"},
+		{name: "update", file: "maintenance.yml"},
+		{name: "auto_update", file: "maintenance.yml"},
+		{name: "backup", file: "maintenance.yml"},
 		{name: "restore", file: "maintenance.yml"},
 	} {
 		pull(section.file, "server", section.name)
@@ -1907,12 +1966,19 @@ func migrateLegacyAreaSections(serverPath string, data []byte) ([]byte, error) {
 	}
 	secrets := make(map[string]interface{})
 	secretPaths := [][]string{
-		{"server", "token"}, {"server", "security", "encryption_key"}, {"server", "security", "encryption_key_version"},
-		{"server", "notifications", "email", "smtp", "password"}, {"server", "cache", "password"},
-		{"server", "database", "token"}, {"server", "pages", "contact", "captcha_secret_key"},
-		{"server", "ssl", "letsencrypt", "dns_credentials"}, {"data", "cve", "api_key"},
-		{"server", "backup", "encryption_password"}, {"server", "metrics", "auth", "tokens", "prometheus"},
-		{"server", "metrics", "auth", "tokens", "grafana"}, {"server", "metrics", "auth", "tokens", "loki"},
+		{"server", "token"},
+		{"server", "security", "encryption_key"},
+		{"server", "security", "encryption_key_version"},
+		{"server", "notifications", "email", "smtp", "password"},
+		{"server", "cache", "password"},
+		{"server", "database", "token"},
+		{"server", "pages", "contact", "captcha_secret_key"},
+		{"server", "ssl", "letsencrypt", "dns_credentials"},
+		{"data", "cve", "api_key"},
+		{"server", "backup", "encryption_password"},
+		{"server", "metrics", "auth", "tokens", "prometheus"},
+		{"server", "metrics", "auth", "tokens", "grafana"},
+		{"server", "metrics", "auth", "tokens", "loki"},
 	}
 	for _, secretPath := range secretPaths {
 		if value, ok := takeConfigPath(root, secretPath...); ok {
@@ -1956,10 +2022,10 @@ func migrateLegacyAreaSections(serverPath string, data []byte) ([]byte, error) {
 		return data, nil
 	}
 	dropInDir := filepath.Join(filepath.Dir(serverPath), "yaml.d")
-	if err := os.MkdirAll(dropInDir, 0700); err != nil {
+	if err := os.MkdirAll(dropInDir, 0o700); err != nil {
 		return data, err
 	}
-	if err := os.Chmod(dropInDir, 0700); err != nil {
+	if err := os.Chmod(dropInDir, 0o700); err != nil {
 		return data, err
 	}
 	filenames := make([]string, 0, len(areas))
@@ -2690,15 +2756,33 @@ func collectConfigAreas(cfg *ApplicationConfig) (map[string]map[string]interface
 		setConfigPath(areas[filename], value, path...)
 	}
 	for _, section := range []struct{ name, file string }{
-		{"cors", "web.yml"}, {"csrf", "web.yml"}, {"url_detection", "web.yml"},
-		{"compression", "web.yml"}, {"healthz", "web.yml"}, {"i18n", "web.yml"},
-		{"pages", "pages.yml"}, {"contact", "contact.yml"}, {"privacy", "privacy.yml"},
-		{"compliance", "privacy.yml"}, {"tracking", "privacy.yml"}, {"security", "security.yml"},
-		{"rate_limit", "security.yml"}, {"geoip", "security.yml"}, {"limits", "security.yml"},
-		{"tokens", "security.yml"}, {"logs", "logs.yml"}, {"metrics", "metrics.yml"},
-		{"notifications", "notifications.yml"}, {"tor", "tor.yml"}, {"i2p", "i2p.yml"},
-		{"maintenance", "maintenance.yml"}, {"scheduler", "maintenance.yml"}, {"update", "maintenance.yml"},
-		{"auto_update", "maintenance.yml"}, {"backup", "maintenance.yml"}, {"restore", "maintenance.yml"},
+		{"cors", "web.yml"},
+		{"csrf", "web.yml"},
+		{"url_detection", "web.yml"},
+		{"compression", "web.yml"},
+		{"healthz", "web.yml"},
+		{"i18n", "web.yml"},
+		{"pages", "pages.yml"},
+		{"contact", "contact.yml"},
+		{"privacy", "privacy.yml"},
+		{"compliance", "privacy.yml"},
+		{"tracking", "privacy.yml"},
+		{"security", "security.yml"},
+		{"rate_limit", "security.yml"},
+		{"geoip", "security.yml"},
+		{"limits", "security.yml"},
+		{"tokens", "security.yml"},
+		{"logs", "logs.yml"},
+		{"metrics", "metrics.yml"},
+		{"notifications", "notifications.yml"},
+		{"tor", "tor.yml"},
+		{"i2p", "i2p.yml"},
+		{"maintenance", "maintenance.yml"},
+		{"scheduler", "maintenance.yml"},
+		{"update", "maintenance.yml"},
+		{"auto_update", "maintenance.yml"},
+		{"backup", "maintenance.yml"},
+		{"restore", "maintenance.yml"},
 	} {
 		pull(section.file, "server", section.name)
 	}
@@ -2768,10 +2852,10 @@ func secureConfigDirectory(dir string) error {
 	if dir == "." || dir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create private config directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to secure config directory: %w", err)
 	}
 	return nil
@@ -2955,6 +3039,9 @@ server:
         enabled: %t
         schedule: "%s"
       disk_check:
+        enabled: %t
+        schedule: "%s"
+      database_check:
         enabled: %t
         schedule: "%s"
       log_rotation:
@@ -3235,7 +3322,10 @@ server:
     disk_low:
       enabled: %t
       threshold_percent: %d
-      check_interval: "%s"
+      repeat: "%s"
+    database_error:
+      enabled: %t
+      failures: %d
       repeat: "%s"
 
   # Optional I2P eepsite, disabled by default.
@@ -3408,6 +3498,8 @@ data:
 		cfg.Server.Scheduler.Tasks.UpdateCheck.Schedule,
 		cfg.Server.Scheduler.Tasks.DiskCheck.Enabled,
 		cfg.Server.Scheduler.Tasks.DiskCheck.Schedule,
+		cfg.Server.Scheduler.Tasks.DatabaseCheck.Enabled,
+		cfg.Server.Scheduler.Tasks.DatabaseCheck.Schedule,
 		cfg.Server.Scheduler.Tasks.LogRotation.Enabled,
 		cfg.Server.Scheduler.Tasks.LogRotation.Schedule,
 		cfg.Server.Scheduler.Tasks.TokenCleanup.Enabled,
@@ -3525,8 +3617,10 @@ data:
 		formatNotificationEvents(cfg.Server.Notifications.Email.Events),
 		cfg.Server.Notifications.DiskLow.Enabled,
 		cfg.Server.Notifications.DiskLow.ThresholdPercent,
-		cfg.Server.Notifications.DiskLow.CheckInterval,
 		cfg.Server.Notifications.DiskLow.Repeat,
+		cfg.Server.Notifications.DatabaseError.Enabled,
+		cfg.Server.Notifications.DatabaseError.Failures,
+		cfg.Server.Notifications.DatabaseError.Repeat,
 		cfg.Server.Tor.Binary,
 		cfg.Server.Tor.UseNetwork,
 		cfg.Server.Tor.MaxCircuits,
@@ -3623,7 +3717,7 @@ func loadSecrets(path string, cfg *ApplicationConfig) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to read secrets file: %w", err)
 	}
-	if err := os.Chmod(path, 0600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil {
 		return false, fmt.Errorf("failed to secure secrets file: %w", err)
 	}
 	var raw map[string]interface{}
@@ -3826,7 +3920,7 @@ func hasCredentialURL(value string) bool {
 
 func writePrivateConfigFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	file, err := os.CreateTemp(dir, ".config-*.tmp")
@@ -3834,7 +3928,7 @@ func writePrivateConfigFile(path string, data []byte) error {
 		return err
 	}
 	temporary := file.Name()
-	if err := file.Chmod(0600); err != nil {
+	if err := file.Chmod(0o600); err != nil {
 		_ = file.Close()
 		_ = os.Remove(temporary)
 		return err
@@ -3857,7 +3951,7 @@ func writePrivateConfigFile(path string, data []byte) error {
 		_ = os.Remove(temporary)
 		return err
 	}
-	return os.Chmod(path, 0600)
+	return os.Chmod(path, 0o600)
 }
 
 // formatFloatSlice formats a float64 slice (e.g. histogram buckets) for YAML

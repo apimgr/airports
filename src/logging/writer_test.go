@@ -200,7 +200,7 @@ func TestRotateKeepDaysRetention(t *testing.T) {
 	w, dir := newTestWriter(t, cfg)
 
 	oldBackup := filepath.Join(dir, "server.log.old")
-	if err := os.WriteFile(oldBackup, []byte("old"), 0640); err != nil {
+	if err := os.WriteFile(oldBackup, []byte("old"), 0o640); err != nil {
 		t.Fatalf("write old backup: %v", err)
 	}
 	oldTime := time.Now().Add(-72 * time.Hour)
@@ -222,7 +222,7 @@ func TestRotateForeverRetentionKeepsEverything(t *testing.T) {
 	w, dir := newTestWriter(t, cfg)
 
 	backup := filepath.Join(dir, "server.log.old")
-	if err := os.WriteFile(backup, []byte("old"), 0640); err != nil {
+	if err := os.WriteFile(backup, []byte("old"), 0o640); err != nil {
 		t.Fatalf("write backup: %v", err)
 	}
 

@@ -17,7 +17,7 @@ import (
 
 	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/config"
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 )
 
 // BlockType distinguishes a temporary (rate-limit/abuse, auto-released) IP
@@ -461,7 +461,7 @@ func UpdateBlocklist(store *BlockStore, projectName string) error {
 // built-in FireHOL list under the configured data directory.
 func UpdateBlocklistInDir(store *BlockStore, securityDir, projectName string) error {
 	dir := filepath.Join(securityDir, "blocklists")
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("blocklist_update: failed to create %s: %w", dir, err)
 	}
 
@@ -501,7 +501,7 @@ func UpdateBlocklistInDir(store *BlockStore, securityDir, projectName string) er
 	if err := store.LoadDownloadedNetset(finalPath); err != nil {
 		return fmt.Errorf("blocklist_update: failed to load downloaded netset: %w", err)
 	}
-	if err := os.WriteFile(lastUpdatedPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0600); err != nil {
+	if err := os.WriteFile(lastUpdatedPath, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 		return fmt.Errorf("blocklist_update: failed to record successful update: %w", err)
 	}
 

@@ -16,7 +16,7 @@ import (
 // and returns its path along with a cleanup function.
 func newTestDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
+	if err := os.MkdirAll("/tmp/apimgr", 0o755); err != nil {
 		t.Fatalf("MkdirAll /tmp/apimgr: %v", err)
 	}
 	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-*")
@@ -163,9 +163,6 @@ func TestDefaultApplicationConfig(t *testing.T) {
 	if cfg.Server.Logging.Auth.Filename != "auth.log" || cfg.Server.Logging.Auth.Format != "syslog" {
 		t.Errorf("Logging.Auth = %+v, want auth.log/syslog", cfg.Server.Logging.Auth)
 	}
-	if !cfg.Server.Logging.Audit.MaskEmails {
-		t.Error("Logging.Audit.MaskEmails = false, want true")
-	}
 	events := cfg.Server.Logging.Audit.Events
 	if !events.Configuration || !events.Security || !events.Backup || !events.Server {
 		t.Errorf("Logging.Audit.Events = %+v, want all true", events)
@@ -212,14 +209,14 @@ func TestLoadCreatesDefaultWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat generated server.yml: %v", err)
 	}
-	if serverInfo.Mode().Perm() != 0600 {
+	if serverInfo.Mode().Perm() != 0o600 {
 		t.Errorf("server.yml permissions = %04o, want 0600", serverInfo.Mode().Perm())
 	}
 	configDirInfo, err := os.Stat(dir)
 	if err != nil {
 		t.Fatalf("stat config directory: %v", err)
 	}
-	if configDirInfo.Mode().Perm() != 0700 {
+	if configDirInfo.Mode().Perm() != 0o700 {
 		t.Errorf("config directory permissions = %04o, want 0700", configDirInfo.Mode().Perm())
 	}
 	if strings.Contains(string(serverYAML), cfg.Server.Token) {
@@ -233,7 +230,7 @@ func TestLoadCreatesDefaultWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat generated secrets.yml: %v", err)
 	}
-	if secretInfo.Mode().Perm() != 0600 {
+	if secretInfo.Mode().Perm() != 0o600 {
 		t.Errorf("secrets.yml permissions = %04o, want 0600", secretInfo.Mode().Perm())
 	}
 	resetGlobalState(t)
@@ -251,7 +248,7 @@ func TestLoadGeneratesAndPersistsWebhookSigningSecret(t *testing.T) {
 	dir := newTestDir(t)
 	path := filepath.Join(dir, "server.yml")
 	const endpoint = "https://hooks.example.test/contact"
-	if err := os.WriteFile(path, []byte("server:\n  contact:\n    abuse:\n      webhooks:\n        generic: "+endpoint+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  contact:\n    abuse:\n      webhooks:\n        generic: "+endpoint+"\n"), 0o600); err != nil {
 		t.Fatalf("write server config: %v", err)
 	}
 
@@ -326,7 +323,7 @@ func TestDatabaseEnvironmentOverridesAreRuntimeOnly(t *testing.T) {
 	resetGlobalState(t)
 	dir := newTestDir(t)
 	path := filepath.Join(dir, "server.yml")
-	if err := os.WriteFile(path, []byte("server:\n  database:\n    driver: sqlite\n    url: ''\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  database:\n    driver: sqlite\n    url: ''\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	t.Setenv("DATABASE_DRIVER", "SQLite3")
@@ -355,7 +352,7 @@ func TestLoadReadsExistingFile(t *testing.T) {
 	path := filepath.Join(dir, "server.yml")
 
 	yamlContent := "server:\n  port: \"12345\"\n  fqdn: \"example.com\"\n  address: \"127.0.0.1\"\n  mode: \"development\"\n"
-	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -379,7 +376,7 @@ func TestLoadInvalidYAML(t *testing.T) {
 	dir := newTestDir(t)
 	path := filepath.Join(dir, "server.yml")
 
-	if err := os.WriteFile(path, []byte("server: [this is not: valid: yaml"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("server: [this is not: valid: yaml"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -395,13 +392,13 @@ func TestLoadInvalidYAMLPreservesLastGoodConfig(t *testing.T) {
 	resetGlobalState(t)
 	dir := newTestDir(t)
 	path := filepath.Join(dir, "server.yml")
-	if err := os.WriteFile(path, []byte("server:\n  port: \"12345\"\n  fqdn: \"example.com\"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  port: \"12345\"\n  fqdn: \"example.com\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadApplicationConfig(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("server:\n  port: [invalid\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  port: [invalid\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadApplicationConfig(path)
@@ -444,7 +441,7 @@ func TestMigrateYamlToYml(t *testing.T) {
 
 	t.Run("yaml-migrates-to-yml", func(t *testing.T) {
 		yamlPath := filepath.Join(dir, "a.yaml")
-		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"1\"\n"), 0644); err != nil {
+		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"1\"\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		got := migrateYamlToYml(yamlPath)
@@ -463,10 +460,10 @@ func TestMigrateYamlToYml(t *testing.T) {
 	t.Run("yaml-not-migrated-when-yml-exists", func(t *testing.T) {
 		ymlPath := filepath.Join(dir, "b.yml")
 		yamlPath := filepath.Join(dir, "b.yaml")
-		if err := os.WriteFile(ymlPath, []byte("server:\n  port: \"existing\"\n"), 0644); err != nil {
+		if err := os.WriteFile(ymlPath, []byte("server:\n  port: \"existing\"\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
-		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"stale\"\n"), 0644); err != nil {
+		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"stale\"\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		got := migrateYamlToYml(yamlPath)
@@ -490,7 +487,7 @@ func TestMigrateYamlToYml(t *testing.T) {
 	t.Run("yml-migrated-from-legacy-yaml", func(t *testing.T) {
 		yamlPath := filepath.Join(dir, "d.yaml")
 		ymlPath := filepath.Join(dir, "d.yml")
-		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"legacy\"\n"), 0644); err != nil {
+		if err := os.WriteFile(yamlPath, []byte("server:\n  port: \"legacy\"\n"), 0o644); err != nil {
 			t.Fatalf("WriteFile: %v", err)
 		}
 		// Request the .yml path directly - since it doesn't exist but the
@@ -649,7 +646,7 @@ func TestReload(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	mutated := strings.Replace(string(data), `fqdn: ""`, `fqdn: "reloaded.example.com"`, 1)
-	if err := os.WriteFile(path, []byte(mutated), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(mutated), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -755,7 +752,7 @@ func TestLoadCanonicalizesStoredUpdateBranchAlias(t *testing.T) {
 	resetGlobalState(t)
 	dir := newTestDir(t)
 	path := filepath.Join(dir, "server.yml")
-	if err := os.WriteFile(path, []byte("server:\n  update:\n    branch: rolling\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  update:\n    branch: rolling\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	cfg, err := LoadApplicationConfig(path)
@@ -1441,8 +1438,17 @@ func TestComplianceModeRequiresAtLeastOneStandard(t *testing.T) {
 		t.Fatal("compliance mode is enabled with no standards")
 	}
 	standards := []ComplianceConfig{
-		{GDPR: true}, {CCPA: true}, {HIPAA: true}, {SOC2: true}, {PCIDSS: true},
-		{ISO27001: true}, {FedRAMP: true}, {LGPD: true}, {PIPEDA: true}, {APPI: true}, {PDPA: true},
+		{GDPR: true},
+		{CCPA: true},
+		{HIPAA: true},
+		{SOC2: true},
+		{PCIDSS: true},
+		{ISO27001: true},
+		{FedRAMP: true},
+		{LGPD: true},
+		{PIPEDA: true},
+		{APPI: true},
+		{PDPA: true},
 	}
 	for i, standard := range standards {
 		if !standard.IsEnabled() {
@@ -1528,5 +1534,15 @@ func TestOutputConfigLoadsAndPersists(t *testing.T) {
 	generated := generateConfigYAML(&cfg)
 	if strings.Contains(generated, "output:") || strings.Contains(generated, "color: false") || strings.Contains(generated, "emoji: true") {
 		t.Fatal("generated server.yml contains non-node output settings")
+	}
+}
+
+func TestRestoreConfigDefaultsAndSizeUnits(t *testing.T) {
+	settings := DefaultApplicationConfig().Server.Restore
+	if settings.MaxArchiveSize != "1G" || settings.MaxExpandedSize != "4G" || settings.MaxFiles != 10000 || settings.MaxFileSize != "512M" || settings.MaxRatio != 100 {
+		t.Fatalf("restore defaults = %+v", settings)
+	}
+	if settings.MaxArchiveBytes() != 1<<30 || settings.MaxExpandedBytes() != 4<<30 || settings.MaxFileBytes() != 512<<20 {
+		t.Fatalf("restore byte limits = %d/%d/%d", settings.MaxArchiveBytes(), settings.MaxExpandedBytes(), settings.MaxFileBytes())
 	}
 }

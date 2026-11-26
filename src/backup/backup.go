@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/apimgr/airports/src/db"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	_ "modernc.org/sqlite"
 )
 
@@ -34,7 +34,7 @@ var ErrEncryptionRequired = errors.New("backup: compliance mode requires an encr
 // fails, per AI.md PART 21 "Backup Creation Flow" step 2.
 var ErrDiskFull = errors.New("backup: insufficient free space or disk usage above threshold")
 
-// containerMagic identifies the legacy format accepted by readContainer.
+// containerMagic identifies the legacy unencrypted manifest wrapper accepted by readContainer.
 // New backups use a tar.gz archive with manifest.json inside it.
 var containerMagic = [4]byte{'A', 'B', 'K', 'P'}
 
@@ -49,6 +49,14 @@ type BackupArchiveOptions struct {
 	ComplianceEnabled  bool
 	AppVersion         string
 	CreatedBy          string
+	BackupType         string
+	SnapshotAt         time.Time
+	BaseBackup         string
+	BaseArchivePath    string
+	BaseSHA256         string
+	Deleted            []string
+	SnapshotArchive    []byte
+	SnapshotContents   []string
 	// Contents optionally overrides the auto-discovered file list (mainly
 	// for tests); when nil, Create walks ConfigDir/DataDir itself.
 	Contents []string
@@ -70,24 +78,78 @@ func CreateBackupArchive(destPath string, opts BackupArchiveOptions) error {
 	if err := preflightDiskSpace(filepath.Dir(destPath)); err != nil {
 		return err
 	}
-
-	archiveBytes, contents, err := buildTarGz(opts)
-	if err != nil {
-		return fmt.Errorf("backup: build archive: %w", err)
+	snapshot := opts.SnapshotAt
+	if snapshot.IsZero() {
+		snapshot = time.Now().UTC()
 	}
 
-	checksum, err := archiveContentsChecksum(archiveBytes)
+	archiveBytes, contents := opts.SnapshotArchive, opts.SnapshotContents
+	var err error
+	if archiveBytes == nil {
+		archiveBytes, contents, err = buildTarGz(opts)
+		if err != nil {
+			return fmt.Errorf("backup: build archive: %w", err)
+		}
+	}
+
+	backupType := opts.BackupType
+	if backupType == "" {
+		backupType = "full"
+	}
+	if backupType != "full" && backupType != "incremental" {
+		return fmt.Errorf("backup: invalid backup type %q", backupType)
+	}
+	if backupType == "incremental" {
+		if opts.BaseBackup == "" || opts.BaseArchivePath == "" {
+			return fmt.Errorf("backup: incremental requires base backup name and path")
+		}
+		baseManifest, baseArchive, err := decodeBackup(opts.BaseArchivePath, opts.EncryptionPassword)
+		if err != nil {
+			return fmt.Errorf("backup: read incremental base: %w", err)
+		}
+		if baseManifest.Type != "full" {
+			return fmt.Errorf("backup: incremental base is not a full backup")
+		}
+		if err := validateExpandedArchive(baseArchive, 1<<30, RestoreLimits{}); err != nil {
+			return fmt.Errorf("backup: incremental base is corrupt: %w", err)
+		}
+		if err := verifyChecksum(baseManifest, baseArchive); err != nil {
+			return fmt.Errorf("backup: incremental base is corrupt: %w", err)
+		}
+		if filepath.Base(opts.BaseArchivePath) != opts.BaseBackup {
+			return fmt.Errorf("backup: incremental base name does not match base path")
+		}
+		baseFiles := baseManifest.Files
+		if baseManifest.legacy {
+			baseFiles, _, err = archiveFileManifest(baseArchive)
+			if err != nil {
+				return fmt.Errorf("backup: read legacy base file list: %w", err)
+			}
+		}
+		archiveBytes, opts.Deleted, err = filterIncrementalArchive(archiveBytes, baseFiles)
+		if err != nil {
+			return fmt.Errorf("backup: filter incremental archive: %w", err)
+		}
+		opts.BaseSHA256 = baseManifest.Checksum
+	}
+	files, checksum, err := archiveFileManifest(archiveBytes)
 	if err != nil {
 		return fmt.Errorf("backup: checksum archive contents: %w", err)
 	}
 
 	manifest := &Manifest{
 		Version:    ManifestVersion,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		CreatedAt:  snapshot.Format(time.RFC3339),
 		CreatedBy:  opts.CreatedBy,
 		AppVersion: opts.AppVersion,
 		Contents:   contents,
 		Encrypted:  opts.EncryptionPassword != "",
+		Type:       backupType,
+		SnapshotAt: snapshot.Format(time.RFC3339),
+		Files:      files,
+		BaseBackup: opts.BaseBackup,
+		BaseSHA256: opts.BaseSHA256,
+		Deleted:    opts.Deleted,
 		Checksum:   checksum,
 	}
 	if manifest.CreatedBy == "" {
@@ -108,7 +170,7 @@ func CreateBackupArchive(destPath string, opts BackupArchiveOptions) error {
 	}
 	payload := archiveBytes
 	if opts.EncryptionPassword != "" {
-		payload, err = EncryptArchive(opts.EncryptionPassword, archiveBytes)
+		payload, err = EncryptArchiveWithBase(opts.EncryptionPassword, archiveBytes, opts.BaseBackup)
 		if err != nil {
 			return fmt.Errorf("backup: encrypt archive: %w", err)
 		}
@@ -131,7 +193,50 @@ func CreateBackupArchive(destPath string, opts BackupArchiveOptions) error {
 	return nil
 }
 
-// writeContainer writes a legacy container for backward-compatibility tests.
+// CreateBackupPair captures source files and the database once, then writes
+// the incremental and full archives from that identical in-memory snapshot.
+func CreateBackupPair(incrementalPath, fullPath string, opts BackupArchiveOptions) error {
+	if opts.ComplianceEnabled && opts.EncryptionPassword == "" {
+		return ErrEncryptionRequired
+	}
+	if err := preflightDiskSpace(filepath.Dir(incrementalPath)); err != nil {
+		return err
+	}
+	if err := preflightDiskSpace(filepath.Dir(fullPath)); err != nil {
+		return err
+	}
+	snapshot := opts.SnapshotAt
+	if snapshot.IsZero() {
+		snapshot = time.Now().UTC()
+	}
+	opts.SnapshotAt = snapshot
+	archive, contents, err := buildTarGz(opts)
+	if err != nil {
+		return fmt.Errorf("backup: build shared snapshot: %w", err)
+	}
+	incOpts := opts
+	incOpts.BackupType = "incremental"
+	incOpts.SnapshotArchive = archive
+	incOpts.SnapshotContents = contents
+	if err := CreateBackupArchive(incrementalPath, incOpts); err != nil {
+		return err
+	}
+	fullOpts := opts
+	fullOpts.BackupType = "full"
+	fullOpts.BaseBackup = ""
+	fullOpts.BaseArchivePath = ""
+	fullOpts.BaseSHA256 = ""
+	fullOpts.Deleted = nil
+	fullOpts.SnapshotArchive = archive
+	fullOpts.SnapshotContents = contents
+	if err := CreateBackupArchive(fullPath, fullOpts); err != nil {
+		_ = os.Remove(incrementalPath)
+		return err
+	}
+	return nil
+}
+
+// writeContainer writes the legacy unencrypted wrapper for compatibility tests.
 func writeContainer(path string, manifestJSON, payload []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -156,7 +261,7 @@ func writeContainer(path string, manifestJSON, payload []byte) error {
 	return nil
 }
 
-// readContainer reads a legacy container or an unencrypted tar.gz archive.
+// readContainer reads a legacy unencrypted manifest wrapper or a tar.gz archive.
 func readContainer(path string) (*Manifest, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -255,7 +360,47 @@ func appendManifest(archive, manifest []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func archiveContentsChecksum(archive []byte) (string, error) {
+func archiveFileManifest(archive []byte) ([]BackupFile, string, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	files := make([]BackupFile, 0)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if err := validateArchiveHeader(header); err != nil {
+			return nil, "", err
+		}
+		if header.Name == "manifest.json" || header.Typeflag == tar.TypeDir {
+			continue
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		contentHash := sha256.New()
+		size, err := io.Copy(contentHash, tr)
+		if err != nil {
+			return nil, "", err
+		}
+		files = append(files, BackupFile{Path: header.Name, Size: size, MTime: header.ModTime.Unix(), SHA256: hex.EncodeToString(contentHash.Sum(nil))})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	hash := sha256.New()
+	for _, file := range files {
+		_, _ = fmt.Fprintf(hash, "%s  %s\n", file.SHA256, file.Path)
+	}
+	return files, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func legacyArchiveChecksum(archive []byte) (string, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return "", err
@@ -274,7 +419,9 @@ func archiveContentsChecksum(archive []byte) (string, error) {
 		if header.Name == "manifest.json" {
 			continue
 		}
-		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\x00%q\x00", header.Name, header.Typeflag, header.Size, header.Mode, header.Linkname)
+		if _, err := fmt.Fprintf(hash, "%s\x00%d\x00%d\x00%d\x00%q\x00", header.Name, header.Typeflag, header.Size, header.Mode, header.Linkname); err != nil {
+			return "", err
+		}
 		if _, err := io.Copy(hash, tr); err != nil {
 			return "", err
 		}
@@ -282,11 +429,69 @@ func archiveContentsChecksum(archive []byte) (string, error) {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func checksumForArchive(archive []byte) (string, error) {
-	if _, err := manifestFromArchive(archive); err != nil {
-		return checksumOf(archive), nil
+func filterIncrementalArchive(archive []byte, baseFiles []BackupFile) ([]byte, []string, error) {
+	currentFiles, _, err := archiveFileManifest(archive)
+	if err != nil {
+		return nil, nil, err
 	}
-	return archiveContentsChecksum(archive)
+	base := make(map[string]BackupFile, len(baseFiles))
+	current := make(map[string]BackupFile, len(currentFiles))
+	for _, f := range baseFiles {
+		base[f.Path] = f
+	}
+	for _, f := range currentFiles {
+		current[f.Path] = f
+	}
+	changed := make(map[string]bool)
+	for _, f := range currentFiles {
+		old, ok := base[f.Path]
+		if !ok || old.Size != f.Size || old.MTime != f.MTime || old.SHA256 != f.SHA256 {
+			changed[f.Path] = true
+		}
+	}
+	deleted := make([]string, 0)
+	for _, f := range baseFiles {
+		if _, ok := current[f.Path]; !ok {
+			deleted = append(deleted, f.Path)
+		}
+	}
+	sort.Strings(deleted)
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = gz.Close() }()
+	var out bytes.Buffer
+	zw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(zw)
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if h.Name == "manifest.json" || h.Typeflag != tar.TypeDir && !changed[h.Name] {
+			continue
+		}
+		if err := tw.WriteHeader(h); err != nil {
+			return nil, nil, err
+		}
+		if h.Typeflag != tar.TypeDir {
+			if _, err := io.Copy(tw, tr); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return nil, nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, nil, err
+	}
+	return out.Bytes(), deleted, nil
 }
 
 func decodeBackup(path, password string) (*Manifest, []byte, error) {
@@ -329,6 +534,12 @@ func decodeBackup(path, password string) (*Manifest, []byte, error) {
 		return nil, nil, fmt.Errorf("backup: manifest encryption status does not match filename")
 	}
 	return manifest, data, nil
+}
+
+// ReadManifest returns validated manifest metadata for a backup archive.
+func ReadManifest(path, password string) (*Manifest, error) {
+	manifest, _, err := decodeBackup(path, password)
+	return manifest, err
 }
 
 // buildTarGz walks ConfigDir/DataDir per AI.md PART 21 "Backup Contents" and
@@ -540,6 +751,12 @@ func addPathToTar(tw *tar.Writer, srcPath, tarName string, info os.FileInfo) err
 // check but never deletes anything; callers decide what to do with a
 // failing backup file.
 func Verify(path string, password string) error {
+	return VerifyWithLimits(path, password, RestoreLimits{})
+}
+
+// VerifyWithLimits verifies the archive and any incremental base using the
+// configured restore expansion limits.
+func VerifyWithLimits(path string, password string, limits RestoreLimits) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("verify: file exists: %w", err)
@@ -547,17 +764,58 @@ func Verify(path string, password string) error {
 	if info.Size() == 0 {
 		return fmt.Errorf("verify: size > 0: backup file is empty")
 	}
+	limits = normalizedRestoreLimits(limits)
+	if info.Size() > limits.MaxArchiveSize {
+		return fmt.Errorf("verify: archive exceeds server.restore.max_archive_size")
+	}
+	compressedSize := info.Size()
 
 	manifest, plaintext, err := decodeBackup(path, password)
 	if err != nil {
 		return fmt.Errorf("verify: manifest readable: %w", err)
 	}
-	want, err := checksumForArchive(plaintext)
-	if err != nil {
+	if err := validateExpandedArchive(plaintext, info.Size(), limits); err != nil {
+		return fmt.Errorf("verify: %w", err)
+	}
+	if err := verifyChecksum(manifest, plaintext); err != nil {
 		return fmt.Errorf("verify: checksum valid: %w", err)
 	}
-	if !strings.EqualFold(want, manifest.Checksum) {
-		return fmt.Errorf("verify: checksum valid: mismatch (want %s, got %s)", manifest.Checksum, want)
+	if manifest.Type == "incremental" {
+		if filepath.Base(manifest.BaseBackup) != manifest.BaseBackup {
+			return fmt.Errorf("verify: invalid base backup name")
+		}
+		basePath := filepath.Join(filepath.Dir(path), manifest.BaseBackup)
+		baseInfo, statErr := os.Stat(basePath)
+		if statErr != nil {
+			return fmt.Errorf("verify: %w", ErrBaseMissing)
+		}
+		if baseInfo.Size() > limits.MaxArchiveSize-compressedSize {
+			return fmt.Errorf("verify: combined archives exceed server.restore.max_archive_size")
+		}
+		compressedSize += baseInfo.Size()
+		baseManifest, basePlain, err := decodeBackup(basePath, password)
+		if err != nil {
+			return fmt.Errorf("verify: %w: %v", ErrBaseMissing, err)
+		}
+		if baseManifest.Type != "full" {
+			return fmt.Errorf("verify: %w", ErrBaseCorrupt)
+		}
+		if err := validateExpandedArchive(basePlain, baseInfo.Size(), limits); err != nil {
+			return fmt.Errorf("verify: base archive: %w", err)
+		}
+		if verifyChecksum(baseManifest, basePlain) != nil || baseManifest.Checksum != manifest.BaseSHA256 {
+			return fmt.Errorf("verify: %w", ErrBaseCorrupt)
+		}
+		if err := validateCombinedManifestLimits(baseManifest, manifest, compressedSize, limits); err != nil {
+			return fmt.Errorf("verify: combined incremental: %w", err)
+		}
+		plaintext, err = mergeIncrementalArchives(basePlain, plaintext, manifest.Deleted)
+		if err != nil {
+			return fmt.Errorf("verify: incremental expansion: %w", err)
+		}
+	}
+	if err := validateExpandedArchive(plaintext, compressedSize, limits); err != nil {
+		return fmt.Errorf("verify: %w", err)
 	}
 
 	baseDir := filepath.Join(os.TempDir(), paths.OrgName)
@@ -588,13 +846,6 @@ func Verify(path string, password string) error {
 	return nil
 }
 
-// checksumOf returns the "sha256:<hex>" checksum string for data, in the
-// same format stored in Manifest.Checksum.
-func checksumOf(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
 // extractTarGz extracts a plaintext tar.gz archive to a single destDir
 // (used by Verify's disposable scratch extraction), guarding against
 // zip-slip path traversal, and returns the extracted server.db path if one
@@ -614,6 +865,9 @@ func extractTarGz(archive []byte, destDir string) (dbPath string, err error) {
 // same protection the project's previous main.go restoreBackup
 // implementation applied. Returns the extracted server.db path if present.
 func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root string, ok bool)) (dbPath string, err error) {
+	if err := validateArchiveEntries(archive); err != nil {
+		return "", err
+	}
 	gzReader, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return "", fmt.Errorf("read gzip: %w", err)
@@ -629,6 +883,9 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 		}
 		if err != nil {
 			return "", fmt.Errorf("read tar: %w", err)
+		}
+		if err := validateArchiveHeader(header); err != nil {
+			return "", err
 		}
 
 		destPath, root, ok := mapPath(header.Name)
@@ -660,7 +917,7 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 			// Preserve the archived file's permission bits rather than
 			// falling back to 0666&umask, so restored secret-bearing files
 			// (server.yml, server.db) keep their restrictive perms.
-			mode := os.FileMode(header.Mode).Perm()
+			mode := os.FileMode(header.Mode).Perm() & 0o666
 			if mode == 0 {
 				mode = 0o600
 			}
@@ -684,6 +941,47 @@ func extractTarGzTo(archive []byte, mapPath func(name string) (destPath, root st
 		}
 	}
 	return dbPath, nil
+}
+
+func validateArchiveEntries(archive []byte) error {
+	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return fmt.Errorf("read gzip: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read tar: %w", err)
+		}
+		if err := validateArchiveHeader(header); err != nil {
+			return err
+		}
+	}
+}
+
+func validateArchiveHeader(header *tar.Header) error {
+	name := header.Name
+	cleanName := strings.TrimSuffix(name, "/")
+	if cleanName == "" || filepath.IsAbs(name) || strings.Contains(name, "\\") || len(cleanName) >= 2 && ((cleanName[0] >= 'A' && cleanName[0] <= 'Z') || (cleanName[0] >= 'a' && cleanName[0] <= 'z')) && cleanName[1] == ':' {
+		return fmt.Errorf("unsafe archive path %q", name)
+	}
+	for _, component := range strings.Split(cleanName, "/") {
+		if component == ".." || component == "" {
+			return fmt.Errorf("unsafe archive path %q", name)
+		}
+	}
+	if header.Mode&0o6000 != 0 {
+		return fmt.Errorf("unsafe setuid/setgid mode on %q", name)
+	}
+	if header.Typeflag != tar.TypeDir && header.Typeflag != tar.TypeReg {
+		return fmt.Errorf("unsupported archive entry type for %q", name)
+	}
+	return nil
 }
 
 func rejectSymlinkComponents(root, target string) error {
@@ -885,6 +1183,33 @@ func ApplyRetention(backupDir string, projectName string, cfg RetentionConfig) (
 	keepBucket("incremental-daily", 1)
 	keepBucket("incremental-hourly", 1)
 
+	baseByIncremental := make(map[string]string)
+	for _, f := range files {
+		if !keep[f.name] || f.kind != "incremental-daily" && f.kind != "incremental-hourly" {
+			continue
+		}
+		baseName, err := incrementalBaseName(f.path)
+		if err == nil && baseName != "" {
+			baseByIncremental[f.name] = baseName
+		}
+	}
+	protectedBases := func() map[string]bool {
+		protected := make(map[string]bool)
+		for incrementalName, baseName := range baseByIncremental {
+			if keep[incrementalName] {
+				protected[baseName] = true
+			}
+		}
+		return protected
+	}
+	for name := range protectedBases() {
+		for _, f := range files {
+			if f.name == name {
+				keep[name] = true
+			}
+		}
+	}
+
 	for _, f := range files {
 		if !keep[f.name] {
 			toDelete[f.name] = f
@@ -903,13 +1228,34 @@ func ApplyRetention(backupDir string, projectName string, cfg RetentionConfig) (
 			}
 		}
 		sort.Slice(remaining, func(i, j int) bool { return remaining[i].date.Before(remaining[j].date) })
-		for _, f := range remaining {
-			if total <= cfg.MaxTotalSize {
+		for total > cfg.MaxTotalSize {
+			progress := false
+			for _, f := range remaining {
+				if total <= cfg.MaxTotalSize {
+					break
+				}
+				if !keep[f.name] || protectedBases()[f.name] {
+					continue
+				}
+				delete(keep, f.name)
+				toDelete[f.name] = f
+				total -= f.size
+				progress = true
+			}
+			if !progress {
 				break
 			}
-			delete(keep, f.name)
-			toDelete[f.name] = f
-			total -= f.size
+		}
+	}
+	if cfg.MaxTotalSize > 0 {
+		var total int64
+		for _, f := range files {
+			if keep[f.name] {
+				total += f.size
+			}
+		}
+		if total > cfg.MaxTotalSize {
+			log.Printf("WARN: backup.cap_exceeded_protected_base")
 		}
 	}
 
@@ -925,6 +1271,28 @@ func ApplyRetention(backupDir string, projectName string, cfg RetentionConfig) (
 	}
 	sort.Strings(deleted)
 	return deleted, nil
+}
+
+func incrementalBaseName(path string) (string, error) {
+	if strings.HasSuffix(strings.ToLower(path), ".enc") {
+		blob, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		header, err := ParseEncryptionHeader(blob)
+		if err != nil {
+			return "", err
+		}
+		return header.BaseName, nil
+	}
+	manifest, err := ReadManifest(path, "")
+	if err != nil {
+		return "", err
+	}
+	if manifest.Type != "incremental" {
+		return "", nil
+	}
+	return manifest.BaseBackup, nil
 }
 
 // isBackupName reports whether name matches one of the app's own backup

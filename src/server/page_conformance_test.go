@@ -44,7 +44,9 @@ func TestRegisteredPageRoutesAndHubLinks(t *testing.T) {
 	}
 
 	api := httptest.NewRecorder()
-	s.router.ServeHTTP(api, httptest.NewRequest(http.MethodGet, "/api/v1/server/help", nil))
+	helpRequest := httptest.NewRequest(http.MethodGet, "/api/v1/server/help", nil)
+	helpRequest.Header.Set("Accept", "application/json")
+	s.router.ServeHTTP(api, helpRequest)
 	if api.Code != http.StatusOK {
 		t.Fatalf("help API status = %d, body=%s", api.Code, api.Body.String())
 	}
@@ -64,8 +66,7 @@ func TestDocumentationUIThemeAssets(t *testing.T) {
 		"/static/vendor/swagger-ui/swagger-ui-bundle.js",
 		"/static/vendor/graphiql/graphiql.min.css",
 		"/static/vendor/graphiql/react.production.min.js",
-		"/static/js/docs-swagger.js",
-		"/static/js/docs-graphql.js",
+		"/static/js/app.js",
 		"/static/css/docs.css",
 	} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)

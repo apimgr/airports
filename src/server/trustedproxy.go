@@ -33,8 +33,10 @@ var defaultTrustedProxyCIDRs = []string{
 
 const trustedProxyDNSRefreshInterval = 5 * time.Minute
 
-type originalTCPPeerContextKey struct{}
-type torCircuitContextKey struct{}
+type (
+	originalTCPPeerContextKey struct{}
+	torCircuitContextKey      struct{}
+)
 
 // TorCircuitID returns the circuit token attached by the dedicated Tor
 // listener's PROXY-protocol parser. Requests without that trusted listener

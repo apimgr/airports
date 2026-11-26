@@ -66,16 +66,16 @@ func stageReleaseBinary(client *http.Client, release *releaseInfo, dataDir strin
 	}
 
 	stageDir := filepath.Join(dataDir, "update")
-	if err := os.MkdirAll(stageDir, 0700); err != nil {
+	if err := os.MkdirAll(stageDir, 0o700); err != nil {
 		return fmt.Errorf("create update staging directory: %w", err)
 	}
-	if err := os.Chmod(stageDir, 0700); err != nil {
+	if err := os.Chmod(stageDir, 0o700); err != nil {
 		return fmt.Errorf("secure update staging directory: %w", err)
 	}
 	stagedPath := filepath.Join(stageDir, ProjectName+".new")
 	temporaryPath := stagedPath + ".tmp"
 	_ = os.Remove(temporaryPath)
-	output, err := os.OpenFile(temporaryPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0700)
+	output, err := os.OpenFile(temporaryPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 	if err != nil {
 		return fmt.Errorf("create staged binary: %w", err)
 	}
@@ -115,7 +115,7 @@ func stageReleaseBinary(client *http.Client, release *releaseInfo, dataDir strin
 		ProjectName + ".version":          version + "\n",
 		ProjectName + ".previous_version": Version + "\n",
 	} {
-		if err := os.WriteFile(filepath.Join(stageDir, filename), []byte(value), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(stageDir, filename), []byte(value), 0o600); err != nil {
 			_ = os.RemoveAll(stageDir)
 			return fmt.Errorf("write staged update metadata: %w", err)
 		}
@@ -180,7 +180,7 @@ func applyStagedUpdate(dataDir string, startedElevated bool) *stagedUpdateFailur
 	}
 	currentPath, err := os.Executable()
 	if err == nil {
-		err = os.Chmod(stagedBinary, 0755)
+		err = os.Chmod(stagedBinary, 0o755)
 	}
 	if err == nil {
 		err = replaceBinary(currentPath, stagedBinary)
@@ -191,7 +191,7 @@ func applyStagedUpdate(dataDir string, startedElevated bool) *stagedUpdateFailur
 		return failure
 	}
 	installedMarker := filepath.Join(dataDir, "update_installed")
-	if err := os.WriteFile(installedMarker, []byte(oldVersion+"\n"+version+"\n"), 0600); err != nil {
+	if err := os.WriteFile(installedMarker, []byte(oldVersion+"\n"+version+"\n"), 0o600); err != nil {
 		failure := &stagedUpdateFailure{version: version, cause: fmt.Errorf("record installed update: %w", err)}
 		_ = os.RemoveAll(stageDir)
 		return failure

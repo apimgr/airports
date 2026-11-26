@@ -1,6 +1,9 @@
 package backup
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestManifestMarshalUnmarshalRoundTrip(t *testing.T) {
 	m := &Manifest{
@@ -11,7 +14,9 @@ func TestManifestMarshalUnmarshalRoundTrip(t *testing.T) {
 		Contents:         []string{"server.yml", "server.db", "template/", "ssl/"},
 		Encrypted:        true,
 		EncryptionMethod: "AES-256-GCM",
-		Checksum:         "sha256:abc123",
+		Type:             "full",
+		SnapshotAt:       "2025-01-15T10:30:00Z",
+		Checksum:         "abc123",
 	}
 
 	data, err := m.Marshal()
@@ -41,9 +46,11 @@ func TestUnmarshalManifestInvalidJSON(t *testing.T) {
 
 func TestManifestUnencryptedOmitsEncryptionMethod(t *testing.T) {
 	m := &Manifest{
-		Version:   ManifestVersion,
-		Encrypted: false,
-		Checksum:  "sha256:xyz",
+		Version:    ManifestVersion,
+		Encrypted:  false,
+		Type:       "full",
+		SnapshotAt: "2025-01-15T10:30:00Z",
+		Checksum:   "xyz",
 	}
 	data, err := m.Marshal()
 	if err != nil {
@@ -55,5 +62,19 @@ func TestManifestUnencryptedOmitsEncryptionMethod(t *testing.T) {
 	}
 	if got.EncryptionMethod != "" {
 		t.Fatalf("expected empty encryption_method, got %q", got.EncryptionMethod)
+	}
+}
+
+func TestUnmarshalLegacyManifest(t *testing.T) {
+	data := []byte(`{"version":"1.0.0","created_at":"2025-01-15T10:30:00Z","checksum":"sha256:abc123"}`)
+	manifest, err := UnmarshalManifest(data)
+	if err != nil {
+		t.Fatalf("UnmarshalManifest(legacy): %v", err)
+	}
+	if !manifest.legacy || manifest.Type != "full" || manifest.SnapshotAt != manifest.CreatedAt || manifest.Checksum != "sha256:abc123" {
+		t.Fatalf("legacy manifest normalization = %+v", manifest)
+	}
+	if _, err := json.Marshal(manifest); err != nil {
+		t.Fatalf("Marshal normalized legacy manifest: %v", err)
 	}
 }

@@ -346,6 +346,19 @@ func TestHandleGetAirportsExports(t *testing.T) {
 		if !strings.Contains(w.Header().Get("Content-Disposition"), "airports.json") {
 			t.Errorf("Content-Disposition = %q, want it to mention airports.json", w.Header().Get("Content-Disposition"))
 		}
+		var records map[string]map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &records); err != nil {
+			t.Fatalf("decode airport JSON export: %v", err)
+		}
+		for _, record := range records {
+			if _, ok := record["type"]; !ok {
+				t.Error("airport JSON export is missing type")
+			}
+			if _, ok := record["source"]; ok {
+				t.Error("internal source provenance leaked into the API response")
+			}
+			break
+		}
 	})
 
 	t.Run("csv export", func(t *testing.T) {
@@ -358,6 +371,9 @@ func TestHandleGetAirportsExports(t *testing.T) {
 		if !strings.Contains(w.Header().Get("Content-Disposition"), "airports.csv") {
 			t.Errorf("Content-Disposition = %q, want it to mention airports.csv", w.Header().Get("Content-Disposition"))
 		}
+		if !strings.HasPrefix(w.Body.String(), "icao,iata,name,city,state,country,elevation,lat,lon,tz,type\n") {
+			t.Errorf("CSV export header does not include type: %q", w.Body.String()[:min(len(w.Body.String()), 120)])
+		}
 	})
 
 	t.Run("geojson export", func(t *testing.T) {
@@ -369,6 +385,17 @@ func TestHandleGetAirportsExports(t *testing.T) {
 		}
 		if !strings.Contains(w.Header().Get("Content-Disposition"), "airports.geojson") {
 			t.Errorf("Content-Disposition = %q, want it to mention airports.geojson", w.Header().Get("Content-Disposition"))
+		}
+		var collection struct {
+			Features []struct {
+				Properties map[string]interface{} `json:"properties"`
+			} `json:"features"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &collection); err != nil {
+			t.Fatalf("decode airport GeoJSON export: %v", err)
+		}
+		if len(collection.Features) == 0 || collection.Features[0].Properties["type"] == nil {
+			t.Error("GeoJSON export is missing airport type")
 		}
 	})
 }
@@ -574,7 +601,7 @@ func TestHandleSecurityTxtTorUsesOnlyTorContact(t *testing.T) {
 
 func TestHandleManifest(t *testing.T) {
 	s := newTestServer(t)
-	r := httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil)
+	r := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
 	w := httptest.NewRecorder()
 
 	s.handleManifest(w, r)
@@ -584,6 +611,19 @@ func TestHandleManifest(t *testing.T) {
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/manifest+json" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/manifest+json")
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-cache, no-transform" {
+		t.Errorf("Cache-Control = %q, want no-cache, no-transform", got)
+	}
+	if got, want := w.Header().Get("ETag"), `"`+currentBuildStamp()+`"`; got != want {
+		t.Errorf("ETag = %q, want %q", got, want)
+	}
+	conditionalRequest := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	conditionalRequest.Header.Set("If-None-Match", `W/"`+currentBuildStamp()+`"`)
+	conditionalResponse := httptest.NewRecorder()
+	s.handleManifest(conditionalResponse, conditionalRequest)
+	if conditionalResponse.Code != http.StatusNotModified || conditionalResponse.Body.Len() != 0 {
+		t.Errorf("conditional manifest response = %d %q, want 304 with no body", conditionalResponse.Code, conditionalResponse.Body.String())
 	}
 }
 
@@ -599,6 +639,12 @@ func TestHandleServiceWorker(t *testing.T) {
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/javascript" {
 		t.Errorf("Content-Type = %q, want %q", ct, "application/javascript")
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-cache, no-transform" {
+		t.Errorf("Cache-Control = %q, want no-cache, no-transform", got)
+	}
+	if got, want := w.Header().Get("ETag"), `"`+currentBuildStamp()+`"`; got != want {
+		t.Errorf("ETag = %q, want %q", got, want)
 	}
 	worker := w.Body.String()
 	for _, required := range []string{

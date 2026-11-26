@@ -3,7 +3,7 @@ package config
 import (
 	"github.com/apimgr/airports/src/common/i18n"
 	"github.com/apimgr/airports/src/i2p"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/tor"
 )
 
@@ -74,8 +74,9 @@ func DefaultApplicationConfig() *ApplicationConfig {
 					BlocklistUpdate: TaskConfig{Enabled: true, Schedule: "0 4 * * *", RetryOnFail: true, RetryDelay: "1h"},
 					CVEUpdate:       TaskConfig{Enabled: true, Schedule: "0 5 * * *", RetryOnFail: true, RetryDelay: "1h"},
 					UpdateCheck:     TaskConfig{Enabled: true, Schedule: "0 6 * * *"},
-					DiskCheck:       TaskConfig{Enabled: true, Schedule: "*/5 * * * *"},
-					TokenCleanup:    TaskConfig{Enabled: true, Schedule: "*/15 * * * *"},
+					DiskCheck:       TaskConfig{Enabled: true, Schedule: "@every 5m"},
+					DatabaseCheck:   TaskConfig{Enabled: true, Schedule: "@every 1m"},
+					TokenCleanup:    TaskConfig{Enabled: true, Schedule: "@every 15m"},
 					LogRotation:     TaskConfig{Enabled: true, Schedule: "0 0 * * *"},
 					Backup:          BackupTaskConfig{Enabled: true, Schedule: "0 2 * * *", Retention: 5},
 					BackupHourly:    TaskConfig{Enabled: false, Schedule: "0 * * * *"},
@@ -108,6 +109,13 @@ func DefaultApplicationConfig() *ApplicationConfig {
 				ReadTimeout:  "30s",
 				WriteTimeout: "30s",
 				IdleTimeout:  "120s",
+			},
+			Restore: RestoreConfig{
+				MaxArchiveSize:  "1G",
+				MaxExpandedSize: "4G",
+				MaxFiles:        10000,
+				MaxFileSize:     "512M",
+				MaxRatio:        100,
 			},
 			Compression: CompressionConfig{
 				Enabled: true,
@@ -214,7 +222,6 @@ func DefaultApplicationConfig() *ApplicationConfig {
 						Backup:        true,
 						Server:        true,
 					},
-					MaskEmails: true,
 				},
 				Security: LogFileConfig{
 					Filename: "security.log",
@@ -433,7 +440,8 @@ When the configured sold-data option is enabled, the operator may share or sell 
 						"disk_low":                       true,
 					},
 				},
-				DiskLow: DiskLowConfig{Enabled: true, ThresholdPercent: 85, CheckInterval: "5m", Repeat: "24h"},
+				DiskLow:       DiskLowConfig{Enabled: true, ThresholdPercent: 85, Repeat: "24h"},
+				DatabaseError: DatabaseErrorConfig{Enabled: true, Failures: 3, Repeat: "24h"},
 			},
 		},
 		Data: DataConfig{CVE: CVEConfig{}},

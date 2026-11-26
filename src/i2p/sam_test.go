@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 )
 
 func TestSAMEepsitePersistsKeyAndUsesSeparateSilentForwardSocket(t *testing.T) {
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0700); err != nil {
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-i2p-")
@@ -127,7 +127,7 @@ func TestSAMEepsitePersistsKeyAndUsesSeparateSilentForwardSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(stored)) != private {
+	if string(stored) != private {
 		t.Fatal("destination key was not persisted as a single PRIV value")
 	}
 	first, second, third := <-commands, <-commands, <-commands
@@ -154,7 +154,7 @@ func TestSAMEepsitePersistsKeyAndUsesSeparateSilentForwardSocket(t *testing.T) {
 
 func TestSAMEepsiteAcceptsSlowSessionStatusWithinConfiguredBootstrapTimeout(t *testing.T) {
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0700); err != nil {
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-i2p-slow-")
@@ -232,7 +232,7 @@ func TestSAMEepsiteAcceptsSlowSessionStatusWithinConfiguredBootstrapTimeout(t *t
 
 func TestI2PPrivateDestinationNeverAppearsInStartupLogs(t *testing.T) {
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0700); err != nil {
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-i2p-secret-")
@@ -355,7 +355,7 @@ func TestI2PDConfigurationDoesNotEnableForbiddenListenerPorts(t *testing.T) {
 
 func TestDestinationFileRejectsInvalidKeyWithoutReplacingIt(t *testing.T) {
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0700); err != nil {
+	if err := os.MkdirAll(base, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-i2p-")
@@ -364,7 +364,7 @@ func TestDestinationFileRejectsInvalidKeyWithoutReplacingIt(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	path := filepath.Join(dir, "site-keys.dat")
-	if err := os.WriteFile(path, []byte("not-a-key\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("not-a-key\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadOrCreateDestination(nil, nil, path, 7); err == nil {

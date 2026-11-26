@@ -271,6 +271,16 @@ func TestInitializeDebug(t *testing.T) {
 		}
 	})
 
+	t.Run("env-var-empty-leaves-alias-untouched", func(t *testing.T) {
+		resetState(t)
+		SetDebugEnabled(true)
+		t.Setenv("DEBUG", "")
+		InitializeDebug(false)
+		if !IsDebugEnabled() {
+			t.Error("IsDebugEnabled() = false, want true (empty DEBUG counts as unset)")
+		}
+	})
+
 	t.Run("default-false-when-nothing-set", func(t *testing.T) {
 		resetState(t)
 		unsetEnv(t, "DEBUG")

@@ -46,7 +46,7 @@
     <link rel="icon" type="image/png" href="{{.Favicon192URL}}" sizes="192x192">
     <link rel="icon" type="image/png" href="{{.Favicon512URL}}" sizes="512x512">
     <link rel="apple-touch-icon" href="{{.AppleTouchIconURL}}">
-    <link rel="manifest" href="{{.BaseURL}}/manifest.webmanifest">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
     <meta name="theme-color" content="{{.ThemeColor}}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -61,7 +61,6 @@
     }
     </script>
     {{if .TrackingEnabled}}
-    <script defer src="{{.BaseURL}}/static/js/analytics.js" data-provider="{{.TrackingType}}" data-id="{{.TrackingID}}" data-url="{{.TrackingURL}}"></script>
     {{if .TrackingSimple}}<noscript><img src="https://queue.simpleanalyticscdn.com/noscript.gif" alt="" referrerpolicy="no-referrer-when-downgrade"></noscript>{{end}}
     {{end}}
 </head>

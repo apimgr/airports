@@ -68,7 +68,6 @@ func renderSwaggerHTML(specURL, assetsPrefix string, baseURLs ...string) string 
     <script src="%[2]sswagger-ui-bundle.js"></script>
     <script src="%[2]sswagger-ui-standalone-preset.js"></script>
     <script src="%[3]s/static/js/app.js"></script>
-    <script src="%[3]s/static/js/docs-swagger.js"></script>
   </body>
 </html>
 `, specURL, assetsPrefix, baseURL)

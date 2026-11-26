@@ -29,6 +29,30 @@ func TestNewManagerDisabledWhenTorBinaryMissing(t *testing.T) {
 	}
 }
 
+func TestReloadConfigKeepsHTTPBackendListenerWhenTorDisables(t *testing.T) {
+	manager := managerForTest(t, "airports-test", 8080, true)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.backend = listener
+	manager.backendPort = listener.Addr().(*net.TCPAddr).Port
+	defer func() { _ = listener.Close() }()
+
+	updated := DefaultTorConfig()
+	updated.Binary = filepath.Join(t.TempDir(), "tor-not-installed")
+	updated.ContactEmail = "ops@example.com"
+	if err := manager.ReloadConfig(context.Background(), updated); err != nil {
+		t.Fatalf("ReloadConfig() error = %v", err)
+	}
+	if manager.BackendListener() != listener {
+		t.Fatal("ReloadConfig() replaced the backend listener while disabling Tor")
+	}
+	if manager.IsTorEnabled() {
+		t.Fatal("ReloadConfig() left Tor enabled after configuring a missing binary")
+	}
+}
+
 func TestNewManagerAutoEnablesWhenTorBinaryFound(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "tor")
 	if err := os.WriteFile(binary, []byte("tor fixture"), 0o700); err != nil {

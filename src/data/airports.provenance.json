@@ -1,0 +1,44 @@
+{
+  "airport_source": {
+    "publisher": "OurAirports",
+    "url": "https://github.com/davidmegginson/ourairports-data",
+    "files": [
+      "airports.csv",
+      "regions.csv"
+    ],
+    "version": "a537e082ac8c8fe6ab509df1f128cc6704fe73c1",
+    "retrieved_at": "2026-11-26",
+    "license": "Public Domain",
+    "sha256": {
+      "airports.csv": "87a8ff07a823702153d4e5d4caa72148633812fb8c9a9cd81fca610ff3c112bf",
+      "regions.csv": "9220d6582b804cfdec8432e5bb21456699c9df8969bf5d8886beb62ff0b1318b"
+    }
+  },
+  "timezone_source": {
+    "publisher": "mwgg/Airports",
+    "url": "https://github.com/mwgg/Airports",
+    "file": "airports.json",
+    "version": "a89e4e0dda9d9878337e2da190ebe1ef1d6af705",
+    "retrieved_at": "2026-11-26",
+    "license": "MIT",
+    "sha256": "a7754cbe722ea21f0f9ab1ef07f4f07ee1e85b9cc99191ebde0b49fabb3c149a",
+    "upstream_lineage": "mwgg/Airports README says timezone values were initially sourced from TimeZoneDB and updated using TimeAPI."
+  },
+  "transformation": {
+    "included_types": [
+      "small_airport",
+      "medium_airport",
+      "large_airport"
+    ],
+    "excluded_types": [
+      "heliport",
+      "seaplane_base",
+      "balloonport",
+      "closed"
+    ],
+    "timezone_join": "OurAirports ident to mwgg/Airports object key; empty when unmatched",
+    "records": 48071,
+    "timezone_records": 24582,
+    "airport_json_sha256": "8093e6d52f8709252790eb43e17474c5ef4132d65be2755561b36586e4e91cf0"
+  }
+}

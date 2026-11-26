@@ -22,6 +22,9 @@ func URLNormalizeMiddleware(next http.Handler) http.Handler {
 		if cleaned == "" {
 			cleaned = "/"
 		}
+		if cleaned == "/debug/pprof/" {
+			cleaned = "/debug/pprof"
+		}
 		r.URL.Path = cleaned
 		next.ServeHTTP(w, r)
 	})

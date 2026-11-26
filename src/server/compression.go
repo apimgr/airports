@@ -225,6 +225,8 @@ func addVary(header http.Header, value string) {
 	header.Add("Vary", value)
 }
 
-var _ http.Flusher = (*gzipResponseWriter)(nil)
-var _ http.Hijacker = (*gzipResponseWriter)(nil)
-var _ http.Pusher = (*gzipResponseWriter)(nil)
+var (
+	_ http.Flusher  = (*gzipResponseWriter)(nil)
+	_ http.Hijacker = (*gzipResponseWriter)(nil)
+	_ http.Pusher   = (*gzipResponseWriter)(nil)
+)

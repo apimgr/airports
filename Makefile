@@ -3,11 +3,12 @@
 # ----------------------------------------------------------------------------
 # All Go work runs inside Docker (casjaysdev/go:latest). The host stays clean.
 # CGO_ENABLED=0 is enforced everywhere - pure Go static binaries only.
-# Targets (exactly six core + clean, per AI.md PART 25 - never add more):
+# Targets (exactly seven core + clean and release-check, per AI.md PART 25):
 #   make dev      - Quick development build to ${TMPDIR}/${PROJECT_ORG}/...
 #   make local    - Production build to binaries/ (host platform, with version)
 #   make build    - Full release: 8 platforms in binaries/
 #   make release  - Manual local release: strip/archive/gh release in releases/
+#   make beta     - Tag and push the current main commit for CI beta publishing
 #   make test     - Unit tests (in Docker)
 #   make docker   - Multi-arch Docker build & push to ghcr.io
 #   make clean    - Remove build artifacts (prerequisite of build/local)
@@ -21,9 +22,11 @@ ifeq ($(INTERNAL_NAME),)
 INTERNAL_NAME   := $(PROJECT_NAME)
 endif
 CLIENT_NAME     := airports-cli
+BINDIR          ?= binaries
+RELDIR          ?= releases
 
 # Local version precedence: VERSION override > non-empty release.txt > short commit id.
-VERSION         ?= $(shell cat release.txt 2>/dev/null || echo "0.1.0")
+VERSION         ?= $(shell v=; [ -r release.txt ] && v=$$(tr -d '[:space:]' < release.txt); if [ -n "$$v" ]; then echo "$$v"; else git rev-parse --short=7 HEAD 2>/dev/null || echo devel; fi)
 # Release tags use v only for semantic versions; text and timestamp tags stay plain.
 RELEASE_TAG     := $(shell tag='$(VERSION)'; if printf '%s' "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then printf '%s' "$$tag"; elif printf '%s' "$$tag" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then printf 'v%s' "$$tag"; elif [ "$${tag#v}" != "$$tag" ]; then printf '%s' "$${tag#v}"; else printf '%s' "$$tag"; fi)
 COMMIT_ID       := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -32,7 +35,8 @@ COMMIT_ID       := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unkno
 BUILD_EPOCH     := $(shell date -u +%s)
 # Derived from BUILD_EPOCH - ISO 8601 UTC; used only for Docker OCI labels, not an ldflag
 BUILD_DATE      := $(shell date -u -d @$(BUILD_EPOCH) +"%Y-%m-%dT%H:%M:%SZ")
-OFFICIAL_SITE   ?= $(shell cat site.txt 2>/dev/null || echo "")
+OFFICIAL_SITE   := $(shell if [ -f site.txt ]; then cat site.txt; else printf '%s' "$${OFFICIAL_SITE:-}"; fi)
+REGISTRY        ?= ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME)
 
 # BuildDate is NOT embedded - it is derived from BuildEpoch at process start
 LDFLAGS         := -s -w \
@@ -47,8 +51,8 @@ CLI_LDFLAGS     := -s -w \
                    -X 'main.OfficialSite=$(OFFICIAL_SITE)'
 
 # Host detection (used by make local)
-HOSTOS          := $(shell go env GOOS 2>/dev/null || uname -s | tr '[:upper:]' '[:lower:]')
-HOSTARCH        := $(shell go env GOARCH 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+HOSTOS          := $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed 's/mingw.*/windows/;s/msys.*/windows/')
+HOSTARCH        := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 # Build temp dir (for `make dev`)
 TMPDIR          ?= /tmp
@@ -83,7 +87,7 @@ GO_DOCKER       := $(DOCKER_RUN) \
 HAS_CLIENT      := $(shell test -d src/client && echo yes || echo no)
 
 # ----------------------------------------------------------------------------
-.PHONY: build local release docker test dev clean
+.PHONY: build local release release-check beta docker test dev clean
 
 # ----------------------------------------------------------------------------
 # make dev: quick build to a fresh temp dir for active development
@@ -100,7 +104,10 @@ dev:
 		-e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
-			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
+			set -e; \
+			go mod tidy; \
+			go mod download; \
+			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
 			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src && \
 			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
 		'; \
@@ -110,75 +117,101 @@ dev:
 # make local: production-style build for host platform only
 # ----------------------------------------------------------------------------
 local: clean
-	@mkdir -p binaries $(GO_CACHE) $(GO_BUILD)
+	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building $(PROJECT_NAME) $(VERSION) for host ($(HOSTOS)/$(HOSTARCH))..."
 	@$(DOCKER_RUN) \
 		-v $(PWD):/app -w /app \
+		-v $(abspath $(BINDIR)):/out \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
 		-e GOOS=$(HOSTOS) -e GOARCH=$(HOSTARCH) -e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
-			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
-			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME) ./src && \
-			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME) ./src/client; fi \
+			set -e; \
+			go mod tidy; \
+			go mod download; \
+			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
+			go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME) ./src; \
+			if [ -d src/client ]; then go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME) ./src/client; fi \
 		'
-	@echo "Built: binaries/$(PROJECT_NAME)"
+	@echo "Built: $(BINDIR)/$(PROJECT_NAME)"
 
 # ----------------------------------------------------------------------------
-# make build: host binaries plus all 8 release platforms
+# make build: host binaries plus all 8 release platforms and supported GUI clients
 # ----------------------------------------------------------------------------
 build: clean
-	@mkdir -p binaries $(GO_CACHE) $(GO_BUILD)
+	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building $(PROJECT_NAME) $(VERSION) for all platforms..."
 	@$(DOCKER_RUN) \
 		-v $(PWD):/app -w /app \
+		-v $(abspath $(BINDIR)):/out \
 		-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 		-v $(GO_BUILD):/usr/local/share/go/cache \
 		-e CGO_ENABLED=0 \
 		-e GOFLAGS=-buildvcs=false \
 		$(GO_IMAGE) sh -c '\
 			set -e; \
+			go mod tidy; \
+			go mod download; \
 			GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen; \
 			hostext=""; [ "$(HOSTOS)" = "windows" ] && hostext=".exe"; \
-			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)$$hostext ./src; \
-			if [ -d src/client ]; then GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME)$$hostext ./src/client; fi; \
+			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME)$$hostext ./src; \
+			if [ -d src/client ]; then GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME)$$hostext ./src/client; fi; \
 			for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64; do \
 				os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
 				[ "$$os" = "windows" ] && ext=".exe"; \
 				echo "  -> $$os/$$arch"; \
-				GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o binaries/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
+				GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o /out/$(PROJECT_NAME)-$$os-$$arch$$ext ./src; \
 				if [ -d src/client ]; then \
-					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o binaries/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
+					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME)-$$os-$$arch$$ext ./src/client; \
 				fi; \
-			done \
+			done; \
+			if [ -d src/client/gui ]; then \
+				for tgt in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
+					os=$${tgt%/*}; arch=$${tgt#*/}; ext=""; \
+					[ "$$os" = "windows" ] && ext=".exe"; \
+					echo "  -> GUI $$os/$$arch (dynamically linked)"; \
+					GOOS=$$os GOARCH=$$arch go build -buildvcs=false -trimpath -tags gui -ldflags "$(CLI_LDFLAGS)" -o /out/$(CLIENT_NAME)-gui-$$os-$$arch$$ext ./src/client; \
+				done; \
+			fi \
 		'
-	@ls -1 binaries/
+	@ls -1 $(BINDIR)/
 
 # ----------------------------------------------------------------------------
 # make release: manual local release (build -> strip -> archive -> gh release)
 # NOTE: manual/local only - CI/CD (release.yml) handles automated releases.
 # ----------------------------------------------------------------------------
-release: build
-	@mkdir -p releases
+release: release-check build
+	@mkdir -p $(RELDIR)
 	@echo "Preparing release $(VERSION)..."
-	@echo "$(VERSION)" > releases/version.txt
-	@for f in binaries/$(PROJECT_NAME)-* binaries/$(CLIENT_NAME)-*; do \
+	@echo "$(VERSION)" > $(RELDIR)/version.txt
+	@for f in $(BINDIR)/$(PROJECT_NAME)-* $(BINDIR)/$(CLIENT_NAME)-*; do \
 		[ -f "$$f" ] || continue; \
 		strip "$$f" 2>/dev/null || true; \
-		cp "$$f" releases/; \
+		cp "$$f" $(RELDIR)/; \
 	done
-	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
-		--exclude='binaries' --exclude='releases' --exclude='*.tar.gz' \
-		-czf releases/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
+	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' --exclude='.forgejo' \
+		--exclude='$(BINDIR)' --exclude='$(RELDIR)' --exclude='*.tar.gz' \
+		-czf $(RELDIR)/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
+	@cd $(RELDIR) && FILES="$$(ls)" && sha256sum $$FILES > sha256.txt && sha512sum $$FILES > sha512.txt
 	@gh release delete $(RELEASE_TAG) --yes 2>/dev/null || true
 	@git tag -d $(RELEASE_TAG) 2>/dev/null || true
 	@git push origin :refs/tags/$(RELEASE_TAG) 2>/dev/null || true
-	@gh release create $(RELEASE_TAG) releases/* \
+	@gh release create $(RELEASE_TAG) $(RELDIR)/* \
 		--title "$(PROJECT_NAME) $(VERSION)" \
 		--notes "Release $(VERSION)" \
 		--latest
 	@echo "Release complete: $(RELEASE_TAG)"
+
+release-check:
+	@printf '%s\n' "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "ERROR: make release needs a stable SemVer X.Y.Z in release.txt (got '$(VERSION)')" >&2; exit 2; }
+
+beta:
+	@current_branch=$$(git branch --show-current); \
+	if [ "$$current_branch" != main ]; then echo "ERROR: make beta requires the current branch to be main" >&2; exit 2; fi; \
+	if [ -n "$$(git status --porcelain)" ]; then echo "ERROR: make beta requires a clean working tree" >&2; exit 2; fi; \
+	tag=$$(date -u +%Y%m%d%H%M%S)-beta; \
+	git tag "$$tag" && git push origin "$$tag" && echo "Pushed beta tag $$tag"
 
 # ----------------------------------------------------------------------------
 # make test: unit tests in Docker
@@ -193,7 +226,10 @@ test:
 		trap "rm -rf $$COVDIR" EXIT && \
 		export TMPDIR="$$COVDIR" && \
 		go mod download && \
-		go test -p 1 -timeout 5m -covermode=atomic -coverprofile=$$COVDIR/coverage.out ./... && \
+		GOOS=linux GOARCH=amd64 go run ./src/swagger/cmd/openapi-gen && \
+		mkdir -p "$$COVDIR/data" && \
+		go test -p 1 -timeout 5m -cover ./... -args -test.gocoverdir="$$COVDIR/data" && \
+		go tool covdata textfmt -i="$$COVDIR/data" -o="$$COVDIR/coverage.out" && \
 		total=$$(go tool cover -func=$$COVDIR/coverage.out | awk "/^total:/ {gsub(/%/, \"\", \$$3); print \$$3}") && \
 		echo "Total coverage: $${total}%" && \
 		awk "BEGIN { exit !($${total} >= 60) }" || { echo "Coverage $${total}% is below the 60% floor"; exit 1; } \
@@ -213,8 +249,8 @@ docker:
 		--build-arg BUILD_EPOCH=$(BUILD_EPOCH) \
 		--build-arg OFFICIAL_SITE=$(OFFICIAL_SITE) \
 		-f docker/Dockerfile \
-		-t ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME):latest \
-		-t ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME):$(VERSION) \
+		-t $(REGISTRY):latest \
+		-t $(REGISTRY):$(VERSION) \
 		--push \
 		.
 
@@ -223,5 +259,5 @@ docker:
 # ----------------------------------------------------------------------------
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf binaries/ releases/ coverage.out
+	@rm -rf $(BINDIR)/ $(RELDIR)/
 	@echo "Clean complete"

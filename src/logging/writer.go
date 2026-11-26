@@ -55,10 +55,10 @@ func (w *LogWriter) ensureOpen() error {
 	if w.file != nil {
 		return nil
 	}
-	if err := os.MkdirAll(w.dir, 0700); err != nil {
+	if err := os.MkdirAll(w.dir, 0o700); err != nil {
 		return fmt.Errorf("logging: create log dir %q: %w", w.dir, err)
 	}
-	f, err := os.OpenFile(w.Path(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
+	f, err := os.OpenFile(w.Path(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 	if err != nil {
 		return fmt.Errorf("logging: open log file %q: %w", w.Path(), err)
 	}
@@ -230,7 +230,7 @@ func gzipFile(src string) (string, error) {
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
+	out, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 	if err != nil {
 		return "", err
 	}

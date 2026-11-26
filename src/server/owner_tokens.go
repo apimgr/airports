@@ -31,15 +31,19 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-const ownerTokenCookieName = "airports_owner_token_qwhzkfta"
-const ownerTokenLegacyCookieName = "airports_owner_token_6kP9qV2x"
-const ownerTokenViewCookieName = "airports_token_view"
-const ownerTokenNoticeCookieName = "airports_token_notice"
-const ownerTokenAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-const encryptionKeyPreviousPrefix = "airports-encryption-key-previous:v1:"
+const (
+	ownerTokenCookieName        = "airports_owner_token_qwhzkfta"
+	ownerTokenLegacyCookieName  = "airports_owner_token_6kP9qV2x"
+	ownerTokenViewCookieName    = "airports_token_view"
+	ownerTokenNoticeCookieName  = "airports_token_notice"
+	ownerTokenAlphabet          = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	encryptionKeyPreviousPrefix = "airports-encryption-key-previous:v1:"
+)
 
-var errOwnerTokenUnauthorized = errors.New("owner token authorization failed")
-var errOwnerTokenInput = errors.New("invalid token management input")
+var (
+	errOwnerTokenUnauthorized = errors.New("owner token authorization failed")
+	errOwnerTokenInput        = errors.New("invalid token management input")
+)
 
 // ownerTokenRecord contains the public token metadata returned to the owner.
 type ownerTokenRecord struct {
@@ -69,6 +73,11 @@ type ownerTokenIdentity struct {
 
 func (s *Server) ensureOwnerTokenSchema() error {
 	return ensureOwnerTokenSchema(s.db)
+}
+
+// InitializeOwnerTokenSchema prepares owner identity storage during server startup.
+func InitializeOwnerTokenSchema(db dbpkg.Handle) error {
+	return ensureOwnerTokenSchema(db)
 }
 
 func ensureOwnerTokenSchema(db dbpkg.Handle) error {
@@ -115,6 +124,9 @@ func ensureOwnerTokenSchema(db dbpkg.Handle) error {
 	}
 	if _, err := db.Exec(`INSERT INTO owner_cookie_migrations(id, started_at) VALUES(1, ?) ON CONFLICT(id) DO NOTHING`, time.Now().Unix()); err != nil {
 		return fmt.Errorf("record owner cookie migration start: %w", err)
+	}
+	if _, err := db.Exec(`INSERT INTO owners(id) VALUES('system') ON CONFLICT(id) DO NOTHING`); err != nil {
+		return fmt.Errorf("create system owner: %w", err)
 	}
 	if _, err := db.Exec(`ALTER TABLE api_tokens ADD COLUMN token_suffix TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 		return fmt.Errorf("add owner token suffix metadata: %w", err)
@@ -185,7 +197,8 @@ func RevokeOwnerTokenByPrefix(db dbpkg.Handle, prefix string) error {
 // the required token.revoked event when a configured log writer is supplied.
 func RevokeOwnerTokenByPrefixWithAudit(db dbpkg.Handle, prefix string, auditWriter interface {
 	WriteAudit(logging.AuditCategory, string) error
-}, source, actorIP string) error {
+}, source, actorIP string,
+) error {
 	if err := ensureOwnerTokenSchema(db); err != nil {
 		return err
 	}
@@ -260,7 +273,8 @@ func CountOwnerResources(database dbpkg.Handle, owner string) (int64, error) {
 
 func writeOwnerTokenAuditEntry(writer interface {
 	WriteAudit(logging.AuditCategory, string) error
-}, event, owner, prefix, scope string, tokenCount, resourceCount int, source, actor, actorIP string) {
+}, event, owner, prefix, scope string, tokenCount, resourceCount int, source, actor, actorIP string,
+) {
 	if writer == nil {
 		return
 	}
@@ -270,7 +284,8 @@ func writeOwnerTokenAuditEntry(writer interface {
 
 func writeOwnerTokenAuditLine(writer interface {
 	WriteAudit(logging.AuditCategory, string) error
-}, line string) {
+}, line string,
+) {
 	if writer != nil {
 		if err := writer.WriteAudit(logging.AuditCategorySecurity, line); err != nil {
 			log.Printf("Warning: failed to write token audit event: %v", err)
@@ -286,8 +301,8 @@ func auditActor(source, owner string) string {
 }
 
 // CleanupOwnerTokenData applies the owner idle-purge policy. Airports has no
-// owner-owned resource tables, so all owners older than the idle threshold
-// have no resources and can be removed with their tokens.
+// owner-owned resource tables, so idle non-system owners have no resources
+// and can be removed with their tokens; the reserved system owner is retained.
 func CleanupOwnerTokenData(db dbpkg.Handle, idlePurgeDays int, now time.Time) (resultErr error) {
 	if err := ensureOwnerTokenSchema(db); err != nil {
 		return err
@@ -300,7 +315,7 @@ func CleanupOwnerTokenData(db dbpkg.Handle, idlePurgeDays int, now time.Time) (r
 		if _, err := tx.Exec(`DELETE FROM api_tokens WHERE owner_id IN (SELECT id FROM owners WHERE last_seen_at < ?)`, cutoff); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM owners WHERE last_seen_at < ?`, cutoff); err != nil {
+		if _, err := tx.Exec(`DELETE FROM owners WHERE id <> 'system' AND last_seen_at < ?`, cutoff); err != nil {
 			return err
 		}
 		return nil
@@ -1150,30 +1165,17 @@ func (s *Server) handleOwnerTokenListAPI(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) ownerTokenUnauthorized(w http.ResponseWriter, r *http.Request) {
-	s.logRevokedCLIToken(r)
+	s.logRejectedCLIToken(r)
 	w.Header().Set("WWW-Authenticate", `Bearer realm="airports", error="invalid_token"`)
 	s.writeErrorJSON(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "A valid primary owner token is required.")
 }
 
-func (s *Server) logRevokedCLIToken(r *http.Request) {
+func (s *Server) logRejectedCLIToken(r *http.Request) {
 	if r == nil || !strings.HasPrefix(r.UserAgent(), "airports-cli/") {
 		return
 	}
-	if prefix, revoked := s.revokedOwnerTokenPrefix(bearerCredential(r)); revoked {
-		s.writeCLIAudit("cli.token_revoked_detected", "token_prefix="+strconv.Quote(prefix)+" client_ip="+strconv.Quote(realIP(r)))
-	}
-}
-
-func (s *Server) revokedOwnerTokenPrefix(token string) (string, bool) {
-	if s == nil || s.db == nil || !strings.HasPrefix(token, "own_") {
-		return "", false
-	}
-	var prefix string
-	var revokedAt sql.NullInt64
-	if err := s.db.QueryRow("SELECT token_prefix, revoked_at FROM api_tokens WHERE token_hash = ?", tokenHash(token)).Scan(&prefix, &revokedAt); err != nil {
-		return "", false
-	}
-	return prefix, revokedAt.Valid && prefix != ""
+	prefix := tokenDisplayPrefix(bearerCredential(r))
+	s.writeCLIAudit("cli.token_rejected", "token_prefix="+strconv.Quote(prefix)+" client_ip="+strconv.Quote(realIP(r)))
 }
 
 func (s *Server) ownerTokenForbidden(w http.ResponseWriter, r *http.Request) {

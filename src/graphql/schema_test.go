@@ -15,8 +15,14 @@ func TestSchemaContents(t *testing.T) {
 
 	required := []string{
 		"type Airport",
-		"type Coordinates",
 		"type AirportWithDistance",
+		"state: String",
+		"elevation: Int",
+		"lat: Float",
+		"lon: Float",
+		"tz: String",
+		"type: String",
+		"distance_unit: String",
 		"type NameCount",
 		"type Stats",
 		"type GeoLocation",

@@ -11,7 +11,7 @@ import (
 
 	"github.com/apimgr/airports/src/config"
 	"github.com/apimgr/airports/src/mode"
-	paths "github.com/apimgr/airports/src/path"
+	paths "github.com/apimgr/airports/src/paths"
 	"github.com/apimgr/airports/src/service"
 )
 

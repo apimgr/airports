@@ -173,7 +173,7 @@ func TestCheckTorNil(t *testing.T) {
 }
 
 func TestTorFeatureInfoNil(t *testing.T) {
-	info := torFeatureInfo(nil, "")
+	info := torFeatureInfo(nil, "", false)
 	if info.Enabled {
 		t.Errorf("torFeatureInfo(nil).Enabled = true, want false")
 	}
@@ -495,6 +495,13 @@ func TestHandleServerHealthzJSONShape(t *testing.T) {
 			t.Errorf("missing top-level field %q in JSON response", field)
 		}
 	}
+	var timestamp time.Time
+	if err := json.Unmarshal(raw["timestamp"], &timestamp); err != nil {
+		t.Fatalf("timestamp is not RFC3339: %v", err)
+	}
+	if timestamp.Nanosecond() != 0 || timestamp.Location() != time.UTC {
+		t.Errorf("timestamp = %s, want UTC whole seconds", timestamp.Format(time.RFC3339Nano))
+	}
 	for _, field := range []string{"pending_restart", "restart_reason"} {
 		if _, ok := raw[field]; ok {
 			t.Errorf("field %q present but should be omitted (omitempty, zero value)", field)
@@ -522,11 +529,16 @@ func TestHandleServerHealthzTextNegotiation(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "# 1. Project (PART 16: branding)") {
-		t.Errorf("text response missing section header, got:\n%s", body)
+	for _, want := range []string{"Status:", "Version:", "Features", "Component Status", "Server Statistics"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("frontend text response missing %q, got:\n%s", want, body)
+		}
 	}
 	if strings.HasPrefix(body, "{") {
 		t.Errorf("text negotiation returned JSON body")
+	}
+	if strings.Contains(body, "project.name:") || strings.Contains(body, "uptime: 0m") {
+		t.Errorf("frontend text contains machine-formatted values:\n%s", body)
 	}
 }
 
@@ -545,6 +557,19 @@ func TestHandleServerHealthzHTMLNegotiation(t *testing.T) {
 	if !strings.Contains(ct, "text/html") {
 		t.Errorf("Content-Type = %q, want text/html", ct)
 	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "0 seconds") || strings.Contains(body, ">0m</dd>") {
+		t.Errorf("health HTML uptime is not human-readable:\n%s", body)
+	}
+	openTime := strings.Index(body, "<time>")
+	closeTime := strings.Index(body, "</time>")
+	if openTime < 0 || closeTime <= openTime {
+		t.Fatalf("health HTML has no checked timestamp: %s", body)
+	}
+	displayedTime := body[openTime+len("<time>") : closeTime]
+	if !strings.Contains(displayedTime, " at ") || strings.Contains(displayedTime, "-") || strings.HasSuffix(displayedTime, "Z") {
+		t.Errorf("health HTML timestamp is not in the display format: %q", displayedTime)
+	}
 }
 
 func TestHealthzAPIRouteUsesAPIFormats(t *testing.T) {
@@ -560,6 +585,8 @@ func TestHealthzAPIRouteUsesAPIFormats(t *testing.T) {
 		{name: "HTML accept stays JSON on API", path: "/api/v1/server/healthz", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "application/json", status: http.StatusServiceUnavailable},
 		{name: "HTTP tool gets text", path: "/api/v1/server/healthz", userAgent: "curl/8.0", contentType: "text/plain", status: http.StatusServiceUnavailable},
 		{name: "txt suffix gets text", path: "/api/v1/server/healthz.txt", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "text/plain", status: http.StatusServiceUnavailable},
+		{name: "frontend curl gets human text", path: "/server/healthz", userAgent: "curl/8.0", contentType: "text/plain", status: http.StatusServiceUnavailable},
+		{name: "frontend text accept gets human text", path: "/server/healthz", userAgent: "Mozilla/5.0", accept: "text/plain", contentType: "text/plain", status: http.StatusServiceUnavailable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -576,6 +603,24 @@ func TestHealthzAPIRouteUsesAPIFormats(t *testing.T) {
 			if got := w.Header().Get("Content-Type"); !strings.Contains(got, tt.contentType) {
 				t.Fatalf("Content-Type = %q, want %q", got, tt.contentType)
 			}
+			if strings.HasPrefix(tt.path, "/api/") && tt.contentType == "text/plain" && !strings.Contains(w.Body.String(), "project.name:") {
+				t.Errorf("API text route missing machine dot notation: %s", w.Body.String())
+			}
+			if !strings.HasPrefix(tt.path, "/api/") && (strings.Contains(w.Body.String(), "project.name:") || strings.Contains(w.Body.String(), "uptime: 0m")) {
+				t.Errorf("frontend text route contains machine format: %s", w.Body.String())
+			}
 		})
+	}
+}
+
+func TestRootHealthzAliasesHaveNoTxtSuffix(t *testing.T) {
+	s := newTestServer(t)
+	s.config.Server.Healthz.Root.Enabled = true
+	for _, path := range []string{"/healthz.txt", "/api/healthz.txt"} {
+		response := httptest.NewRecorder()
+		s.Router().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("GET %s status = %d, want %d", path, response.Code, http.StatusNotFound)
+		}
 	}
 }

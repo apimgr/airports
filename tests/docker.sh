@@ -75,7 +75,14 @@ fi
 
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")"
-mkdir -p "$TEMP_DIR/volumes/config" "$TEMP_DIR/volumes/data"
+mkdir -p "$TEMP_DIR/volumes/config/yaml.d" "$TEMP_DIR/volumes/data"
+cat >"$TEMP_DIR/volumes/config/yaml.d/50-overlay-test.yml" <<'EOF'
+server:
+  tor:
+    expose: true
+  i2p:
+    expose: true
+EOF
 cp "$COMPOSE_SRC" "$TEMP_DIR/docker-compose.yml"
 if [[ -n "${DOCKER_TEST_IMAGE:-}" ]]; then
     cat >"$TEMP_DIR/docker-compose.local.yml" <<EOF
@@ -269,7 +276,6 @@ MATRIX
 echo ">> .txt endpoint coverage"
 for path in \
     "/robots.txt" \
-    "/server/healthz.txt" \
     "${API_BASE}/airports/search.txt?q=Tokyo&limit=1"
 do
     __expect_2xx "$path" || __failed=1

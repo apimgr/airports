@@ -219,7 +219,7 @@ for spec in "/server/about|text/html|text/html" "/server/about|text/plain|text/p
   content_type="$(curl -q -LSs -o /dev/null -D - -H "Accept: $accept" "http://127.0.0.1:${PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')"
   [[ "$content_type" == *"$want"* ]] && pass "$path negotiates $want" || fail "$path returned content type $content_type"
 done
-for path in /robots.txt /server/healthz.txt "/api/${API_VERSION}/airports/search.txt?q=Tokyo&limit=1"; do
+for path in /robots.txt "/api/${API_VERSION}/airports/search.txt?q=Tokyo&limit=1"; do
   code="$(curl -q -LSs -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}${path}" || true)"
   [[ "$code" == 2* ]] && pass "$path returns HTTP $code" || fail "$path returned HTTP $code"
 done

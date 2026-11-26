@@ -18,6 +18,20 @@ func currentBuildStamp() string {
 	return Version + "-" + CommitID
 }
 
+func applyBuildAssetCacheHeaders(w http.ResponseWriter, r *http.Request) bool {
+	etag := `"` + currentBuildStamp() + `"`
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("ETag", etag)
+	for _, candidate := range strings.Split(r.Header.Get("If-None-Match"), ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return true
+		}
+	}
+	return false
+}
+
 func applyBuildStampResponse(w http.ResponseWriter, r *http.Request, status int, contentType string) {
 	if w == nil || r == nil || !strings.HasPrefix(contentType, "text/html") {
 		return

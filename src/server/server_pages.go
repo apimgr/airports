@@ -77,13 +77,15 @@ func (s *Server) handleServerHelp(w http.ResponseWriter, r *http.Request) {
 	torEnabled, onionAddress := false, ""
 	if s.tor != nil {
 		torEnabled = s.tor.IsTorEnabled()
-		onionAddress = strings.TrimSpace(s.tor.OnionAddress())
+		if s.config.Server.Tor.Expose {
+			onionAddress = strings.TrimSpace(s.tor.OnionAddress())
+		}
 	}
 	i2pEnabled, i2pRunning, i2pAddress := false, false, ""
 	if s.i2p != nil {
 		i2pEnabled = s.i2p.IsI2PEnabled()
 		i2pRunning = s.i2p.IsI2PRunning()
-		if i2pRunning {
+		if i2pRunning && s.config.Server.I2P.Expose {
 			i2pAddress = strings.TrimSpace(s.i2p.EepsiteAddress())
 		}
 	}
@@ -474,10 +476,10 @@ func (s *Server) defaultSecurityPolicy(r *http.Request) string {
 		}
 	}
 	scope := strings.Join(domains, ", ")
-	if strings.TrimSpace(cfg.Server.Tor.OnionAddress) != "" {
+	if cfg.Server.Tor.Expose && strings.TrimSpace(cfg.Server.Tor.OnionAddress) != "" {
 		scope += ", " + strings.TrimSpace(cfg.Server.Tor.OnionAddress)
 	}
-	if i2pManager != nil && strings.TrimSpace(i2pManager.EepsiteAddress()) != "" {
+	if cfg.Server.I2P.Expose && i2pManager != nil && strings.TrimSpace(i2pManager.EepsiteAddress()) != "" {
 		scope += ", " + strings.TrimSpace(i2pManager.EepsiteAddress())
 	}
 	lang := "en"
@@ -1025,6 +1027,12 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) autodiscoverURLs(r *http.Request) []string {
+	if s.isTorRequest(r) {
+		if s.config.Server.Tor.OnionAddress == "" {
+			return []string{}
+		}
+		return []string{"http://" + strings.TrimSuffix(strings.TrimSpace(s.config.Server.Tor.OnionAddress), "/")}
+	}
 	proto, host, port := urlvars.GetRequestURLVariables(r)
 	if s.urlResolver != nil {
 		proto, host, port = s.urlResolver.GetRequestURLVariables(r)

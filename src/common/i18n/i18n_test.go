@@ -6,14 +6,22 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 )
 
-func allKeys(l *locale) map[string]bool {
+func messageKeys(l *locale) map[string]bool {
 	keys := map[string]bool{}
 	for ns, kv := range l.Data {
-		for k := range kv {
-			keys[ns+"."+k] = true
+		for key := range kv {
+			fullKey := ns + "." + key
+			if ns == "plurals" {
+				parts := strings.Split(key, ".")
+				if len(parts) > 1 {
+					fullKey = ns + "." + strings.Join(parts[:len(parts)-1], ".")
+				}
+			}
+			keys[fullKey] = true
 		}
 	}
 	return keys
@@ -64,7 +72,7 @@ func TestKeyParity(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing %s locale", DefaultLanguage)
 	}
-	enKeys := allKeys(enLocale)
+	enKeys := messageKeys(enLocale)
 
 	for _, code := range RegisteredLanguageCodes() {
 		l, ok := locales[code]
@@ -72,7 +80,7 @@ func TestKeyParity(t *testing.T) {
 			t.Errorf("missing locale file for %q", code)
 			continue
 		}
-		gotKeys := allKeys(l)
+		gotKeys := messageKeys(l)
 
 		var missing, extra []string
 		for k := range enKeys {
@@ -94,6 +102,27 @@ func TestKeyParity(t *testing.T) {
 		if len(extra) > 0 {
 			t.Errorf("locale %q has keys not present in %s: %v", code, DefaultLanguage, extra)
 		}
+		for _, key := range []string{"duration.seconds", "duration.minutes", "duration.hours", "duration.days", "size.bytes", "size.kilobytes", "size.megabytes", "size.gigabytes", "size.terabytes"} {
+			categories := pluralCategoriesForLanguage(code)
+			for _, category := range categories {
+				if _, ok := l.Data["plurals"][key+"."+category]; !ok {
+					t.Errorf("locale %q plural message plurals.%s missing category %q", code, key, category)
+				}
+			}
+		}
+	}
+}
+
+func pluralCategoriesForLanguage(code string) []string {
+	switch code {
+	case "ar":
+		return []string{"zero", "one", "two", "few", "many", "other"}
+	case "it":
+		return []string{"one", "many", "other"}
+	case "ja", "zh":
+		return []string{"other"}
+	default:
+		return []string{"one", "other"}
 	}
 }
 
@@ -122,8 +151,10 @@ func TestPlaceholderParity(t *testing.T) {
 	}
 }
 
-var messagePlaceholderPattern = regexp.MustCompile(`\{[A-Za-z0-9_]+\}`)
-var messageFormatVerbPattern = regexp.MustCompile(`%[a-zA-Z]`)
+var (
+	messagePlaceholderPattern = regexp.MustCompile(`\{[A-Za-z0-9_]+\}`)
+	messageFormatVerbPattern  = regexp.MustCompile(`%[a-zA-Z]`)
+)
 
 func messagePlaceholders(value string) []string {
 	placeholders := messagePlaceholderPattern.FindAllString(value, -1)

@@ -209,6 +209,20 @@ func (s *Store) PingContext(ctx context.Context) error {
 	return s.r.PingContext(pingCtx)
 }
 
+// HealthProbe verifies that both database pools can execute a trivial query.
+func (s *Store) HealthProbe(ctx context.Context) error {
+	if s == nil || s.r == nil || s.w == nil {
+		return errors.New("db: health probe on a closed store")
+	}
+	for _, pool := range []*sql.DB{s.w, s.r} {
+		var value int
+		if err := pool.QueryRowContext(ctx, "SELECT 1").Scan(&value); err != nil {
+			return fmt.Errorf("db: health probe: %w", err)
+		}
+	}
+	return nil
+}
+
 // Stats combines connection statistics from the read and write pools.
 func (s *Store) Stats() sql.DBStats {
 	if s == nil {

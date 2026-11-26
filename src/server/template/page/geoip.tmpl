@@ -42,6 +42,7 @@
             <div class="airport-item">
                 <strong>{{.Name}}</strong>
                 <span class="airport-codes">{{.ICAO}}{{if .IATA}} / {{.IATA}}{{end}}</span>
+                <span>{{t "airport.type_label"}}: {{.Type}}</span>
                 <span class="airport-dist">{{printf "%.1f" .Distance}} {{.DistanceUnit}}</span>
             </div>
             {{end}}

@@ -16,7 +16,7 @@ import (
 // per project convention, and returns it plus automatic cleanup.
 func testTempDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
+	if err := os.MkdirAll("/tmp/apimgr", 0o755); err != nil {
 		t.Fatalf("MkdirAll base: %v", err)
 	}
 	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-notify-*")
@@ -113,11 +113,11 @@ func TestLoadTemplateUnknownName(t *testing.T) {
 func TestLoadTemplateConfigDirOverride(t *testing.T) {
 	dir := testTempDir(t)
 	overrideDir := filepath.Join(dir, "template", "email")
-	if err := os.MkdirAll(overrideDir, 0755); err != nil {
+	if err := os.MkdirAll(overrideDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	custom := "Subject: Custom Test - {app_name}\n---\nCustom body {app_name}.\n"
-	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte(custom), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte(custom), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -136,11 +136,11 @@ func TestLoadTemplateConfigDirOverride(t *testing.T) {
 func TestLoadTemplateWarnsAboutUnknownVariable(t *testing.T) {
 	dir := testTempDir(t)
 	overrideDir := filepath.Join(dir, "template", "email")
-	if err := os.MkdirAll(overrideDir, 0755); err != nil {
+	if err := os.MkdirAll(overrideDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	custom := "Subject: Custom - {foo}\n---\nBody for {fqdn}.\n"
-	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte(custom), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(overrideDir, "test.txt"), []byte(custom), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

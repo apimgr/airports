@@ -3,8 +3,45 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestEscapeSystemdExecPath(t *testing.T) {
+	got := escapeSystemdExecPath("/home/example/Airports % \"quoted\"\tbin")
+	want := `/home/example/Airports %% \"quoted\"\tbin`
+	if got != want {
+		t.Fatalf("escapeSystemdExecPath() = %q, want %q", got, want)
+	}
+}
+
+func TestUserServiceFilePathUsesPlatformUserLocation(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		configDir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", configDir)
+		got, err := userServiceFilePath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(configDir, "systemd", "user", appName+".service")
+		if got != want {
+			t.Fatalf("userServiceFilePath() = %q, want %q", got, want)
+		}
+		return
+	}
+	if runtime.GOOS == "darwin" {
+		homeDir := t.TempDir()
+		t.Setenv("HOME", homeDir)
+		got, err := userServiceFilePath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(homeDir, "Library", "LaunchAgents", "io.github.apimgr.airports.plist")
+		if got != want {
+			t.Fatalf("userServiceFilePath() = %q, want %q", got, want)
+		}
+	}
+}
 
 // withStdin temporarily replaces os.Stdin with a pipe pre-loaded with input,
 // restoring the original os.Stdin when the test completes.
@@ -87,7 +124,7 @@ func TestConfirmUninstallEmptyStdin(t *testing.T) {
 // automatically when the test completes.
 func newServiceTestDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
+	if err := os.MkdirAll("/tmp/apimgr", 0o755); err != nil {
 		t.Fatalf("MkdirAll /tmp/apimgr: %v", err)
 	}
 	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-service-*")
@@ -106,7 +143,7 @@ func TestCopyBinary(t *testing.T) {
 	dir := newServiceTestDir(t)
 	src := filepath.Join(dir, "src-binary")
 	content := []byte("fake binary contents\x00\x01\x02")
-	if err := os.WriteFile(src, content, 0755); err != nil {
+	if err := os.WriteFile(src, content, 0o755); err != nil {
 		t.Fatalf("WriteFile(src): %v", err)
 	}
 
@@ -128,7 +165,7 @@ func TestCopyBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat(dst): %v", err)
 	}
-	if info.Mode().Perm()&0100 == 0 {
+	if info.Mode().Perm()&0o100 == 0 {
 		t.Errorf("copyBinary dst mode = %v, want executable bit set", info.Mode())
 	}
 }
@@ -155,14 +192,14 @@ func TestCopyBinaryOverwritesExisting(t *testing.T) {
 	src := filepath.Join(dir, "src-binary")
 	dst := filepath.Join(dir, "dst-binary")
 
-	if err := os.WriteFile(src, []byte("version-one"), 0755); err != nil {
+	if err := os.WriteFile(src, []byte("version-one"), 0o755); err != nil {
 		t.Fatalf("WriteFile(src v1): %v", err)
 	}
 	if err := copyBinary(src, dst); err != nil {
 		t.Fatalf("copyBinary (first): %v", err)
 	}
 
-	if err := os.WriteFile(src, []byte("version-two-longer-content"), 0755); err != nil {
+	if err := os.WriteFile(src, []byte("version-two-longer-content"), 0o755); err != nil {
 		t.Fatalf("WriteFile(src v2): %v", err)
 	}
 	if err := copyBinary(src, dst); err != nil {

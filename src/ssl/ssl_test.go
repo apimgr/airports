@@ -22,7 +22,7 @@ import (
 // per project convention, and returns it plus automatic cleanup.
 func testTempDir(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll("/tmp/apimgr", 0755); err != nil {
+	if err := os.MkdirAll("/tmp/apimgr", 0o755); err != nil {
 		t.Fatalf("MkdirAll base: %v", err)
 	}
 	dir, err := os.MkdirTemp("/tmp/apimgr", "airports-*")
@@ -118,7 +118,7 @@ func TestGetTLSConfigManualCertsLocalForm(t *testing.T) {
 	dir := testTempDir(t)
 	domain := "manual.example.com"
 	domainDir := filepath.Join(dir, "local", domain)
-	if err := os.MkdirAll(domainDir, 0700); err != nil {
+	if err := os.MkdirAll(domainDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	writeTestCert(t, filepath.Join(domainDir, "cert.pem"), filepath.Join(domainDir, "key.pem"), domain)
@@ -142,7 +142,7 @@ func TestGetTLSConfigManualCertsLetsEncryptForm(t *testing.T) {
 	dir := testTempDir(t)
 	domain := "fullchain.example.com"
 	domainDir := filepath.Join(dir, "letsencrypt", domain)
-	if err := os.MkdirAll(domainDir, 0700); err != nil {
+	if err := os.MkdirAll(domainDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	writeTestCert(t, filepath.Join(domainDir, "fullchain.pem"), filepath.Join(domainDir, "privkey.pem"), domain)
@@ -225,7 +225,7 @@ func TestFindManualCertsMissing(t *testing.T) {
 		dir := testTempDir(t)
 		domain := "second.example.com"
 		domainDir := filepath.Join(dir, "local", domain)
-		if err := os.MkdirAll(domainDir, 0700); err != nil {
+		if err := os.MkdirAll(domainDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		writeTestCert(t, filepath.Join(domainDir, "cert.pem"), filepath.Join(domainDir, "key.pem"), domain)
@@ -241,10 +241,10 @@ func TestFindManualCertsMissing(t *testing.T) {
 		domain := "priority.example.com"
 		leDir := filepath.Join(dir, "letsencrypt", domain)
 		localDir := filepath.Join(dir, "local", domain)
-		if err := os.MkdirAll(leDir, 0700); err != nil {
+		if err := os.MkdirAll(leDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
-		if err := os.MkdirAll(localDir, 0700); err != nil {
+		if err := os.MkdirAll(localDir, 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)
 		}
 		writeTestCert(t, filepath.Join(leDir, "fullchain.pem"), filepath.Join(leDir, "privkey.pem"), domain)
@@ -513,7 +513,7 @@ func TestCertificateExpiry(t *testing.T) {
 func TestFileExists(t *testing.T) {
 	dir := testTempDir(t)
 	present := filepath.Join(dir, "present.txt")
-	if err := os.WriteFile(present, []byte("x"), 0600); err != nil {
+	if err := os.WriteFile(present, []byte("x"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

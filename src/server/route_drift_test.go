@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/apimgr/airports/src/mode"
 	swaggerpkg "github.com/apimgr/airports/src/swagger"
+	"github.com/go-chi/chi/v5"
 )
 
 func TestAPIRouteDrift(t *testing.T) {
@@ -36,20 +38,17 @@ func TestAPIRouteDrift(t *testing.T) {
 	for route := range expectedSuperset {
 		expectedRouter[route] = struct{}{}
 	}
-	for _, route := range debugRoutes {
-		expectedSuperset[strings.Replace(route, "/debug/", "/api/debug/", 1)] = struct{}{}
-	}
 	for _, route := range []string{
 		"GET /healthz", "GET /metrics", "GET /metrics/prometheus", "GET /metrics/grafana", "GET /metrics/loki",
 		"GET /llms.txt", "GET /.well-known/security.txt", "GET /.well-known/llms.txt", "GET /.well-known/pgp-key.asc",
-		"GET /api/swagger", "GET /api/healthz", "GET /api/healthz.txt", "POST /api/graphql", "GET /api/graphql", "POST /api/mcp", "POST /mcp", "GET /api/autodiscover",
+		"GET /api/swagger", "GET /api/healthz", "POST /api/graphql", "GET /api/graphql", "POST /api/mcp", "POST /mcp", "GET /api/autodiscover",
 		"GET /api/metrics", "GET /api/metrics/prometheus", "GET /api/metrics/grafana", "GET /api/metrics/loki",
 	} {
 		expectedSuperset[route] = struct{}{}
 	}
 	expected := make(map[string]struct{}, len(expectedSuperset))
 	for route := range expectedSuperset {
-		if (strings.HasPrefix(route, "GET /debug/") || strings.HasPrefix(route, "GET /api/debug/")) && (!mode.ShouldShowDebugEndpoints() || strings.Contains(route, "/debug/pprof/") && !server.config.Server.Debug.Pprof || strings.HasSuffix(route, "/debug/vars") && !server.config.Server.Debug.RuntimeEndpoints) {
+		if strings.HasPrefix(route, "GET /debug/") && (!mode.ShouldShowDebugEndpoints() || (route == "GET /debug/pprof" || strings.Contains(route, "/debug/pprof/")) && !server.config.Server.Debug.Pprof || strings.HasSuffix(route, "/debug/vars") && !server.config.Server.Debug.RuntimeEndpoints) {
 			continue
 		}
 		if (strings.HasPrefix(route, "GET /server/metrics") || strings.HasPrefix(route, "GET /api/metrics")) && !server.config.Server.Metrics.Enabled {
@@ -63,6 +62,8 @@ func TestAPIRouteDrift(t *testing.T) {
 		}
 		expected[route] = struct{}{}
 	}
+	expectedDocsSuperset := publicDocumentRoutes(expectedSuperset)
+	expectedDocs := publicDocumentRoutes(expected)
 	expectedRouterServed := make(map[string]struct{}, len(expectedRouter))
 	for route := range expectedRouter {
 		if _, ok := expected[route]; ok {
@@ -70,10 +71,21 @@ func TestAPIRouteDrift(t *testing.T) {
 		}
 	}
 
-	registered := make(map[string]struct{})
+	registeredDocs := make(map[string]struct{})
 	for _, route := range server.openAPIRoutes() {
-		registered[route.Method+" "+route.Path] = struct{}{}
+		registeredDocs[route.Method+" "+route.Path] = struct{}{}
 	}
+	registeredRouter := make(map[string]struct{})
+	apiBase := server.APIBasePath()
+	_ = chi.Walk(server.router, func(method, path string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if strings.HasPrefix(path, apiBase+"/") {
+			path = strings.TrimPrefix(path, apiBase)
+			registeredRouter[method+" "+path] = struct{}{}
+		} else if strings.HasPrefix(path, "/debug/") {
+			registeredRouter[method+" "+path] = struct{}{}
+		}
+		return nil
+	})
 	supersetRoutes := server.openAPIRouteSuperset()
 	spec := swaggerpkg.BuildSpecWithRoutes(Version, server.config.Server.APIVersion, "en", supersetRoutes)
 	paths := spec["paths"].(map[string]interface{})
@@ -91,25 +103,33 @@ func TestAPIRouteDrift(t *testing.T) {
 	for _, route := range supersetRoutes {
 		registeredSuperset[route.Method+" "+route.Path] = struct{}{}
 	}
-	assertRouteSet(t, "AI.md+IDEA.md superset", expectedSuperset, registeredSuperset)
-	assertRouteSet(t, "OpenAPI superset", expectedSuperset, documentedSuperset)
+	assertRouteSet(t, "AI.md+IDEA.md public route superset", expectedDocsSuperset, registeredSuperset)
+	assertRouteSet(t, "OpenAPI public superset", expectedDocsSuperset, documentedSuperset)
 	embedded := swaggerpkg.BuildEmbeddedSpecWithRoutes(Version, server.config.Server.APIVersion, "en", supersetRoutes)
 	embeddedPaths := embedded["paths"].(map[string]interface{})
-	assertRouteSet(t, "embedded OpenAPI superset", expectedSuperset, routeSetFromSpec(embeddedPaths, t))
+	assertRouteSet(t, "embedded OpenAPI public superset", expectedDocsSuperset, routeSetFromSpec(embeddedPaths, t))
 	swaggerpkg.FilterMountedRoutes(embedded, supersetRoutes)
-	assertRouteSet(t, "embedded served OpenAPI", expected, routeSetFromSpec(embeddedPaths, t))
+	assertRouteSet(t, "embedded served OpenAPI", expectedDocs, routeSetFromSpec(embeddedPaths, t))
 	swaggerpkg.FilterMountedRoutes(spec, supersetRoutes)
 	documented := routeSetFromSpec(paths, t)
 
-	assertRouteSet(t, "router", expectedRouterServed, registered)
-	assertRouteSet(t, "OpenAPI", expected, documented)
-	documentedRouter := make(map[string]struct{}, len(registered))
-	for route := range registered {
-		if _, ok := documented[route]; ok {
-			documentedRouter[route] = struct{}{}
+	assertRouteSet(t, "router API/internal routes", expectedRouterServed, registeredRouter)
+	assertRouteSet(t, "registered public docs routes", expectedDocsSuperset, registeredDocs)
+	assertRouteSet(t, "OpenAPI mounted public routes", expectedDocs, documented)
+}
+
+func publicDocumentRoutes(routes map[string]struct{}) map[string]struct{} {
+	public := make(map[string]struct{}, len(routes))
+	for route := range routes {
+		if strings.HasPrefix(route, "GET /debug/") ||
+			strings.HasPrefix(route, "GET /server/metrics") ||
+			strings.HasPrefix(route, "GET /api/metrics") ||
+			strings.HasPrefix(route, "GET /metrics") {
+			continue
 		}
+		public[route] = struct{}{}
 	}
-	assertRouteSet(t, "OpenAPI/router", registered, documentedRouter)
+	return public
 }
 
 func routeSetFromSpec(paths map[string]interface{}, t *testing.T) map[string]struct{} {

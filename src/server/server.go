@@ -51,6 +51,7 @@ type Server struct {
 	configMu       sync.RWMutex // guards config hot-reload
 	proxyCIDRs     *trustedProxyCIDRCache
 	router         *chi.Mux
+	routeRegistry  *routeRegistry
 	rateLimiter    *RateLimiter
 	metrics        *appMetrics
 	scheduler      *scheduler.Scheduler
@@ -88,7 +89,8 @@ type Server struct {
 // events emitted by server handlers.
 func (s *Server) SetAuditLogger(writer interface {
 	WriteAudit(logging.AuditCategory, string) error
-}) {
+},
+) {
 	if s != nil {
 		s.auditLogger = writer
 	}
@@ -305,14 +307,20 @@ func (s *Server) configureURLResolver(cfg *config.ApplicationConfig) {
 	if cfg == nil {
 		return
 	}
+	onionAddress := ""
+	if cfg.Server.Tor.Expose {
+		onionAddress = cfg.Server.Tor.OnionAddress
+	}
 	options := urlvars.URLResolverOptions{
 		DomainEnv: os.Getenv("DOMAIN"), ListenPort: cfg.Server.Port,
-		OnionAddress: cfg.Server.Tor.OnionAddress, ProjectName: "airports",
+		OnionAddress: onionAddress, ProjectName: "airports",
 		Development: strings.EqualFold(cfg.Server.Mode, "development"), Detection: cfg.Server.URLDetection,
 		TrustedPeer: s.IsTrustedProxyRequest, BaseURL: RequestBaseURL,
 	}
 	if s.i2p != nil {
-		options.I2PAddress = s.i2p.EepsiteAddress()
+		if cfg.Server.I2P.Expose {
+			options.I2PAddress = s.i2p.EepsiteAddress()
+		}
 	}
 	if s.urlResolver == nil {
 		s.urlResolver = urlvars.NewURLResolverManager(options)
@@ -519,7 +527,7 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 		// response — never recurse into themed rendering.
 		if err := s.executeTemplateStatus(w, r, "error", status, data); err != nil {
 			log.Printf("renderErrorPage: render error template failed: %v", err)
-			http.Error(w, message, status)
+			renderFallbackError(w, r, status)
 		}
 	default:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -998,6 +1006,9 @@ func (s *Server) contactCaptchaCSPSources(r *http.Request) (scripts, frames, con
 
 // handleManifest returns the PWA web app manifest.
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
+	if applyBuildAssetCacheHeaders(w, r) {
+		return
+	}
 	baseURL := strings.TrimSuffix(RequestBaseURL(r), "/")
 	icon := func(name string) string { return baseURL + "/static/icons/" + name }
 	manifest := map[string]interface{}{
@@ -1033,6 +1044,9 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 
 // handleServiceWorker returns the PWA service worker
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
+	if applyBuildAssetCacheHeaders(w, r) {
+		return
+	}
 	baseURL, _ := json.Marshal(strings.TrimSuffix(RequestBaseURL(r), "/"))
 	stamp := currentBuildStamp()
 	sw := `// Service Worker for Airports API
@@ -1210,17 +1224,27 @@ func (s *Server) panicRecoverer(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("panic recovered: %v\n%s", rec, debug.Stack())
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.WriteHeader(http.StatusInternalServerError)
-				if mode.GetPanicRecoveryMode() == "verbose" {
-					_, _ = fmt.Fprintf(w, "panic: %v\n\n%s", rec, debug.Stack())
-					return
-				}
-				_, _ = fmt.Fprint(w, "An internal error occurred. Please contact support if the problem persists.")
+				renderFallbackError(w, r, http.StatusInternalServerError)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// renderFallbackError is the last-resort error response for a panic or a
+// failed themed error template. It depends only on the request headers and
+// standard-library response primitives so it remains usable when templates
+// or theme state are unavailable.
+func renderFallbackError(w http.ResponseWriter, r *http.Request, status int) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = fmt.Fprintf(w, "{\"ok\":false,\"error\":\"SERVER_ERROR\",\"message\":%q}\n", http.StatusText(status))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>%d %s</title></head><body><main><h1>%d %s</h1><p><a href=\"/\">Home</a></p></main></body></html>", status, http.StatusText(status), status, http.StatusText(status))
 }
 
 // securityHeaders applies the baseline HTTP security headers required by
@@ -1300,7 +1324,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 				"script-src 'self'; " +
 				"style-src 'self' 'unsafe-inline'; " +
 				"img-src 'self' data: blob: https:; " +
-				"font-src 'self' https:; " +
+				"font-src 'self' data: https:; " +
 				"connect-src 'self'; " +
 				"media-src 'self' blob:; " +
 				"worker-src 'self' blob:; " +

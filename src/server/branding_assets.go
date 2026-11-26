@@ -76,10 +76,10 @@ func NewBrandingAssetResolver(configDir, dataDir string) (*BrandingAssetResolver
 		return nil, fmt.Errorf("resolve branding cache directory: %w", err)
 	}
 	cacheDir := filepath.Join(absoluteData, "cache", "branding")
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create branding asset cache: %w", err)
 	}
-	if err := os.Chmod(cacheDir, 0700); err != nil {
+	if err := os.Chmod(cacheDir, 0o700); err != nil {
 		return nil, fmt.Errorf("secure branding asset cache: %w", err)
 	}
 	resolver := &BrandingAssetResolver{
@@ -283,14 +283,14 @@ func (resolver *BrandingAssetResolver) localAsset(name string) (brandingAsset, e
 	}
 	path := filepath.Join(resolver.configDir, "assets", name)
 	assetsInfo, err := os.Lstat(filepath.Dir(path))
-	if err != nil || !assetsInfo.IsDir() || assetsInfo.Mode().Perm() != 0700 {
+	if err != nil || !assetsInfo.IsDir() || assetsInfo.Mode().Perm() != 0o700 {
 		return brandingAsset{}, errors.New("branding assets directory must exist with mode 0700")
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return brandingAsset{}, fmt.Errorf("read branding asset: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > maxBrandingLocalFileBytes {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxBrandingLocalFileBytes {
 		return brandingAsset{}, errors.New("branding asset must be a regular file no larger than 2 MiB")
 	}
 	data, err := os.ReadFile(path)
@@ -388,7 +388,7 @@ func writeBrandingCache(base string, asset brandingAsset) (resultErr error) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary branding image: %w", err))
 		}
 	}()
-	if err := dataFile.Chmod(0600); err != nil {
+	if err := dataFile.Chmod(0o600); err != nil {
 		_ = dataFile.Close()
 		return err
 	}
@@ -413,7 +413,7 @@ func writeBrandingCache(base string, asset brandingAsset) (resultErr error) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("remove temporary branding metadata: %w", err))
 		}
 	}()
-	if err := metaFile.Chmod(0600); err != nil {
+	if err := metaFile.Chmod(0o600); err != nil {
 		_ = metaFile.Close()
 		return err
 	}

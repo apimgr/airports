@@ -3,6 +3,7 @@
 package gui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -400,11 +401,11 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
-func showErrorDialog(config NativeGUIConfig, uiApp *app.App, restore widget.Focusable, message string) {
+func showErrorDialog(config NativeGUIConfig, uiApp *app.App, restore widget.Widget, message string) {
 	showDialog(config, uiApp, restore, guiText(config.Language, "error_title", "Error"), message)
 }
 
-func showDialog(config NativeGUIConfig, uiApp *app.App, restore widget.Focusable, title, message string) {
+func showDialog(config NativeGUIConfig, uiApp *app.App, restore widget.Widget, title, message string) {
 	context := uiApp.Window().Context()
 	alert := dialog.New(
 		dialog.Title(title),
@@ -422,7 +423,7 @@ func showDialog(config NativeGUIConfig, uiApp *app.App, restore widget.Focusable
 }
 
 func prettyResponse(value string) string {
-	var formatted strings.Builder
+	var formatted bytes.Buffer
 	if json.Indent(&formatted, []byte(value), "", "  ") == nil {
 		return formatted.String()
 	}

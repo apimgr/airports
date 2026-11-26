@@ -228,6 +228,35 @@ func (m *TorManager) StopTorService() error {
 	return stopErr
 }
 
+// ReloadConfig updates the running Tor process without disturbing the
+// dedicated backend listener that the HTTP server is serving.
+func (m *TorManager) ReloadConfig(ctx context.Context, cfg TorConfig) error {
+	cfg = applyDefaults(cfg)
+	m.mu.Lock()
+	if m.cfg == cfg {
+		m.mu.Unlock()
+		return nil
+	}
+	var stopErr error
+	if m.t != nil {
+		stopErr = m.t.Close()
+		m.t = nil
+	}
+	m.cfg = cfg
+	m.enabled = resolveEnabled(cfg, findTorBinary)
+	m.serviceID = ""
+	m.dialer = nil
+	enabled := m.enabled
+	m.mu.Unlock()
+	if stopErr != nil {
+		return fmt.Errorf("tor: stop before configuration reload: %w", stopErr)
+	}
+	if !enabled {
+		return nil
+	}
+	return m.StartTorService(ctx)
+}
+
 // BackendListener returns the dedicated loopback listener used only by Tor's
 // hidden service. It requires PROXY protocol on every accepted connection.
 // The caller serves the application handler on this listener and closes it

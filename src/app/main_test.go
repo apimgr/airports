@@ -19,8 +19,9 @@ import (
 
 	urlvars "github.com/apimgr/airports/src/common/urlvars"
 	"github.com/apimgr/airports/src/config"
+	"github.com/apimgr/airports/src/db"
 	"github.com/apimgr/airports/src/logging"
-	"github.com/apimgr/airports/src/path"
+	"github.com/apimgr/airports/src/paths"
 )
 
 // newMainTestDir creates an isolated project-scoped temp directory and removes
@@ -28,7 +29,7 @@ import (
 func newMainTestDir(t *testing.T) string {
 	t.Helper()
 	base := filepath.Join(os.TempDir(), paths.OrgName)
-	if err := os.MkdirAll(base, 0755); err != nil {
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatalf("MkdirAll %s: %v", base, err)
 	}
 	dir, err := os.MkdirTemp(base, "airports-main-")
@@ -39,6 +40,50 @@ func newMainTestDir(t *testing.T) string {
 		_ = os.RemoveAll(dir)
 	})
 	return dir
+}
+
+func TestDatabaseConnectionCheckTracksFailureAndRecovery(t *testing.T) {
+	databaseErrorState.Lock()
+	databaseErrorState.failures = 0
+	databaseErrorState.since = time.Time{}
+	databaseErrorState.lastNotification = time.Time{}
+	databaseErrorState.Unlock()
+	t.Cleanup(func() {
+		databaseErrorState.Lock()
+		databaseErrorState.failures = 0
+		databaseErrorState.since = time.Time{}
+		databaseErrorState.lastNotification = time.Time{}
+		databaseErrorState.Unlock()
+	})
+
+	cfg := config.DefaultApplicationConfig()
+	cfg.Server.Notifications.DatabaseError.Enabled = true
+	cfg.Server.Notifications.DatabaseError.Failures = 3
+	now := time.Date(2026, time.November, 26, 12, 0, 0, 0, time.UTC)
+	if err := runDatabaseConnectionCheck(nil, cfg, t.TempDir(), now); err != nil {
+		t.Fatalf("failed probe task returned error: %v", err)
+	}
+	databaseErrorState.Lock()
+	failures, since := databaseErrorState.failures, databaseErrorState.since
+	databaseErrorState.Unlock()
+	if failures != 1 || !since.Equal(now) {
+		t.Fatalf("database failure state = (%d, %s), want first failure at %s", failures, since, now)
+	}
+
+	goodDB, err := db.Open(config.DatabaseConfig{URL: filepath.Join(t.TempDir(), "database-check.db")}, "airports-main-test")
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	defer func() { _ = goodDB.Close() }()
+	if err := runDatabaseConnectionCheck(goodDB, cfg, t.TempDir(), now.Add(time.Minute)); err != nil {
+		t.Fatalf("successful probe task returned error: %v", err)
+	}
+	databaseErrorState.Lock()
+	failures, since, lastNotification := databaseErrorState.failures, databaseErrorState.since, databaseErrorState.lastNotification
+	databaseErrorState.Unlock()
+	if failures != 0 || !since.IsZero() || !lastNotification.IsZero() {
+		t.Fatalf("database failure state was not reset after recovery: (%d, %s, %s)", failures, since, lastNotification)
+	}
 }
 
 // captureStdout redirects os.Stdout for the duration of fn and returns
@@ -115,6 +160,7 @@ func TestMaintenanceCommandHelpers(t *testing.T) {
 		remaining []string
 	}{
 		{name: "backup target", args: []string{"--maintenance", "backup", "/tmp/backup.tar.gz", "--config", "/cfg"}, found: true, action: "backup", target: "/tmp/backup.tar.gz", remaining: []string{"--config", "/cfg"}},
+		{name: "backup test target", args: []string{"--maintenance", "backup", "test", "/tmp/backup.tar.gz"}, found: true, action: "backup", target: "test /tmp/backup.tar.gz"},
 		{name: "inline help", args: []string{"--maintenance=--help", "--version"}, found: true, action: "help", remaining: []string{"--version"}},
 		{name: "compliance report", args: []string{"--maintenance", "compliance", "report"}, found: true, action: "compliance", target: "report"},
 		{name: "bare maintenance flag", args: []string{"--maintenance", "--debug"}, remaining: []string{"--maintenance", "--debug"}},
@@ -134,6 +180,39 @@ func TestMaintenanceCommandHelpers(t *testing.T) {
 	}
 	if isMaintenanceAction("unknown") {
 		t.Error("isMaintenanceAction(unknown) = true")
+	}
+}
+
+func TestConfirmRootRestore(t *testing.T) {
+	tests := []struct {
+		name        string
+		interactive bool
+		terminal    bool
+		answer      string
+		wantErr     bool
+	}{
+		{name: "requires interactive invocation", terminal: true, answer: "RESTORE", wantErr: true},
+		{name: "requires terminal", interactive: true, answer: "RESTORE", wantErr: true},
+		{name: "matching confirmation", interactive: true, terminal: true, answer: "RESTORE"},
+		{name: "mismatched confirmation", interactive: true, terminal: true, answer: "CANCEL", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			err := confirmRootRestore(test.interactive, test.terminal, func(prompt string, maxLength int) (string, error) {
+				called = true
+				if !strings.Contains(prompt, "RESTORE") || maxLength != 80 {
+					t.Fatalf("unexpected prompt contract: %q, %d", prompt, maxLength)
+				}
+				return test.answer, nil
+			})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("confirmRootRestore() error = %v, wantErr %t", err, test.wantErr)
+			}
+			if called != (test.interactive && test.terminal) {
+				t.Errorf("confirmation reader called = %t, want %t", called, test.interactive && test.terminal)
+			}
+		})
 	}
 }
 
@@ -209,7 +288,7 @@ func TestRestartRequiredSettings(t *testing.T) {
 	newConfig.Server.Database.Driver = "other"
 	newConfig.Server.Tor.Binary = "/usr/bin/tor"
 	newConfig.Server.Tor.UseNetwork = true
-	want := []string{"server.port", "server.address", "server.daemonize", "ssl.enabled", "ssl.cert", "ssl.key", "ssl.min_version", "ssl.letsencrypt.enabled", "ssl.letsencrypt.email", "database.driver", "database.url", "tor.binary", "tor.use_network"}
+	want := []string{"server.port", "server.address", "server.daemonize", "ssl.enabled", "ssl.cert", "ssl.key", "ssl.min_version", "database.driver", "database.url"}
 	got := restartRequiredSettings(oldConfig, newConfig)
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("restartRequiredSettings = %v, want %v", got, want)
@@ -231,7 +310,7 @@ func TestSmallMaintenanceAndDisplayHelpers(t *testing.T) {
 	}
 	done := make(chan struct{})
 	close(done)
-	watchConfigFile(filepath.Join(newMainTestDir(t), "missing.yml"), config.DefaultApplicationConfig(), nil, done, nil)
+	watchConfigFile(filepath.Join(newMainTestDir(t), "missing.yml"), config.DefaultApplicationConfig(), nil, nil, done, nil)
 	if _, err := promptBackupPassword("password: "); err != nil {
 		t.Fatalf("non-interactive password prompt: %v", err)
 	}
@@ -810,17 +889,17 @@ func TestPruneProjectTempFiles(t *testing.T) {
 	orgRoot := filepath.Join(tempRoot, paths.OrgName)
 	projectDir := filepath.Join(orgRoot, ProjectName+"-stale")
 	otherProjectDir := filepath.Join(orgRoot, "other-project-stale")
-	if err := os.MkdirAll(projectDir, 0700); err != nil {
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(otherProjectDir, 0700); err != nil {
+	if err := os.MkdirAll(otherProjectDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	oldFile := filepath.Join(projectDir, "old")
 	newFile := filepath.Join(projectDir, "new")
 	otherFile := filepath.Join(otherProjectDir, "old")
 	for _, file := range []string{oldFile, newFile, otherFile} {
-		if err := os.WriteFile(file, []byte("temp"), 0600); err != nil {
+		if err := os.WriteFile(file, []byte("temp"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -832,7 +911,7 @@ func TestPruneProjectTempFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkTarget := filepath.Join(tempRoot, "outside")
-	if err := os.WriteFile(linkTarget, []byte("keep"), 0600); err != nil {
+	if err := os.WriteFile(linkTarget, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(linkTarget, filepath.Join(projectDir, "link")); err != nil {
@@ -1291,7 +1370,7 @@ func TestRunScheduledUpdateCheckDeferDays(t *testing.T) {
 	defer srv.Close()
 
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
@@ -1347,7 +1426,7 @@ func TestRunScheduledUpdateCheckNotifiesOncePerVersion(t *testing.T) {
 	defer srv.Close()
 
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
@@ -1412,7 +1491,7 @@ func TestCheckStatusNotRunning(t *testing.T) {
 // /server/healthz response - without ever starting the full application server.
 func TestCheckStatusRunning(t *testing.T) {
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
@@ -1455,7 +1534,7 @@ func TestCheckStatusRunning(t *testing.T) {
 
 func TestCheckStatusUsesEnvironmentPortWhenConfigPortIsEmpty(t *testing.T) {
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
@@ -1495,7 +1574,7 @@ func TestCheckStatusUsesEnvironmentPortWhenConfigPortIsEmpty(t *testing.T) {
 // status must produce a checkStatus() return value of 1.
 func TestCheckStatusUnhealthy(t *testing.T) {
 	configDir, _, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
 	configPath := filepath.Join(configDir, "server.yml")
@@ -1551,10 +1630,10 @@ func TestCreateBackupExplicitLocation(t *testing.T) {
 	// they exist in this disposable container before calling it, since a
 	// fresh test run may not have created them yet.
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", dataDir, err)
 	}
 
@@ -1587,10 +1666,10 @@ func TestRestoreBackupSuccess(t *testing.T) {
 	// restoreBackup unconditionally extracts into the real config/data dirs -
 	// ensure they exist in this disposable container first.
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", dataDir, err)
 	}
 
@@ -1598,39 +1677,47 @@ func TestRestoreBackupSuccess(t *testing.T) {
 		t.Fatalf("createBackup(%q): unexpected error: %v", archive, err)
 	}
 
-	if err := restoreBackup(archive, false); err != nil {
+	if err := restoreBackupWithAuthorizer(archive, true, func(configDir string) error {
+		return authorizeRestoreWithConfirmation(configDir, true, true, func(string, int) (string, error) {
+			return "RESTORE", nil
+		})
+	}); err != nil {
 		t.Fatalf("restoreBackup(%q): unexpected error: %v", archive, err)
 	}
 }
 
-// TestCreateBackupDefaultLocationAlsoCreatesDailyIncremental exercises
-// createBackup's empty-fileLocation (scheduled backup_daily task) path per
-// AI.md PART 21 "Backup Files Created": the full dated backup AND the
-// "{project}-daily.tar.gz" incremental must both exist afterward. Uses
+// TestCreateBackupDefaultLocationIncrementalStartsAfterFirstFull exercises
+// the first-run skip and second-run incremental behavior per AI.md PART 21.
+// Uses
 // backupDirOverride to redirect the default backup location into a
 // test-owned temp dir instead of the real /mnt/Backups path.
-func TestCreateBackupDefaultLocationAlsoCreatesDailyIncremental(t *testing.T) {
+func TestCreateBackupDefaultLocationIncrementalStartsAfterFirstFull(t *testing.T) {
 	dir := newMainTestDir(t)
 	origOverride := backupDirOverride
 	backupDirOverride = dir
 	t.Cleanup(func() { backupDirOverride = origOverride })
 
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", dataDir, err)
 	}
 
-	if err := createBackup("", false); err != nil {
-		t.Fatalf("createBackup(\"\"): unexpected error: %v", err)
-	}
-
 	dailyPath := filepath.Join(dir, ProjectName+"-daily.tar.gz")
+	if err := createBackup("", false); err != nil {
+		t.Fatalf("first createBackup(\"\"): unexpected error: %v", err)
+	}
+	if _, err := os.Stat(dailyPath); !os.IsNotExist(err) {
+		t.Fatalf("first run should skip daily incremental, stat error = %v", err)
+	}
+	if err := createBackup("", false); err != nil {
+		t.Fatalf("second createBackup(\"\"): unexpected error: %v", err)
+	}
 	info, err := os.Stat(dailyPath)
 	if err != nil {
-		t.Fatalf("Stat(%q) after createBackup: %v", dailyPath, err)
+		t.Fatalf("Stat(%q) after second createBackup: %v", dailyPath, err)
 	}
 	if info.Size() == 0 {
 		t.Error("daily incremental backup is empty")
@@ -1662,11 +1749,14 @@ func TestCreateIncrementalBackupHourlyReplacesExistingFile(t *testing.T) {
 	t.Cleanup(func() { backupDirOverride = origOverride })
 
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", dataDir, err)
+	}
+	if err := createBackup("", false); err != nil {
+		t.Fatalf("createBackup() for hourly base: unexpected error: %v", err)
 	}
 
 	if err := createIncrementalBackup("hourly"); err != nil {
@@ -1718,11 +1808,14 @@ func TestCreateIncrementalBackupNotSubjectToFullBackupRetention(t *testing.T) {
 	t.Cleanup(func() { backupDirOverride = origOverride })
 
 	configDir, dataDir, _ := paths.GetDefaultDirs(ProjectName)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", configDir, err)
 	}
-	if err := os.MkdirAll(dataDir, 0700); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", dataDir, err)
+	}
+	if err := createBackup("", false); err != nil {
+		t.Fatalf("createBackup() for daily base: unexpected error: %v", err)
 	}
 
 	if err := createIncrementalBackup("daily"); err != nil {
@@ -1737,7 +1830,7 @@ func TestCreateIncrementalBackupNotSubjectToFullBackupRetention(t *testing.T) {
 	// (max_backups defaults to 1) should be free to delete without ever
 	// touching the daily incremental sitting alongside it.
 	staleFull := filepath.Join(dir, ProjectName+"_backup_2000-01-01.tar.gz")
-	if err := os.WriteFile(staleFull, []byte("not a real archive, just retention bait"), 0644); err != nil {
+	if err := os.WriteFile(staleFull, []byte("not a real archive, just retention bait"), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q): %v", staleFull, err)
 	}
 
@@ -1913,7 +2006,7 @@ func TestHandleEmailCLIRequiresRecipientAndSMTP(t *testing.T) {
 		t.Setenv("CONFIG_DIR", configDir)
 		configPath := filepath.Join(configDir, "server.yml")
 		contents := []byte("server:\n  notifications:\n    email:\n      reply_to: operator@example.com\n")
-		if err := os.WriteFile(configPath, contents, 0600); err != nil {
+		if err := os.WriteFile(configPath, contents, 0o600); err != nil {
 			t.Fatalf("write test config: %v", err)
 		}
 		if code := handleEmailCLI("test", "", false, nil); code != 1 {

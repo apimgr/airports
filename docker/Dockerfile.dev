@@ -81,7 +81,6 @@ RUN chmod 755 /usr/local/bin/*
 # mode without requiring the operator to set it via compose/env.
 ENV TZ=America/New_York \
     PORT=80 \
-    ADDRESS=0.0.0.0 \
     MODE=development \
     DEBUG=true
 

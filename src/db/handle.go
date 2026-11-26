@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 // Handle is the SQL surface shared by database/sql connections and Store.
@@ -20,8 +21,26 @@ type Handle interface {
 	Stats() sql.DBStats
 }
 
-var _ Handle = (*sql.DB)(nil)
-var _ Handle = (*Store)(nil)
+var (
+	_ Handle = (*sql.DB)(nil)
+	_ Handle = (*Store)(nil)
+)
+
+// HealthProbe executes a trivial read and write-pool query when the handle
+// exposes separate pools, and one query for a shared database/sql handle.
+func HealthProbe(ctx context.Context, database Handle) error {
+	if database == nil {
+		return errors.New("db: health probe handle is nil")
+	}
+	if probe, ok := database.(interface{ HealthProbe(context.Context) error }); ok {
+		return probe.HealthProbe(ctx)
+	}
+	var value int
+	if err := database.QueryRowContext(ctx, "SELECT 1").Scan(&value); err != nil {
+		return fmt.Errorf("db: health probe: %w", err)
+	}
+	return nil
+}
 
 // Transaction runs a bounded transaction through Store.Write when available.
 // A raw database/sql handle remains supported for isolated compatibility tests.

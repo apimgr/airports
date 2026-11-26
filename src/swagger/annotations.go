@@ -1,7 +1,10 @@
 package swagger
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/apimgr/airports/src/common/i18n"
 )
@@ -222,7 +225,109 @@ func BuildSpec(version, apiVersion string, lang string, baseURL ...string) map[s
 				},
 			},
 		},
-		"components": map[string]interface{}{},
+		"components": map[string]interface{}{
+			"schemas": map[string]interface{}{
+				"Airport": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"icao", "iata", "name", "city", "state", "country", "elevation", "lat", "lon", "type"},
+					"properties": map[string]interface{}{
+						"icao":      map[string]string{"type": "string"},
+						"iata":      map[string]string{"type": "string"},
+						"name":      map[string]string{"type": "string"},
+						"city":      map[string]string{"type": "string"},
+						"state":     map[string]string{"type": "string"},
+						"country":   map[string]string{"type": "string"},
+						"elevation": map[string]string{"type": "integer"},
+						"lat":       map[string]string{"type": "number", "format": "double"},
+						"lon":       map[string]string{"type": "number", "format": "double"},
+						"type":      map[string]string{"type": "string"},
+						"tz":        map[string]string{"type": "string", "description": "IANA timezone when available; omitted when unknown"},
+					},
+				},
+				"Pagination": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"page", "limit", "total", "pages"},
+					"properties": map[string]interface{}{
+						"page":  map[string]string{"type": "integer"},
+						"limit": map[string]string{"type": "integer"},
+						"total": map[string]string{"type": "integer"},
+						"pages": map[string]string{"type": "integer"},
+					},
+				},
+				"AirportListResponse": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"ok", "data", "pagination"},
+					"properties": map[string]interface{}{
+						"ok":         map[string]string{"type": "boolean"},
+						"data":       map[string]interface{}{"type": "array", "items": map[string]string{"$ref": "#/components/schemas/Airport"}},
+						"pagination": map[string]string{"$ref": "#/components/schemas/Pagination"},
+					},
+				},
+				"AirportItemResponse": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"ok", "data"},
+					"properties": map[string]interface{}{
+						"ok":   map[string]string{"type": "boolean"},
+						"data": map[string]string{"$ref": "#/components/schemas/Airport"},
+					},
+				},
+				"AirportDataset": map[string]interface{}{
+					"type":                 "object",
+					"additionalProperties": map[string]string{"$ref": "#/components/schemas/Airport"},
+				},
+				"AirportWithDistance": map[string]interface{}{
+					"allOf": []map[string]interface{}{
+						{"$ref": "#/components/schemas/Airport"},
+						{"type": "object", "required": []string{"distance", "distance_unit"}, "properties": map[string]interface{}{
+							"distance":      map[string]string{"type": "number", "format": "double"},
+							"distance_unit": map[string]string{"type": "string"},
+						}},
+					},
+				},
+				"Coordinate": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"lat", "lon"},
+					"properties": map[string]interface{}{
+						"lat": map[string]string{"type": "number", "format": "double"},
+						"lon": map[string]string{"type": "number", "format": "double"},
+					},
+				},
+				"NearbyAirportsResult": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"data", "center", "radius", "radius_unit", "units", "count"},
+					"properties": map[string]interface{}{
+						"data":        map[string]interface{}{"type": "array", "items": map[string]string{"$ref": "#/components/schemas/AirportWithDistance"}},
+						"center":      map[string]string{"$ref": "#/components/schemas/Coordinate"},
+						"radius":      map[string]string{"type": "number", "format": "double"},
+						"radius_unit": map[string]string{"type": "string"},
+						"units":       map[string]string{"type": "string"},
+						"count":       map[string]string{"type": "integer"},
+					},
+				},
+				"BoundingBoxResult": map[string]interface{}{
+					"type":     "object",
+					"required": []string{"data", "count"},
+					"properties": map[string]interface{}{
+						"data":  map[string]interface{}{"type": "array", "items": map[string]string{"$ref": "#/components/schemas/Airport"}},
+						"count": map[string]string{"type": "integer"},
+					},
+				},
+				"NearbyAirportsResponse": map[string]interface{}{
+					"type": "object", "required": []string{"ok", "data"},
+					"properties": map[string]interface{}{
+						"ok":   map[string]string{"type": "boolean"},
+						"data": map[string]string{"$ref": "#/components/schemas/NearbyAirportsResult"},
+					},
+				},
+				"BoundingBoxResponse": map[string]interface{}{
+					"type": "object", "required": []string{"ok", "data"},
+					"properties": map[string]interface{}{
+						"ok":   map[string]string{"type": "boolean"},
+						"data": map[string]string{"$ref": "#/components/schemas/BoundingBoxResult"},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -232,6 +337,15 @@ type OpenAPIRoute struct {
 	Path        string
 	Summary     string
 	Auth        bool
+	AuthType    string
+	OperationID string
+	Listed      bool
+	Internal    bool
+	Request     any
+	Response    any
+	Primary     string
+	Message     string
+	Binary      string
 	MountedWhen string
 	Mounted     bool
 }
@@ -243,6 +357,9 @@ func BuildSpecWithRoutes(version, apiVersion, lang string, routes []OpenAPIRoute
 	spec := BuildSpec(version, apiVersion, lang, baseURL...)
 	paths := spec["paths"].(map[string]interface{})
 	for _, route := range routes {
+		if route.Internal {
+			continue
+		}
 		method := strings.ToLower(route.Method)
 		if method != "get" && method != "post" && method != "put" && method != "patch" && method != "delete" && method != "head" && method != "options" {
 			continue
@@ -284,7 +401,17 @@ func BuildSpecWithRoutes(version, apiVersion, lang string, routes []OpenAPIRoute
 			}
 			pathItem[method] = operation
 		}
-		applyOpenAPIRouteSchema(operation, route.Path, method)
+		if route.Request != nil {
+			operation["requestBody"] = cloneJSONValue(route.Request)
+		}
+		if route.Response != nil {
+			operation["responses"] = cloneJSONValue(route.Response)
+		} else {
+			applyOpenAPIRouteSchema(operation, route.Path, method)
+		}
+		if route.OperationID != "" {
+			operation["operationId"] = route.OperationID
+		}
 		if route.Auth {
 			operation["security"] = []map[string][]string{{"BearerAuth": {}}}
 		}
@@ -297,6 +424,54 @@ func BuildSpecWithRoutes(version, apiVersion, lang string, routes []OpenAPIRoute
 		"BearerAuth": map[string]string{"type": "http", "scheme": "bearer"},
 	}
 	return spec
+}
+
+// CanonicalRouteModels extracts the established operation contract for one
+// route so the server registry can own and reuse its OpenAPI models.
+func CanonicalRouteModels(version, apiVersion, lang, method, path string) (operationID, summary string, request, response any) {
+	spec := BuildSpec(version, apiVersion, lang)
+	paths, _ := spec["paths"].(map[string]interface{})
+	pathItem, _ := paths[path].(map[string]interface{})
+	operation, _ := pathItem[strings.ToLower(method)].(map[string]interface{})
+	if operation == nil {
+		operation = map[string]interface{}{
+			"operationId": openAPIOperationID(method, path),
+			"summary":     method + " " + path,
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{"description": "Successful response"},
+				"400": map[string]interface{}{"description": "Invalid request"},
+			},
+		}
+		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+			operation["requestBody"] = map[string]interface{}{
+				"required": method == http.MethodPost || method == http.MethodPut,
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{"schema": map[string]interface{}{"type": "object", "additionalProperties": true}},
+				},
+			}
+		}
+	}
+	applyOpenAPIRouteSchema(operation, path, strings.ToLower(method))
+	operationID, _ = operation["operationId"].(string)
+	summary, _ = operation["summary"].(string)
+	request = cloneJSONValue(operation["requestBody"])
+	response = cloneJSONValue(operation["responses"])
+	return operationID, summary, request, response
+}
+
+func cloneJSONValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var clone any
+	if err := json.Unmarshal(encoded, &clone); err != nil {
+		return value
+	}
+	return clone
 }
 
 func openAPIPathParameters(path string) []map[string]interface{} {
@@ -321,6 +496,20 @@ func openAPIPathParameters(path string) []map[string]interface{} {
 }
 
 func applyOpenAPIRouteSchema(operation map[string]interface{}, path, method string) {
+	if method == "get" {
+		switch path {
+		case "/airports", "/airports/search":
+			setOpenAPIJSONResponse(operation, "#/components/schemas/AirportListResponse")
+		case "/airports/nearby":
+			setOpenAPIJSONResponse(operation, "#/components/schemas/NearbyAirportsResponse")
+		case "/airports/within":
+			setOpenAPIJSONResponse(operation, "#/components/schemas/BoundingBoxResponse")
+		case "/airports/{ident}":
+			setOpenAPIJSONResponse(operation, "#/components/schemas/AirportItemResponse")
+		case "/airports.json":
+			setOpenAPIJSONResponse(operation, "#/components/schemas/AirportDataset")
+		}
+	}
 	if method == "post" && path == "/server/graphql" {
 		operation["requestBody"] = map[string]interface{}{
 			"required": true,
@@ -364,8 +553,40 @@ func applyOpenAPIRouteSchema(operation map[string]interface{}, path, method stri
 	}
 }
 
+func setOpenAPIJSONResponse(operation map[string]interface{}, schemaRef string) {
+	responses, _ := operation["responses"].(map[string]interface{})
+	response, _ := responses["200"].(map[string]interface{})
+	if response == nil {
+		return
+	}
+	content, _ := response["content"].(map[string]interface{})
+	if content == nil {
+		content = make(map[string]interface{})
+		response["content"] = content
+	}
+	content["application/json"] = map[string]interface{}{"schema": map[string]string{"$ref": schemaRef}}
+}
+
 func FilterMountedRoutes(spec map[string]interface{}, routes []OpenAPIRoute) {
 	paths, _ := spec["paths"].(map[string]interface{})
+	registered := make(map[string]OpenAPIRoute, len(routes))
+	for _, route := range routes {
+		if route.Internal {
+			continue
+		}
+		registered[strings.ToLower(route.Method)+" "+route.Path] = route
+	}
+	for path, rawPathItem := range paths {
+		pathItem, _ := rawPathItem.(map[string]interface{})
+		for method := range pathItem {
+			if _, ok := registered[strings.ToLower(method)+" "+path]; !ok {
+				delete(pathItem, method)
+			}
+		}
+		if len(pathItem) == 0 {
+			delete(paths, path)
+		}
+	}
 	for _, route := range routes {
 		if route.MountedWhen == "" {
 			continue
@@ -400,13 +621,18 @@ func openAPITag(path string) string {
 
 func openAPIOperationID(method, path string) string {
 	var b strings.Builder
-	b.WriteString(method)
+	b.WriteString(strings.ToLower(method))
+	upper := true
 	for _, r := range path {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			if upper {
+				r = unicode.ToUpper(r)
+				upper = false
+			}
 			b.WriteRune(r)
-		} else if b.Len() > 0 && !strings.HasSuffix(b.String(), "_") {
-			b.WriteByte('_')
+		} else {
+			upper = true
 		}
 	}
-	return strings.Trim(b.String(), "_")
+	return b.String()
 }
