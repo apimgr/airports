@@ -24,6 +24,7 @@ resource_label_plural: airports
 
 **In scope:**
 - Serving 48,071 small, medium, and large airport records via REST API and web UI
+- Providing an optional timezone identifier when the airport has a matching source record
 - GeoIP-based caller location detection to surface nearby airports
 - Search by ICAO/IATA code, name, city, country, or coordinates
 - Geographic queries: airports within radius, bounding box, nearest N airports

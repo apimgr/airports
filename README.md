@@ -269,7 +269,7 @@ curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_vers
 ## Data Sources
 
 - **Airport data:** [OurAirports](https://ourairports.com/) — public domain. Snapshot commit `a537e082ac8c8fe6ab509df1f128cc6704fe73c1` of [ourairports-data](https://github.com/davidmegginson/ourairports-data), retrieved 2026-11-26; only small, medium, and large airports are included.
-- **Timezone mapping:** [mwgg/Airports](https://github.com/mwgg/Airports) — MIT, commit `a89e4e0dda9d9878337e2da190ebe1ef1d6af705`, retrieved 2026-11-26. Timezone is optional and omitted when no ident match exists. Its README credits TimeZoneDB (CC BY 3.0) and TimeAPI; see [LICENSE.md](LICENSE.md).
+- **Timezone mapping:** [mwgg/Airports](https://github.com/mwgg/Airports) — MIT, commit `a89e4e0dda9d9878337e2da190ebe1ef1d6af705`, retrieved 2026-11-26. The optional `tz` field is populated for 24,582 records and omitted when no ident match exists. Its README credits TimeZoneDB (CC BY 3.0) and TimeAPI; see [LICENSE.md](LICENSE.md).
 - **GeoIP databases:** [sapics/ip-location-db](https://github.com/sapics/ip-location-db) — ASN/country data under PDDL and DB-IP city data under CC BY 4.0; downloaded on first run and updated weekly
 
 ---
