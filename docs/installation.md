@@ -30,23 +30,26 @@ The production compose file binds port `64580` to the Docker bridge address `172
 
 ## Binary Install (Linux / macOS / FreeBSD)
 
-Download the appropriate archive from the [latest release](https://github.com/apimgr/airports/releases) page:
+Download the platform binary from the [latest release](https://github.com/apimgr/airports/releases) page:
 
 | Platform | Asset |
 |----------|-------|
-| Linux x86_64 | `airports-linux-amd64.tar.gz` |
-| Linux ARM64 | `airports-linux-arm64.tar.gz` |
-| macOS Intel | `airports-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `airports-darwin-arm64.tar.gz` |
-| Windows x86_64 | `airports-windows-amd64.zip` |
-| FreeBSD x86_64 | `airports-freebsd-amd64.tar.gz` |
+| Linux x86_64 | `airports-linux-amd64` |
+| Linux ARM64 | `airports-linux-arm64` |
+| macOS Intel | `airports-darwin-amd64` |
+| macOS Apple Silicon | `airports-darwin-arm64` |
+| Windows x86_64 | `airports-windows-amd64.exe` |
+| Windows ARM64 | `airports-windows-arm64.exe` |
+| FreeBSD x86_64 | `airports-freebsd-amd64` |
+| FreeBSD ARM64 | `airports-freebsd-arm64` |
 
 ```bash
-curl -q -LSsf -o airports.tar.gz \
-  https://github.com/apimgr/airports/releases/latest/download/airports-linux-amd64.tar.gz
-sha256sum -c SHA256SUMS
-tar xzf airports.tar.gz
-sudo install -m 0755 airports /usr/local/bin/airports
+curl -q -LSsf -o airports-linux-amd64 \
+  https://github.com/apimgr/airports/releases/latest/download/airports-linux-amd64
+curl -q -LSsf -o sha256.txt \
+  https://github.com/apimgr/airports/releases/latest/download/sha256.txt
+grep '  airports-linux-amd64$' sha256.txt | sha256sum -c -
+sudo install -m 0755 airports-linux-amd64 /usr/local/bin/airports
 ```
 
 Verify with `airports --version`.
@@ -118,8 +121,8 @@ The build runs entirely inside Docker — you do not need Go installed on the lo
 ```bash
 git clone https://github.com/apimgr/airports.git
 cd airports
-make local        # build to binaries/airports
-make build        # cross-compile all platforms
+make build        # build debug binaries for all supported platforms
+make release      # build production binaries and checksums locally
 ```
 
 ## Upgrade

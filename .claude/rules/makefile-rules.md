@@ -1,52 +1,24 @@
-# Makefile & Build/Release System Rules (PART 25)
+# Makefile & Build/Release System Rules (AI.md PART 25)
 
-⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
+AI.md is authoritative. Read PART 25 before changing the Makefile.
 
-> Quick reference only: read AI.md PART 25 completely before acting. AI.md is authoritative when this summary is incomplete or differs.
+## Required Targets
 
-## CRITICAL - NEVER DO
+The Makefile has exactly six targets: `build`, `test`, `release`, `docker`, `clean`, and `help`. `help` is the default. Do not add targets or tag/publish helpers.
 
-- Add Makefile targets beyond the seven required core targets and two allowed helpers
-- Run `go build`/`go test` on the host — every target shells into `casjaysdev/go:latest` via Docker
-- Hardcode `PROJECT_NAME`/`PROJECT_ORG` — always derive from `git remote get-url origin` or directory path
-- Add a `v` prefix to a non-numeric version tag (`dev`, `beta`, timestamps) — only `X.Y.Z` semver gets `v`
-- Double an existing `v` prefix (`vv1.2.3`)
-- Copy or symlink binaries anywhere (`/usr/local/bin`, PATH, between `binaries/`↔`releases/`) — run in place
-- Skip or weaken the coverage gate (`-short`, `-count=0`, ignore directives) — 60% minimum always enforced
-- Let an explicitly set user `VERSION` environment variable override a non-empty `release.txt`
+- `build` removes old artifacts and builds debug binaries for the local platform and all eight supported platforms in one `casjaysdev/go:latest` container. Keep symbols and DWARF, disable optimization/inlining with `-gcflags "all=-N -l"`, and do not use `-trimpath` or `-s -w`.
+- `test` runs Docker quality gates, vulnerability scanning, tests with the coverage floor, then `tests/run_tests.sh`.
+- `release` builds stripped production binaries into `releases/`, writes `version.txt`, creates the source archive and checksums, and never tags, pushes, or publishes.
+- `docker` builds and loads the host-platform image locally, then checks it with `tests/image.sh`; it never pushes.
+- `clean` removes only `binaries/` and `releases/`.
+- `help` lists these targets without building anything.
 
-## CRITICAL - ALWAYS DO
+## Build Rules
 
-- Keep the seven core targets: `dev`, `local`, `build`, `test`, `release`, `beta`, `docker`; allow only `clean` and internal `release-check` helpers
-- Build every platform via Docker with `CGO_ENABLED=0` and `GOFLAGS=-buildvcs=false`
-- Embed `Version`, `CommitID`, `BuildEpoch`, and `OfficialSite` via `-ldflags`; derive `BuildDate` at runtime
-- Use persistent Go caches: `GO_CACHE` (`~/go/pkg/mod`) and `GO_BUILD` (`~/.cache/go-build/{project_name}`)
-- Run `make dev` → `make test` → `./tests/run_tests.sh` → `make local` → `./tests/incus.sh` → `make build` in that order before a release
-- Strip binaries before packaging into `releases/` (`make release`)
-- Derive local version from explicit `VERSION` env var > non-empty `release.txt` > short commit ID (`devel` outside Git)
-
-- Make targets are local-development entry points only; CI spells out build/test commands and never invokes `make`.
-
-## Key Rules Summary
-
-| Area | Rule |
-|------|------|
-| Target: `dev` | Fast local-arch build, no ldflags, to `${TMPDIR}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX/` |
-| Target: `local` | `clean` + local-arch build with full ldflags → `binaries/{project_name}[-cli]` |
-| Target: `build` | `clean` + all 8 platforms (linux/darwin/windows/freebsd × amd64/arm64) → `binaries/` |
-| Target: `test` | Regenerates embedded OpenAPI, runs `go test -cover ./...` in Docker; fails if coverage < 60% |
-| Target: `release` | Runs `release-check` then `build`; strips binaries, tars source, writes SHA-256/SHA-512 sums, replaces the stable tag/release, and publishes with `gh` (manual/local only) |
-| Target: `beta` | Tags the current `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag for CI publishing |
-| Helper: `release-check` | First `release` prerequisite; rejects non-stable SemVer without building |
-| Target: `docker` | Build a local image for the host platform with `docker buildx build --load`; never push. Shipped-image validation is a separate check. |
-| Toolchain image | `casjaysdev/go:latest` for every build/test target |
-| Required env flags | `CGO_ENABLED=0`, `GOFLAGS=-buildvcs=false` on all Docker Go invocations |
-| Binary naming | Server: `{project_name}[-os-arch[.exe]]`; CLI: `{project_name}-cli[-os-arch[.exe]]` |
-| Output dirs | `binaries/` (build artifacts, gitignored), `releases/` (packaged, with `version.txt`) |
-| Local version source | Explicit `VERSION` env > non-empty `release.txt` > short commit ID (`devel` outside Git); CI uses tag/devel/beta rules |
-| Version tag `v` | Add only to semantic versions, never to text/timestamp (`devel`, `beta`, `20251218...`) |
-| Release types | Stable (semver tag, unlimited), Beta (`{ts}-beta`, unlimited), Daily (`{ts}`, max 1 rolling) |
-| Coverage gate | 60% minimum via `go test -cover`; CI + local `make test`; never skip |
-| Binary handling | Never symlink/copy to PATH or system dirs; run directly from `binaries/` |
-
-For complete details, see AI.md PART 25.
+- Run every Go command in `casjaysdev/go:latest` with `CGO_ENABLED=0` and `GOFLAGS=-buildvcs=false`.
+- Embed `Version`, `CommitID`, `BuildEpoch`, and optional `OfficialSite`; derive `BuildDate` at runtime.
+- Use `GO_CACHE=~/go/pkg/mod` and `GO_BUILD=~/.cache/go-build/{project_name}` for persistent caches.
+- Resolve version from explicit `VERSION`, non-empty `release.txt`, then the short Git commit ID; use `devel` outside Git.
+- Read `OFFICIAL_SITE` from `site.txt`, then the environment, otherwise leave it empty. Never infer a hosted site.
+- Never copy or symlink build artifacts into system paths. `make release` builds production artifacts fresh instead of copying from `binaries/`.
+- CI spells out build and test commands; it never invokes Makefile targets.

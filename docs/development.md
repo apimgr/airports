@@ -18,16 +18,16 @@ Optional:
 git clone https://github.com/apimgr/airports.git
 cd airports
 
-make dev          # quick build to $TMPDIR/apimgr/airports-XXXXXX/
-make local        # build with version info to binaries/airports
-make build        # cross-compile all platforms to binaries/
-make test         # run unit tests
-make docker       # build the Docker image
+make help         # list the six supported targets
+make build        # build debug binaries for all supported platforms
+make test         # run quality gates, unit tests, and the Docker basic tier
+make release      # build production binaries, source archive, and checksums locally
+make docker       # build and check the host-platform image locally; never push
 ```
 
-`make release` publishes a stable SemVer release. `make beta` tags the clean
-`main` commit with a UTC timestamp and pushes the tag for CI to publish; use
-these maintainer-only targets only when publishing is intended.
+`make release` only creates local production artifacts; it never tags or
+publishes. CI/CD handles releases when the configured provider receives a
+release tag. Beta releases are triggered by pushing a UTC timestamp beta tag.
 
 The Makefile's Go targets use `casjaysdev/go:latest`; no local Go toolchain is
 needed. CI runs `go vet ./...` and `staticcheck ./...` in the same project
@@ -67,7 +67,7 @@ toolchain image. Documentation can be built with `mkdocs build` after installing
 ├── Makefile
 ├── mkdocs.yml
 ├── .readthedocs.yaml
-└── release.txt           # Sole version source of truth
+└── release.txt           # Optional local Makefile version override
 ```
 
 Source packages are grouped by domain under `src/`; HTTP routing and handlers
@@ -150,7 +150,7 @@ CI workflows live in `.github/workflows/`. All third-party Actions are pinned to
 
 Releases are tagged `v{semver}` and cut by pushing the tag — `release.yml` then builds binaries for all platforms and creates the GitHub release.
 
-For local Makefile builds, `VERSION` overrides a non-empty `release.txt`; when neither is set, the build uses the short Git commit ID and falls back to `devel` outside a Git checkout. Stable manual releases require a SemVer version in `release.txt`; CI release tags supply their own release version.
+For local Makefile builds, `VERSION` overrides a non-empty `release.txt`; when neither is set, the build uses the short Git commit ID and falls back to `devel` outside a Git checkout. CI release tags supply the published release version.
 
 ## Reporting Issues
 

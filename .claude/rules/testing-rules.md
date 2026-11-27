@@ -10,7 +10,7 @@
 - Skip `make test` before committing or the applicable manual binary checks before release; E2E is on demand
 - Commit when `make test` fails or coverage is below 60%
 - Use `docker-compose.yml` / `docker-compose.dev.yml` as AI — human-only; AI uses `docker-compose.test.yml` via `tests/` scripts
-- Put runtime/test data under the project directory or bare `/tmp` — always `/tmp/{project_org}/{internal_name}-XXXXXX/`
+- Write runtime/test data into the project tree or directly under bare `/tmp` — use `${TMPDIR:-/tmp}/{project_org}/{internal_name}-XXXXXX/`
 - Use `pkill -f`/`killall`/`kill -9` first, or any `docker *prune`/`rm -rf` broad sweep — project-scoped exact PID/name only
 - Put non-ReadTheDocs files in `docs/` — it is ONLY MkDocs/RTD content
 - Use a config filename other than `mkdocs.yml`/`.readthedocs.yaml` for docs config
@@ -22,7 +22,7 @@
 
 - Create/update the matching `*_test.go` in the same work pass whenever package logic is added or changed
 - Run `make test` (Phase 1, toolchain gate) before every commit; run binary validation scripts in `./tests/` manually before release. E2E is on demand and is not a commit gate
-- Keep the tiers distinct: `tests/run_tests.sh` invokes `tests/docker.sh` for the binary-only basic Alpine tier; `tests/incus.sh` is the explicit full-app/init-system check; shipped-image verification is a separate check; E2E remains separate
+- Keep the tiers distinct: `tests/run_tests.sh` invokes `tests/docker.sh` for the binary-only basic Alpine tier; `tests/incus.sh` is the explicit full-app/init-system check; `make docker` runs `tests/image.sh` against the shipped image; E2E remains separate
 - Test every route with all applicable Accept headers (`text/html`+`text/plain` for frontend; `application/json`+`text/plain` for API) and every `.txt` endpoint
 - Keep `tests/run_tests.sh` Docker-only; it runs `tests/docker.sh` and exits `69` when Docker is missing. `tests/incus.sh` is a separate, developer-invoked full-app check and must not be used as a fallback.
 - Keep `docs/` covering the full shipped surface (browser, CLI, API, config, well-known/discovery) with the 8 required pages (index, installation, configuration, api, cli, security, integrations, development)
@@ -38,12 +38,12 @@
 
 | Area | Rule |
 |------|------|
-| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `tests/run_tests.sh` invokes `tests/docker.sh` for binary-only basic Alpine coverage; `tests/incus.sh` runs full-app/init-system checks; shipped-image verification and `./tests/e2e.sh` are separate/on-demand, never commit gates |
+| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `tests/run_tests.sh` invokes `tests/docker.sh` for binary-only basic Alpine coverage; `tests/incus.sh` runs full-app/init-system checks; `make docker` runs the shipped-image check; `./tests/e2e.sh` is separate/on-demand |
 | Test file naming | `config_test.go`, `server_test.go`, `*_handler_test.go`, `mode_test.go`, `ssl_test.go`, `paths_test.go` — colocated with source |
 | Coverage tooling | `go test -cover -coverprofile=coverage.out ./...` + `go tool cover -func=coverage.out`; CI fails build if `< 60` |
 | Unit-test container | Docker toolchain image `casjaysdev/go:latest` via `make test`; never `alpine:latest` |
 | Basic binary container | `tests/docker.sh` runs the compiled binary in `alpine:latest`; init-system and service lifecycle coverage belongs to `tests/incus.sh` |
-| Integration containers | Incus `debian/trixie` (systemd) and `alpine/{latest_stable}` (OpenRC); shipped-image verification is separate from binary-only smoke coverage |
+| Integration containers | Incus `debian/trixie` (systemd) and `alpine/{latest_stable}` (OpenRC); `tests/image.sh` checks the shipped image separately from binary-only smoke coverage |
 | Temp dir pattern | `/tmp/{project_org}/{internal_name}-XXXXXX/` — never bare `/tmp`, never in project dir |
 | docs/ required files | `index.md`, `installation.md`, `configuration.md`, `api.md`, `cli.md` (if applicable), `security.md`, `integrations.md`, `development.md`, `requirements.txt` |
 | RTD config | `mkdocs.yml` (Material theme, dark/light/auto) + `.readthedocs.yaml` (`os: ubuntu-24.04`, latest stable Python) |

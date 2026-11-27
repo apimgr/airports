@@ -280,12 +280,11 @@ curl -q -LSsf -H "Accept: application/geo+json" http://YOUR_SERVER/api/{api_vers
 git clone https://github.com/apimgr/airports.git
 cd airports
 
-make dev       # Quick build to temp dir
-make test      # Run unit tests in Docker
-make local     # Build for the current OS and architecture -> binaries/
-make build     # Cross-compile all platforms -> binaries/
-make docker    # Build and push multi-arch Docker image
-make beta      # Maintainer: tag main for CI beta publishing
+make help      # List the supported targets
+make build     # Build debug binaries for all supported platforms
+make test      # Run quality gates, unit tests, and the Docker basic tier
+make release   # Build production binaries, source archive, and checksums locally
+make docker    # Build and check the host-platform image locally; never push
 make clean     # Remove build artifacts
 ```
 

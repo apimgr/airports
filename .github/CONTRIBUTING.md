@@ -7,9 +7,10 @@ Use Docker for Go commands; the host does not need a Go toolchain.
 ```sh
 git clone https://github.com/apimgr/airports.git
 cd airports
-make dev
+make help
 make test
 make build
+make release
 ```
 
 The documentation source is in `docs/`. Install its declared dependencies with

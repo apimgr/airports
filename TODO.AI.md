@@ -2,10 +2,6 @@
 
 These are verified implementation gaps found while rereading the current AI.md. Remove each item in the same change that resolves it.
 
-## Configuration
-
-- [ ] Reject unknown keys in `secrets.yml` with an explicit safe error while keeping the AI.md startup rule: log and ignore invalid configuration without preventing startup.
-
 ## Database
 
 - [ ] Implement the AI.md PART 10 SQLite replica for remote libSQL/Turso mode: config schema, per-table cache metadata, background sync, offline read-only fallback, secret-dependent route behavior, and maintenance while the remote database is unavailable.

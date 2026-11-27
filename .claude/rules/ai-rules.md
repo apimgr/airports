@@ -40,7 +40,7 @@
 | Area | Rule |
 |------|------|
 | Spec hierarchy | A user-approved SPEC.md exception may override AI.md; otherwise AI.md is source of truth and wins over IDEA.md |
-| Container-only dev | `make dev` / `make local` / `make build` / `make test` — never bare `go build` |
+| Container-only Go | `make build` / `make test` / `make release` / `make docker` — never bare host `go build` or `go test` |
 | Security posture | Fail secure, least privilege, defense in depth, secure by default |
 | Client requirement | Every project ships the CLI client; PART 32 has no skip case |
 | Error messages | User: minimal. Operator/log: actionable. Never leak stack traces, paths, internals |

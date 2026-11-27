@@ -8,8 +8,8 @@
 
 - Pin third-party Actions/images to a tag (e.g. `@v4`) — always pin to a full commit SHA with a
   version comment (`uses: owner/action@<sha>  # vX.Y.Z`)
-- Use Makefile targets or `make dev`/`make local`/`make build` inside a CI/CD workflow — CI/CD
-  requires explicit `go build ...` commands with all flags visible
+- Use any Makefile target inside a CI/CD workflow — CI/CD requires explicit `go build ...`
+  commands with all flags visible
 - Reference local host paths (`~/.local/share/go`, host cache dirs) inside CI/CD — use CI-native
   caching or `/tmp/`
 - Depend on local Docker/Incus containers for CI builds — GitHub/Gitea/Forgejo Actions and GitLab CI
