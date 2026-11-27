@@ -48,12 +48,9 @@ Public airport-data and informational reads require no authentication. Owner-tok
 
 ## `.txt` / Plain-Text Support
 
-Every `/api/**` endpoint that returns data also supports a plain-text representation, in addition to its default JSON response. Request it either by:
+JSON API routes support a plain-text representation through content negotiation when the route has a text serializer. Request it with `Accept: text/plain`. The routes with an explicit `.txt` alias are:
 
-- appending `.txt` to the path (e.g. `/api/{api_version}/airports/search.txt`), or
-- sending `Accept: text/plain`
-
-Endpoints with an explicit `.txt` route: `/api/{api_version}/airports/{ident}.txt`, `/api/{api_version}/airports/search.txt`, `/api/{api_version}/airports/nearby.txt`, `/api/{api_version}/countries.txt`, `/api/{api_version}/stats.txt`, `/api/{api_version}/geoip.txt`, `/api/{api_version}/geoip/{ip}.txt`, `/api/{api_version}/server/healthz.txt`. The rest of the endpoints below are JSON-only.
+`/api/{api_version}/airports/{ident}.txt`, `/api/{api_version}/airports/search.txt`, `/api/{api_version}/airports/nearby.txt`, `/api/{api_version}/countries.txt`, `/api/{api_version}/stats.txt`, `/api/{api_version}/geoip.txt`, `/api/{api_version}/geoip/{ip}.txt`, and `/api/{api_version}/server/healthz.txt`. Other routes do not have a `.txt` path alias; whether they can return text depends on their route serializer.
 
 ---
 

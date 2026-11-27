@@ -14,10 +14,6 @@ Airports is a full-stack Go web application providing comprehensive global airpo
 
 **No login accounts or admin panel. Public airport-data and server-information reads are unauthenticated. Owner-token management uses the primary owner token; MCP uses linked owner tokens; metrics use per-service bearer tokens. The airport dataset remains read-only.**
 
-## Official Site
-
-[https://github.com/apimgr/airports](https://github.com/apimgr/airports)
-
 ## Features
 
 - **48,071 airports** with ICAO/IATA codes, names, city, country, coordinates, elevation, and type
