@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -208,27 +209,84 @@ func IsRunningInContainer() bool {
 
 // isRunningInContainerFunc is the real detection logic behind
 // IsRunningInContainer, held in a package-level variable so tests can
-// override it to exercise every Get*Dir helper's container-path branch
-// without needing an actual container (tini PID 1 + real /config + /data +
-// installed binary are otherwise impossible to fake safely in a unit test).
+// override it to exercise every Get*Dir helper's container-path branch.
 var isRunningInContainerFunc = func() bool {
-	if !isGenericContainer() {
-		return false
-	}
-	return isAppRuntimeContainer()
+	return isApplicationContainer(isSystemServiceManager(), isGenericContainer(), isAppRuntimeContainer())
 }
 
-// isGenericContainer checks the standard container-detection markers
-// (Docker's /.dockerenv, Podman/CRI-O's /run/.containerenv) without making
-// any assumption about which container it is.
+func isApplicationContainer(systemManager, genericContainer, appBinary bool) bool {
+	return !systemManager && genericContainer && appBinary
+}
+
+// isSystemServiceManager keeps a full-init system container on host defaults.
+func isSystemServiceManager() bool {
+	parentPID := os.Getppid()
+	return hasSystemServiceManager(
+		os.Getenv("INVOCATION_ID"),
+		os.Getenv("RC_SVCNAME"),
+		parentPID,
+		parentPID == 1 && pathExists("/run/systemd/system"),
+		parentPID == 1 && pathExists("/run/openrc"),
+		isSystemContainer(),
+	)
+}
+
+func hasSystemServiceManager(invocationID, openRCService string, parentPID int, systemdInit, openRCInit, systemContainer bool) bool {
+	return invocationID != "" || openRCService != "" || ((parentPID == 1 || systemContainer) && (systemdInit || openRCInit))
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// isGenericContainer checks the container markers from AI.md PART 8.
 func isGenericContainer() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv", "/dev/lxc"} {
+		if pathExists(marker) {
+			return true
+		}
+	}
+	if hasContainerEnvironment(os.Getenv("container"), os.Getenv("KUBERNETES_SERVICE_HOST")) {
 		return true
 	}
-	if _, err := os.Stat("/run/.containerenv"); err == nil {
+	switch getParentProcessName() {
+	case "tini", "dumb-init", "s6-svscan", "runsv", "runsvdir", "catatonit", "airports":
 		return true
+	}
+	if data, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+		content := strings.ToLower(string(data))
+		for _, marker := range []string{"docker", "kubepods", "lxc"} {
+			if strings.Contains(content, marker) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func hasContainerEnvironment(container, kubernetesServiceHost string) bool {
+	return container != "" || kubernetesServiceHost != ""
+}
+
+func isSystemContainer() bool {
+	if pathExists("/dev/lxc") {
+		return true
+	}
+	switch os.Getenv("container") {
+	case "lxc", "systemd-nspawn":
+		return true
+	default:
+		return false
+	}
+}
+
+func getParentProcessName() string {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(os.Getppid()), "comm"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // appBinaryPath is where docker/Dockerfile installs the built server binary
@@ -238,28 +296,10 @@ func isGenericContainer() bool {
 // check specific to our own image rather than any tini-based container.
 const appBinaryPath = "/usr/local/bin/airports"
 
-// isAppRuntimeContainer reports whether this specific project's runtime
-// container is active: tini as PID 1, both /config and /data mounted
-// (the mandatory 2-volume layout in docker-rules.md), AND the built
-// "airports" binary installed at its documented path. The casjaysdev/go:latest
-// build/test toolchain image is also tini-as-PID1 and, incidentally, ships
-// its own generic /config and /data directories — so the installed-binary
-// check is required to avoid a false positive there.
+// isAppRuntimeContainer reports whether this application is installed in the
+// detected container. The toolchain image may have container markers but does
+// not install this project's server binary, so it keeps host defaults in tests.
 func isAppRuntimeContainer() bool {
-	data, err := os.ReadFile("/proc/1/comm")
-	if err != nil {
-		return false
-	}
-	comm := string(data)
-	if comm != "tini\n" && comm != "tini" {
-		return false
-	}
-	if _, err := os.Stat("/config"); err != nil {
-		return false
-	}
-	if _, err := os.Stat("/data"); err != nil {
-		return false
-	}
 	info, err := os.Stat(appBinaryPath)
 	if err != nil || info.IsDir() {
 		return false

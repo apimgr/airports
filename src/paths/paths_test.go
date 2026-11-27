@@ -503,15 +503,75 @@ func TestCurrentHomeDir(t *testing.T) {
 	}
 }
 
-// TestIsGenericContainer only verifies the function runs to completion and
-// returns a bool — the real filesystem markers (/.dockerenv,
-// /run/.containerenv) are outside this test's control.
-func TestIsGenericContainer(t *testing.T) {
-	got := isGenericContainer()
-	if got != true && got != false {
-		t.Fatal("isGenericContainer returned a non-bool value, impossible")
+// TestHasContainerEnvironment covers the environment-based markers used by
+// isGenericContainer without depending on host filesystem state.
+func TestHasContainerEnvironment(t *testing.T) {
+	for _, tt := range []struct {
+		name                  string
+		container             string
+		kubernetesServiceHost string
+	}{
+		{name: "LXC", container: "lxc"},
+		{name: "Kubernetes", kubernetesServiceHost: "10.0.0.1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if !hasContainerEnvironment(tt.container, tt.kubernetesServiceHost) {
+				t.Fatalf("hasContainerEnvironment(%q, %q) = false, want true", tt.container, tt.kubernetesServiceHost)
+			}
+		})
 	}
-	t.Logf("isGenericContainer() = %v", got)
+}
+
+func TestIsApplicationContainer(t *testing.T) {
+	tests := []struct {
+		name             string
+		systemManager    bool
+		genericContainer bool
+		appBinary        bool
+		want             bool
+	}{
+		{name: "Kubernetes application container", genericContainer: true, appBinary: true, want: true},
+		{name: "systemd system container uses host defaults", systemManager: true, genericContainer: true, appBinary: true},
+		{name: "OpenRC system container uses host defaults", systemManager: true, genericContainer: true, appBinary: true},
+		{name: "toolchain container without application binary", genericContainer: true, want: false},
+		{name: "host", appBinary: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isApplicationContainer(tt.systemManager, tt.genericContainer, tt.appBinary); got != tt.want {
+				t.Errorf("isApplicationContainer(%t, %t, %t) = %t, want %t", tt.systemManager, tt.genericContainer, tt.appBinary, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasSystemServiceManager(t *testing.T) {
+	tests := []struct {
+		name            string
+		invocationID    string
+		openRCService   string
+		parentPID       int
+		systemdInit     bool
+		openRCInit      bool
+		systemContainer bool
+		want            bool
+	}{
+		{name: "systemd service", invocationID: "service-id", want: true},
+		{name: "systemd init", parentPID: 1, systemdInit: true, want: true},
+		{name: "manual launch in systemd system container", parentPID: 42, systemdInit: true, systemContainer: true, want: true},
+		{name: "OpenRC service", openRCService: "airports", want: true},
+		{name: "OpenRC init", parentPID: 1, openRCInit: true, want: true},
+		{name: "manual launch in OpenRC system container", parentPID: 42, openRCInit: true, systemContainer: true, want: true},
+		{name: "application process under init", parentPID: 2, systemdInit: true, openRCInit: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasSystemServiceManager(tt.invocationID, tt.openRCService, tt.parentPID, tt.systemdInit, tt.openRCInit, tt.systemContainer)
+			if got != tt.want {
+				t.Errorf("hasSystemServiceManager() = %t, want %t", got, tt.want)
+			}
+		})
+	}
 }
 
 // TestIsAppRuntimeContainer_MissingBinary confirms the toolchain/test

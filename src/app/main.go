@@ -4254,12 +4254,9 @@ func testBackup(fileLocation string, interactive bool) error {
 	return nil
 }
 
-// isRunningInContainer reports whether the process is inside a Docker container.
+// isRunningInContainer reports whether the process runs in an application container.
 func isRunningInContainer() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	return false
+	return paths.IsRunningInContainer()
 }
 
 // releaseInfo is the subset of the GitHub Releases API response used by the
