@@ -486,6 +486,9 @@ token and returns the newly issued primary token once. Linked tokens cannot
 manage tokens. Browser create, reveal, and rotate actions use POST/303 plus a
 one-use card-selection cookie; the following page load reveals only that
 token, disables caching, and clears the cookie. Reloads return to masked values.
+Token IDs in JSON, page links, and token-management paths are UUID v7 values; an
+older SQLite database with integer token keys preserves those keys internally
+and maps requests to migrated `public_id` UUID values.
 The API equivalents return the raw token in the JSON response body without a
 redirect.
 

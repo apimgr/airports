@@ -81,6 +81,7 @@ The server operator uses local configuration files and the CLI (`airports --serv
 | `local_code` | string | Public |
 | `home_link` | string — URL | Public |
 | `wikipedia_link` | string — URL | Public |
+| `tz` | optional string — IANA timezone identifier when a source match exists | Public |
 
 Airport records contain no PII. A caller's IP-derived GeoIP result is sensitive location data: it is returned only to that caller to find nearby airports and is never logged or stored.
 
