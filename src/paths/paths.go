@@ -225,8 +225,8 @@ func isSystemServiceManager() bool {
 		os.Getenv("INVOCATION_ID"),
 		os.Getenv("RC_SVCNAME"),
 		parentPID,
-		parentPID == 1 && pathExists("/run/systemd/system"),
-		parentPID == 1 && pathExists("/run/openrc"),
+		pathExists("/run/systemd/system"),
+		pathExists("/run/openrc"),
 		isSystemContainer(),
 	)
 }

@@ -1167,8 +1167,16 @@
           },
           "400": {
             "description": "Invalid request"
+          },
+          "401": {
+            "description": "Missing or invalid Bearer token"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "GET /server/auth/check",
         "tags": [
           "server"

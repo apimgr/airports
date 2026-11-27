@@ -108,6 +108,21 @@ func TestBuildSpecWithRoutesAddsRequestSchemas(t *testing.T) {
 	}
 }
 
+func TestBuildSpecAuthCheckDocumentsBearerAndUnauthorizedResponse(t *testing.T) {
+	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{{Method: "GET", Path: "/server/auth/check", Auth: true}})
+	paths := spec["paths"].(map[string]interface{})
+	operation := paths["/server/auth/check"].(map[string]interface{})["get"].(map[string]interface{})
+	security, ok := operation["security"].([]map[string][]string)
+	if !ok || len(security) != 1 || len(security[0]["BearerAuth"]) != 0 {
+		t.Fatalf("auth-check security = %#v, want BearerAuth", operation["security"])
+	}
+	responses := operation["responses"].(map[string]interface{})
+	unauthorized, ok := responses["401"].(map[string]interface{})
+	if !ok || unauthorized["description"] != "Missing or invalid Bearer token" {
+		t.Fatalf("auth-check 401 response = %#v, want missing-or-invalid-token description", responses["401"])
+	}
+}
+
 func TestBuildSpecGraphQLGetDocumentsQueryParameters(t *testing.T) {
 	spec := BuildSpecWithRoutes("dev", "v1", "en", []OpenAPIRoute{
 		{Method: "GET", Path: "/server/graphql", Summary: "GET /server/graphql"},

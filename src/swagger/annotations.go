@@ -496,6 +496,14 @@ func openAPIPathParameters(path string) []map[string]interface{} {
 }
 
 func applyOpenAPIRouteSchema(operation map[string]interface{}, path, method string) {
+	if method == "get" && path == "/server/auth/check" {
+		responses, _ := operation["responses"].(map[string]interface{})
+		if responses == nil {
+			responses = make(map[string]interface{})
+			operation["responses"] = responses
+		}
+		responses["401"] = map[string]interface{}{"description": "Missing or invalid Bearer token"}
+	}
 	if method == "get" {
 		switch path {
 		case "/airports", "/airports/search":

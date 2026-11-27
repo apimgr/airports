@@ -230,7 +230,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	registerVersioned(http.MethodPost, "/server/graphql", "none", graphqlQuery, "/api/graphql")
 	registerVersioned(http.MethodPost, "/server/mcp", "token", s.handleMCP, "/api/mcp", "/mcp")
 	registerVersioned(http.MethodGet, "/", "none", s.handleAPIInfo)
-	registerVersioned(http.MethodGet, "/server/auth/check", "none", s.handleAPITokenCheck)
+	registerVersioned(http.MethodGet, "/server/auth/check", "token", s.handleAPITokenCheck)
 	registerVersioned(http.MethodGet, "/server/about", "none", s.handleServerAboutAPI)
 	registerVersioned(http.MethodGet, "/server/help", "none", s.handleServerHelpAPI)
 	if s.helpPageEnabled("/server/help/mcp") {

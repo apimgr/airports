@@ -114,6 +114,12 @@ server:
   i2p:
     expose: true
 EOF
+cat >"$TEMP_DIR/volumes/config/airports/yaml.d/branding.yml" <<'EOF'
+web:
+  ui:
+    accent: "#777777"
+EOF
+chmod 0600 "$TEMP_DIR/volumes/config/airports/yaml.d/branding.yml"
 cp "$COMPOSE_SRC" "$TEMP_DIR/docker-compose.yml"
 if [[ -n "${DOCKER_TEST_IMAGE:-}" ]]; then
     cat >"$TEMP_DIR/docker-compose.local.yml" <<EOF

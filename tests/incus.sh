@@ -376,6 +376,13 @@ server:
 EOF
 chown "$INTERNAL_NAME:$INTERNAL_NAME" "$CONF_ROOT/yaml.d/40-endpoint-coverage.yml"
 chmod 0600 "$CONF_ROOT/yaml.d/40-endpoint-coverage.yml"
+cat >"$CONF_ROOT/yaml.d/branding.yml" <<'EOF'
+web:
+  ui:
+    accent: "#777777"
+EOF
+chown "$INTERNAL_NAME:$INTERNAL_NAME" "$CONF_ROOT/yaml.d/branding.yml"
+chmod 0600 "$CONF_ROOT/yaml.d/branding.yml"
 "${PROJECT_NAME}" --service restart
 check "server restarts with endpoint-test rate limits" wait_for 60 healthz_up
 check "all live OpenAPI endpoints and methods answer without route/middleware errors" test_live_api_contract
