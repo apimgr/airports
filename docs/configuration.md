@@ -434,6 +434,12 @@ server:
   database:
     driver: sqlite                 # sqlite | libsql
     url: ""                        # local path or remote libsql URL
+    cache:                         # optional local replica for remote libSQL only
+      enabled: false               # opt in to a local read cache
+      path: ""                     # default: {data_dir}/db/cache.db
+      sync_interval: 30s
+      offline_mode: true           # serve clean cached reads while remote is down
+      max_age: 1h                  # older tables are read from the remote when reachable
     pool:
       max_open: 5
       max_idle: 2
@@ -463,6 +469,23 @@ The default cache is in-process memory and is cleared when the process stops.
 Use Valkey or Redis when rate-limit and cache state needs to be shared across
 instances. For TLS, configure the CA and client certificate/key file names
 under `{config_dir}/ssl/` as required.
+
+`server.database.cache` is separate from `server.cache`: it is an optional
+SQLite read replica for a remote libSQL/Turso database and is not available for
+the local SQLite database mode. The cache defaults to
+`{data_dir}/db/cache.db`; its directory and file are restricted to `0700` and
+`0600`. It excludes generated secrets, audit records, and per-request
+rate-limit state. The remote database remains authoritative: successful remote
+writes determine the response and refresh the replica; failed writes do not
+change cached data. A background sync updates the replica, and stale or dirty
+tables are read from the remote while it is reachable.
+
+With `offline_mode: true`, a clean, previously synchronized cache can serve
+read-only requests while the remote is unavailable. Requests that need database
+secrets and all writes remain unavailable until the remote recovers; the cache
+never creates or stores application secrets. A cache that has never completed
+a sync is not served. Set `offline_mode: false` to disable cache fallback and
+keep the service in maintenance until the remote database returns.
 
 ## Backup and Restore
 

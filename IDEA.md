@@ -164,3 +164,24 @@ All airport-data routes below are public and read-only. The server's baseline ro
 - `GET /api/{api_version}/geoip[.txt]` and `GET /api/{api_version}/geoip/{ip}[.txt]`: look up the caller's or requested IP's approximate location and return the available GeoIP fields.
 - `GET /api/{api_version}/geoip/airports/nearby`: return airports near the caller's GeoIP location when available.
 - `GET /api/{api_version}/settings`: return the documented safe public settings subset; credentials and internal topology are excluded.
+
+### UI components
+
+The public airport UI uses the following project feature components. Their CSS belongs in `components.css`; page templates compose them, while `public.css` only controls page-level placement.
+
+| Component | Block and elements | Variants | States |
+|-----------|-------------------|----------|--------|
+| Public site shell | `.site-header`, `.header-container`, `.logo`, `.nav-links`, `.nav-link`, `.nav-checkbox`, `.nav-toggle`, `.nav-panel`, `.nav-close`, `.nav-overlay`, `.header-actions`, `.preferences-link`, `.theme-toggle-form`, `.theme-button`, `.site-footer`, `.footer-container`, `.footer-section`, `.footer-section-title`, `.footer-bottom` | collapsed navigation | current page, focus-visible, expanded drawer |
+| Footer content | `.footer-copy`, `.footer-link` | none | hover, focus-visible |
+| Airport card | `.airport-card`, `.airport-header`, `.airport-header-title`, `.airport-name`, `.airport-location`, `.airport-details` | none | hover, focus-visible |
+| Airport result | `.airport-result-card`, `.airport-result-header`, `.airport-result-details` | none | hover, focus-visible |
+| Airport detail | `.airport-detail-header`, `.airport-detail-title`, `.airport-detail-subtitle`, `.detail-card`, `.detail-card-title`, `.detail-grid`, `.detail-item`, `.detail-label`, `.detail-value`, `.action-buttons`, `.json-section`, `.json-content` | none | none |
+| Airport map | `.airport-map`, `.map-toolbar`, `.map-heading`, `.map-zoom-controls`, `.map-control`, `.map-canvas`, `.map-canvas-content`, `.map-marker-layer`, `.map-marker`, `.map-attribution`, `.map-error` | none | hidden, active, error |
+| Airport search | `.search-container`, `.search-box`, `.search-box-input`, `.search-box-submit`, `.search-filters`, `.search-filter-input`, `.results-info`, `.results-grid`, `.results-list`, `.search-help` | none | empty, results |
+| GeoIP lookup | `.search-input-group`, `.search-input`, `.result-container`, `.result-card`, `.result-card-title`, `.result-data`, `.airport-item`, `.airport-codes`, `.airport-dist`, `.error-container` | none | hidden, error, results |
+| Dataset statistics | `.stats-grid`, `.stat-card`, `.stat-number`, `.stat-label`, `.countries-section`, `.countries-section-title`, `.countries-grid`, `.country-item`, `.country-code`, `.country-count` | none | hover |
+| Home discovery | `.hero`, `.hero-subtitle`, `.search-hero`, `.search-hero-input`, `.search-hero-submit`, `.quick-results`, `.quick-result-item`, `.result-location`, `.features-grid`, `.feature-card`, `.feature-icon`, `.feature-card-title`, `.feature-card-copy`, `.api-section`, `.endpoint-list`, `.endpoint-item`, `.endpoint-code`, `.http-method`, `.endpoint-desc` | HTTP method `get` | hover, focus-visible |
+| Health statistics | `.health-stats-grid`, `.health-footer`, `.auto-refresh` | none | none |
+| Shared data lists and tables | `.info-list`, `.info-label`, `.info-value`, `.feature-list`, `.feature-list-item`, `.feature-enabled`, `.feature-disabled`, `.data-table`, `.data-table-heading`, `.data-table-cell`, `.breadcrumb`, `.breadcrumb-link` | none | selected list state |
+| Offline page | `.offline-page`, `.offline-card`, `.offline-icon`, `.offline-title`, `.offline-message` | none | offline |
+| Owner-token management | `.owner-token-page`, `.owner-token-layout`, `.owner-token-column`, `.owner-token-card`, `.owner-token-linked`, `.owner-linked-token-list`, `.owner-linked-token`, `.owner-token-actions`, `.owner-token-custom-expiry`, `.owner-token-reveal` | primary and linked token panels | hidden, revealed, confirmation popover |
