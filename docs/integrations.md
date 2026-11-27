@@ -104,8 +104,10 @@ instructions are available at `/server/help/mcp`.
 ## Public discovery and reporting
 
 The server publishes `/.well-known/llms.txt` (also `/llms.txt`),
-`/.well-known/security.txt`, and an optional `/.well-known/pgp-key.asc` when a
-public key is configured. Security reports can be submitted through the
+`/.well-known/security.txt`, and `/.well-known/pgp-key.asc` while an OpenPGP
+keypair exists. Both the public key route and security.txt Encryption line
+follow keypair presence automatically; no publication setting is required.
+Security reports can be submitted through the
 security page; the emailed one-shot status link opens
 `/server/security/report/{tracking_id}`. Swagger and GraphQL explorers are
 available from the server help page.

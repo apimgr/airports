@@ -169,7 +169,7 @@ The server serves these discovery paths:
 | `/.well-known/security.txt` | Canonical RFC 9116 security disclosure file |
 | `/.well-known/llms.txt` | Generated API discovery document |
 | `/llms.txt` | Alias for the generated API discovery document |
-| `/.well-known/pgp-key.asc` | Public key when a configured key is available |
+| `/.well-known/pgp-key.asc` | Public key while the server's OpenPGP keypair exists; the route returns 404 when no keypair exists |
 | `/server/security/report/{tracking_id}` | Researcher status page; the emailed one-shot token is required and no API mirror exists |
 
 Other unsupported `/.well-known/*` paths return `404`. `/security.txt` is not
