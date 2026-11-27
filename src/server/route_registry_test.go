@@ -35,6 +35,12 @@ func TestRouteRegistryMountsAndSeparatesPublicAndMCPSurfaces(t *testing.T) {
 		Method: http.MethodGet, Path: "/api/v1/unlisted", OperationID: "unlistedRead",
 		Summary: "Unlisted read", Auth: "none", Listed: false, Handler: handler,
 	})
+	registry.Add(Route{
+		Method: http.MethodGet, Path: "/.well-known/llms.txt", Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte("discovery\n"))
+		},
+	})
 
 	for _, path := range []string{"/api/v1/airports", "/api/airports"} {
 		response := httptest.NewRecorder()
@@ -42,6 +48,11 @@ func TestRouteRegistryMountsAndSeparatesPublicAndMCPSurfaces(t *testing.T) {
 		if response.Code != http.StatusNoContent {
 			t.Errorf("registered route %s status = %d, want %d", path, response.Code, http.StatusNoContent)
 		}
+	}
+	headResponse := httptest.NewRecorder()
+	router.ServeHTTP(headResponse, httptest.NewRequest(http.MethodHead, "/.well-known/llms.txt", nil))
+	if headResponse.Code != http.StatusOK || headResponse.Header().Get("Content-Type") != "text/plain; charset=utf-8" || headResponse.Body.Len() != 0 {
+		t.Fatalf("HEAD /.well-known/llms.txt = status %d, content type %q, body %q; want 200, text/plain and no body", headResponse.Code, headResponse.Header().Get("Content-Type"), headResponse.Body.String())
 	}
 
 	publicPaths := make(map[string]bool)

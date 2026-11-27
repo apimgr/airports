@@ -531,6 +531,30 @@ func TestHandleRobotsTxt(t *testing.T) {
 	}
 }
 
+func TestRobotsTxtKeepsPlainTextContentTypeForJSONAccept(t *testing.T) {
+	s := newTestServer(t)
+	request := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	request.Header.Set("Accept", "application/json")
+	response := httptest.NewRecorder()
+	s.Router().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want text/plain; charset=utf-8", got)
+	}
+}
+
+func TestRobotsTxtSupportsHeadWithoutBody(t *testing.T) {
+	s := newTestServer(t)
+	response := httptest.NewRecorder()
+	s.Router().ServeHTTP(response, httptest.NewRequest(http.MethodHead, "/robots.txt", nil))
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" || response.Body.Len() != 0 {
+		t.Fatalf("HEAD /robots.txt = status %d, content type %q, body %q; want 200, text/plain and no body", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+}
+
 func TestHandleLocaleJSON(t *testing.T) {
 	s := newTestServer(t)
 

@@ -427,12 +427,16 @@ __test_fixed_resources() {
             echo "FAIL  GET $path returned HTTP $status, want 200" >&2
             return 1
         fi
-        content_type="$(curl -q -LSs --max-time 20 -o /dev/null -D - "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
+        if [[ "$want" == text/plain ]]; then
+            content_type="$(curl -q -LSs --max-time 20 -o /dev/null -D - -H 'Accept: text/plain' "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
+        else
+            content_type="$(curl -q -LSs --max-time 20 -o /dev/null -D - "${BASE_URL}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
+        fi
         if [[ "$content_type" != *"$want"* ]]; then
             echo "FAIL  GET $path returned Content-Type '$content_type', want '$want'" >&2
             return 1
         fi
-        if [[ "$path" == /.well-known/* ]]; then
+        if [[ "$path" == /.well-known/* || "$path" == /robots.txt ]]; then
             head_status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -I "${BASE_URL}${path}" || true)"
             [[ "$head_status" == 200 ]] || { echo "FAIL  HEAD $path returned HTTP $head_status" >&2; return 1; }
         fi

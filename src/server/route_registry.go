@@ -60,8 +60,28 @@ func (registry *routeRegistry) Add(route Route) {
 		for _, alias := range route.Aliases {
 			registry.router.Method(route.Method, alias, handler)
 		}
+		if route.Method == http.MethodGet && (strings.HasPrefix(route.Path, "/.well-known/") || route.Path == "/llms.txt") {
+			registry.router.Method(http.MethodHead, route.Path, headOnlyHandler(handler))
+			for _, alias := range route.Aliases {
+				registry.router.Method(http.MethodHead, alias, headOnlyHandler(handler))
+			}
+		}
 	}
 	registry.routes = append(registry.routes, route)
+}
+
+type headOnlyResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w headOnlyResponseWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+
+func headOnlyHandler(handler http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(headOnlyResponseWriter{ResponseWriter: w}, r)
+	})
 }
 
 // Snapshot returns a stable copy of the registered route definitions.

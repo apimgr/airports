@@ -108,6 +108,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 
 	// Special files
 	r.Get("/robots.txt", s.handleRobotsTxt)
+	r.Method(http.MethodHead, "/robots.txt", headOnlyHandler(s.handleRobotsTxt))
 	registry.Add(Route{Method: http.MethodGet, Path: "/llms.txt", OperationID: "getLlmsTxt", Summary: "GET /llms.txt", Auth: "none", Listed: true, Handler: s.handleLLMSTxt})
 	registry.Add(Route{Method: http.MethodGet, Path: "/.well-known/llms.txt", OperationID: "getWellKnownLlmsTxt", Summary: "GET /.well-known/llms.txt", Auth: "none", Listed: true, Handler: s.handleLLMSTxt})
 	registry.Add(Route{Method: http.MethodGet, Path: "/.well-known/security.txt", OperationID: "getSecurityTxt", Summary: "GET /.well-known/security.txt", Auth: "none", Listed: true, Handler: s.handleSecurityTxt})
