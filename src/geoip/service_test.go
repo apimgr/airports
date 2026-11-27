@@ -82,6 +82,20 @@ func TestLookup(t *testing.T) {
 	}
 }
 
+func TestLookupSkipsNonPublicAddresses(t *testing.T) {
+	for _, address := range []string{"10.0.0.1", "172.16.0.1", "192.168.0.1", "127.0.0.1", "169.254.1.1", "fc00::1", "fe80::1", "::1"} {
+		t.Run(address, func(t *testing.T) {
+			location, err := (&GeoIPService{}).Lookup(net.ParseIP(address))
+			if err != nil {
+				t.Fatalf("Lookup(%q) error = %v, want no lookup for private/internal IP", address, err)
+			}
+			if location == nil || location.IP != address || location.Country != "" {
+				t.Fatalf("Lookup(%q) = %#v, want IP only", address, location)
+			}
+		})
+	}
+}
+
 func TestLookupString(t *testing.T) {
 	svc := &GeoIPService{}
 	if _, err := svc.LookupString("8.8.8.8"); err == nil {

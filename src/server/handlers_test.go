@@ -262,6 +262,7 @@ func TestHandleGeoIPLookup(t *testing.T) {
 		wantError  string
 	}{
 		{name: "valid ip, nil geoip service fails lookup", remoteAddr: "203.0.113.5:1234", wantStatus: http.StatusInternalServerError, wantError: "SERVER_ERROR"},
+		{name: "private client ip is not looked up", remoteAddr: "172.19.0.5:1234", wantStatus: http.StatusOK},
 		{name: "unparseable remote addr", remoteAddr: "not-an-ip", wantStatus: http.StatusBadRequest, wantError: "BAD_REQUEST"},
 	}
 

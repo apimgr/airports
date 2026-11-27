@@ -273,6 +273,9 @@ func (s *GeoIPService) Lookup(ip net.IP) (*GeoLocation, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("invalid IP address")
 	}
+	if isNonPublicIP(ip) {
+		return &GeoLocation{IP: ip.String()}, nil
+	}
 
 	if s == nil || !s.available || (s.cityIPv4DB == nil && s.cityIPv6DB == nil) || s.countryDB == nil {
 		return nil, fmt.Errorf("GeoIP unavailable: databases not loaded")
@@ -318,6 +321,10 @@ func (s *GeoIPService) Lookup(ip net.IP) (*GeoLocation, error) {
 	}
 	s.addASNInfo(ip, location)
 	return location, nil
+}
+
+func isNonPublicIP(ip net.IP) bool {
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified()
 }
 
 // addASNInfo adds ASN information to the location

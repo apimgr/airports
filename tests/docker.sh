@@ -85,7 +85,7 @@ fi
 
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")"
-mkdir -p "$TEMP_DIR/volumes/config/yaml.d" "$TEMP_DIR/volumes/data"
+mkdir -p "$TEMP_DIR/volumes/config/airports/yaml.d" "$TEMP_DIR/volumes/data"
 cat >"$TEMP_DIR/volumes/config/yaml.d/40-endpoint-coverage.yml" <<'EOF'
 server:
   rate_limit:
@@ -106,8 +106,8 @@ server:
       window: 60
     global_burst: 100000
 EOF
-chmod 0600 "$TEMP_DIR/volumes/config/yaml.d/40-endpoint-coverage.yml"
-cat >"$TEMP_DIR/volumes/config/yaml.d/50-overlay-test.yml" <<'EOF'
+chmod 0600 "$TEMP_DIR/volumes/config/airports/yaml.d/40-endpoint-coverage.yml"
+cat >"$TEMP_DIR/volumes/config/airports/yaml.d/50-overlay-test.yml" <<'EOF'
 server:
   tor:
     expose: true
@@ -157,6 +157,13 @@ done
 
 if ! curl -q -LSsf "${BASE_URL}/server/healthz" >/dev/null 2>&1; then
     echo "ERROR: server did not become healthy in time" >&2
+    (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
+    exit 1
+fi
+
+rate_limit="$(curl -q -LSs --max-time 20 -o /dev/null -D - -H 'Accept: text/plain' "${BASE_URL}/server/healthz" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-ratelimit-limit"{value=$2} END{print value}')"
+if [[ "$rate_limit" != 100000 ]]; then
+    echo "ERROR: endpoint coverage rate limit = ${rate_limit:-missing}, want 100000; test configuration was not loaded" >&2
     (cd "$TEMP_DIR" && docker compose logs --tail=200) || true
     exit 1
 fi
