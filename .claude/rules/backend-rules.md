@@ -39,6 +39,9 @@
 - Never route a destination supplied by an inbound Tor visitor through the app's outbound Tor client
 - Keep the audit log append-only and hash-chained during data-subject deletion; entries retain their original opaque subject ID, while owner records, tokens, resources, and every identity mapping are deleted or anonymized as AI.md PART 11 specifies
 
+- Fresh token IDs are UUIDv7. Legacy integer token primary keys remain internal behind UUIDv7 `public_id`; use `token_last4` as the canonical suffix field.
+- Publish `/.well-known/pgp-key.asc` and security.txt's `Encryption:` line while both PGP keypair files exist; no config toggle controls publication.
+
 ## Key Rules Summary
 
 | Area | Rule |

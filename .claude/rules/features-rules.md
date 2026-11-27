@@ -45,6 +45,9 @@
 - Use platform-specific binary replacement for self-update (atomic rename on Unix, rename-to-.old
   + `MOVEFILE_DELAY_UNTIL_REBOOT` on Windows) and restart via the platform's service manager
 
+- Scheduler status is CLI-only; do not add a scheduler status API route.
+- Back up every `app_secrets` row, including previous keys and expiry rows. Restore without a filename selects the newest full archive by filename date and requires typed confirmation.
+
 ## Key Rules Summary
 
 | Area | Rule |

@@ -31,6 +31,9 @@
 - Keep `cli.yml` at `0600`/user-only; save `--server`/`--token` flag values to config ONLY when current value is empty or invalid, never overwrite a valid one
 - Resolve URLs via `{proto}`/`{fqdn}`/`{port}` per-request (reverse-proxy headers > DOMAIN env > hostname > public IP > localhost); strip `:80`/`:443`
 
+- Repair all private path modes/ACLs before reading `server.yml` or spawning Tor/i2pd; never follow a symlink under the private paths.
+- In headless mode (no display, no TTY, no command), return a usage error with exit 2; piped output with a command remains plain CLI output.
+
 ## Key Rules Summary
 
 | Area | Rule |

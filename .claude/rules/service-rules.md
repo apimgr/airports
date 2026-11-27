@@ -27,6 +27,8 @@
 - On `--service --uninstall`, stop, disable, remove the service file, delete config/data/cache/log/backup dirs and the PID file, delete the system user/group, then print a manual `rm {binary_path}` message — after confirmation
 - Document any permanent-root exception in both the service file and IDEA.md, explaining why privilege drop is not possible
 
+- Windows Task Scheduler integration only starts the application at logon; application status and health use the server's own status/health behavior.
+
 ## Key Rules Summary
 
 | Area | Rule |

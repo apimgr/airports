@@ -30,6 +30,8 @@
 - Build for both `linux/amd64` and `linux/arm64` on release
 - Keep `docker/rootfs/` as the only build-time overlay (committed); `./volumes/` is runtime-only (never committed)
 
+- Build the shipped image from source in its Dockerfile; never copy or symlink a prebuilt host binary into the image.
+
 ## Key Rules Summary
 
 | Area | Rule |

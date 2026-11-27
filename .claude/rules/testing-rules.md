@@ -32,6 +32,8 @@
 - Set `dir="rtl"` for Arabic and use CSS logical properties; use CLDR plural categories per language
 - Provide skip links, ARIA live regions for dynamic content, proper focus management, and 44x44px touch targets on every page
 
+- Curl-based autodiscovery tests request `Accept: application/json`; helpers parse `data.api.current_version` with JSON tooling, never `sed`.
+
 ## Key Rules Summary
 
 | Area | Rule |

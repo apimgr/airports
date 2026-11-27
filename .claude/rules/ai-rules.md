@@ -30,6 +30,10 @@
 - Keep IDEA.md in sync with actual features; keep README/docs/Swagger/GraphQL in sync with code
 - Use intent-revealing names — no bare `Mode`, `Type`, `Status`, `Config`, `Get()`, `New()`, etc.
 
+- During an explicit audit, walk every AI.md PART line by line before forming compliance findings; fix verified gaps directly and use `AUDIT.AI.md` only when more than five issues were found.
+- Keep all 13 `.claude/rules/*.md` files current whenever AI.md is newer, following PART 0's file-to-PART mapping and required section order.
+- Record only verified defects in AI.md itself in the parent template inbox; project implementation tasks belong in `TODO.AI.md`.
+
 ## Key Rules Summary
 
 | Area | Rule |

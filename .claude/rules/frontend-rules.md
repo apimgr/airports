@@ -39,6 +39,8 @@
 - Serve `/sitemap.xml` dynamically (homepage priority 1.0, public pages 0.8, never API routes or auth-gated pages)
 - Validate/sanitize any remote-fetched branding image (HTTPS only, block private/loopback/internal IPs, size + MIME-type limits, ≤5 redirects)
 
+- Use JavaScript only for a capability with no HTML5/CSS equivalent; every core flow works with JavaScript disabled.
+
 ## Key Rules Summary
 
 | Area | Rule |

@@ -25,6 +25,8 @@
 - Strip binaries before packaging into `releases/` (`make release`)
 - Derive local version from explicit `VERSION` env var > non-empty `release.txt` > short commit ID (`devel` outside Git)
 
+- Make targets are local-development entry points only; CI spells out build/test commands and never invokes `make`.
+
 ## Key Rules Summary
 
 | Area | Rule |

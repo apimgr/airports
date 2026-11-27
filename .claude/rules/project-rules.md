@@ -19,6 +19,9 @@
 - Follow OS-specific path conventions exactly per platform (see table below)
 - Keep `internal_name` frozen at its first-time value even if `project_name` is later renamed
 
+- Embed third-party datasets only with publisher, retrieval/version, checksum, license, and transformation provenance.
+- Keep Windows user-mode runtime paths under the user's profile; system-mode private paths under ProgramData receive only the service, SYSTEM, and Administrators ACL.
+
 ## Key Rules Summary
 
 | Area | Rule |

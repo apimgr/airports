@@ -65,6 +65,10 @@
 - Always strip `:80`/`:443` from displayed URLs; adapt the startup banner to
   terminal width (full/compact/minimal/micro) and respect `NO_COLOR`/`--color`
 
+- Optional `/.well-known/*` entries exist only with their matching feature, have no enable/disable setting, and unknown paths return 404.
+- Mount the public PGP key route only while the security keypair exists and advertise it in security.txt under the same condition.
+- Keep health statuses including `restart_required`, `maintenance`, and `shutting_down`; native API credentials come only from `Authorization: Bearer`.
+
 ## Key Rules Summary
 
 | Area | Rule |

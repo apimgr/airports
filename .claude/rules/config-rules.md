@@ -31,6 +31,9 @@
 - Resolve `server.contact.*` role emails/webhooks through their documented fallback chains (security→admin, abuse→general→admin, general→admin)
 - Sign every outbound webhook POST with `X-Webhook-Signature`/`X-Webhook-Timestamp`/`X-Webhook-ID`/`X-Webhook-Event`
 
+- Before the first `server.yml` read or child-process start, enforce `0700` directories/`0600` files recursively on the private config/data trees, including `tor/site`; repair wrong permissions and reject symlinks.
+- Read the `DATABASE_DIR` runtime override on every startup and use it for the SQLite database directory.
+
 ## Key Rules Summary
 
 | Area | Rule |

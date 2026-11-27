@@ -40,6 +40,9 @@
   fix immediately, never left for later
 - Read `OFFICIAL_SITE` from `site.txt` first, falling back to the CI secret/variable — never guess
 
+- Docker image publication runs only for `main` pushes and version/beta tags, never feature branches.
+- Include `workflow_dispatch` on the required GitHub/Gitea/Forgejo workflow set without changing automatic triggers.
+
 ## Key Rules Summary
 
 | Area | Rule |
