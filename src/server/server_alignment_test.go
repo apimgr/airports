@@ -53,6 +53,17 @@ func TestServerPageAPIContracts(t *testing.T) {
 	}
 }
 
+func TestDefaultAboutAPIIsIDEADerivedAndProjectSpecific(t *testing.T) {
+	s := newTestServer(t)
+	w := httptest.NewRecorder()
+	s.handleServerAboutAPI(w, httptest.NewRequest(http.MethodGet, "/api/v1/server/about", nil))
+	for _, expected := range []string{"Global airport reference data.", "48,071 small, medium, and large airports", "REST API", "GraphQL", "github.com/apimgr/airports"} {
+		if !strings.Contains(w.Body.String(), expected) {
+			t.Errorf("default About API content is missing %q: %s", expected, w.Body.String())
+		}
+	}
+}
+
 func TestMCPHelpUsesToolsListAndShellSafeCommands(t *testing.T) {
 	s := newTestServer(t)
 	request := httptest.NewRequest(http.MethodGet, "/server/help/mcp", nil)

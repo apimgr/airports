@@ -211,6 +211,90 @@ func TestAPI_GraphQLReturnsAirportData(t *testing.T) {
 	}
 }
 
+func assertAirportAPIResponses(t *testing.T, tier string) {
+	t.Helper()
+	paths := []struct {
+		name, path, contentType, marker string
+	}{
+		{"airport list", "/api/v1/airports?limit=1", "application/json", `"data"`},
+		{"airport detail", "/api/v1/airports/KJFK", "application/json", `"icao":"KJFK"`},
+		{"search", "/api/v1/airports/search?q=JFK&limit=1", "application/json", `"KJFK"`},
+		{"nearby", "/api/v1/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1", "application/json", `"KJFK"`},
+		{"bounding box", "/api/v1/airports/within?minLat=40&maxLat=41&minLon=-74&maxLon=-73", "application/json", `"KJFK"`},
+		{"autocomplete", "/api/v1/airports/autocomplete?q=JFK", "application/json", `"KJFK"`},
+		{"countries", "/api/v1/countries", "application/json", `"data"`},
+		{"states", "/api/v1/states/US", "application/json", `"data"`},
+		{"statistics", "/api/v1/stats", "application/json", `"data"`},
+		{"JSON export", "/api/v1/airports.json", "application/json", `"KJFK"`},
+		{"CSV export", "/api/v1/airports.csv", "text/csv", "KJFK"},
+		{"GeoJSON export", "/api/v1/airports.geojson", "application/geo+json", `"FeatureCollection"`},
+		{"safe settings", "/api/v1/settings", "application/json", `"data"`},
+		{"GeoIP validation", "/api/v1/geoip/not-an-ip", "application/json", `"error"`},
+	}
+	for _, test := range paths {
+		t.Run(test.name, func(t *testing.T) {
+			var page string
+			if tier == "SSR" {
+				status, headers, body := getPageAccept(t, test.path, "application/json")
+				if status < 200 || status >= 500 {
+					t.Fatalf("API response %s returned HTTP %d", test.path, status)
+				}
+				if !strings.Contains(headers.Get("Content-Type"), test.contentType) {
+					t.Fatalf("API response %s content type = %q, want %q", test.path, headers.Get("Content-Type"), test.contentType)
+				}
+				page = body
+			} else {
+				ctx := browserContext(t, tier == "no-JS")
+				page = navigate(t, ctx, test.path)
+				var bodyText string
+				if err := chromedp.Run(ctx, chromedp.Text("body", &bodyText)); err == nil {
+					page += bodyText
+				}
+			}
+			if !strings.Contains(page, test.marker) {
+				t.Fatalf("API response %s does not contain %q", test.path, test.marker)
+			}
+		})
+	}
+	query := url.Values{"query": {`{ airport(code: "KJFK") { icao name } }`}}
+	t.Run("GraphQL GET", func(t *testing.T) {
+		var page string
+		path := "/api/graphql?" + query.Encode()
+		if tier == "SSR" {
+			status, headers, body := getPageAccept(t, path, "application/json")
+			if status != http.StatusOK {
+				t.Fatalf("GraphQL GET returned HTTP %d", status)
+			}
+			if !strings.Contains(headers.Get("Content-Type"), "application/json") {
+				t.Fatalf("GraphQL GET content type = %q", headers.Get("Content-Type"))
+			}
+			page = body
+		} else {
+			ctx := browserContext(t, tier == "no-JS")
+			page = navigate(t, ctx, path)
+			var bodyText string
+			if err := chromedp.Run(ctx, chromedp.Text("body", &bodyText)); err == nil {
+				page += bodyText
+			}
+		}
+		if !strings.Contains(page, `"icao":"KJFK"`) {
+			t.Fatalf("GraphQL GET response lacks airport data: %s", page)
+		}
+	})
+}
+
+func TestSSR_AirportDataAPIEndpointsContainRealFeatureData(t *testing.T) {
+	assertAirportAPIResponses(t, "SSR")
+}
+
+func TestNoJS_AirportDataAPIEndpointsRemainUsable(t *testing.T) {
+	assertAirportAPIResponses(t, "no-JS")
+}
+
+func TestJS_AirportDataAPIEndpointsRemainUsable(t *testing.T) {
+	assertAirportAPIResponses(t, "JS")
+}
+
 func TestSSR_ServerPagesAndAPIDocsRender(t *testing.T) {
 	for _, route := range []string{"/server/about", "/server/help", "/server/privacy", "/server/terms", "/server/docs/swagger", "/server/docs/graphql"} {
 		t.Run(strings.Trim(route, "/"), func(t *testing.T) {
@@ -294,6 +378,190 @@ func TestSSR_ReferencedStaticAssetsExist(t *testing.T) {
 		if status != http.StatusOK {
 			t.Errorf("static asset %s returned HTTP %d", asset, status)
 		}
+	}
+}
+
+func TestSSR_PWAHeadAndPublicPageCacheContract(t *testing.T) {
+	status, headers, body := getPageAccept(t, "/", "text/html")
+	if status != http.StatusOK || !strings.Contains(headers.Get("Content-Type"), "text/html") {
+		t.Fatalf("home page returned status %d and content type %q", status, headers.Get("Content-Type"))
+	}
+	for _, marker := range []string{`rel="manifest"`, `name="theme-color"`, `name="viewport"`, `apple-mobile-web-app-capable`, `offline-indicator`} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("SSR home page is missing PWA marker %q", marker)
+		}
+	}
+	if headers.Get("X-Offline-Cache") != "public" || headers.Get("Set-Cookie") != "" {
+		t.Fatalf("public home response is not safely cacheable: X-Offline-Cache=%q Set-Cookie=%q", headers.Get("X-Offline-Cache"), headers.Get("Set-Cookie"))
+	}
+	status, headers, _ = getPageAccept(t, "/server/preferences", "text/html")
+	if status != http.StatusOK || headers.Get("X-Offline-Cache") == "public" {
+		t.Fatalf("private preferences page cache classification: status=%d X-Offline-Cache=%q", status, headers.Get("X-Offline-Cache"))
+	}
+}
+
+func TestSSR_FrontendJSONMatchesPairedAPIResponses(t *testing.T) {
+	pairs := []struct{ page, api string }{
+		{"/", "/api/v1/"},
+		{"/airports", "/api/v1/airports"},
+		{"/airports/search?q=JFK", "/api/v1/airports/search?q=JFK"},
+		{"/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1", "/api/v1/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1"},
+		{"/airports/KJFK", "/api/v1/airports/KJFK"},
+		{"/stats", "/api/v1/stats"},
+		{"/geoip?ip=8.8.8.8", "/api/v1/geoip?ip=8.8.8.8"},
+		{"/server/about", "/api/v1/server/about"},
+		{"/server/help", "/api/v1/server/help"},
+		{"/server/help/mcp", "/api/v1/server/help/mcp"},
+		{"/server/healthz", "/api/v1/server/healthz"},
+		{"/healthz", "/api/v1/healthz"},
+		{"/server/privacy", "/api/v1/server/privacy"},
+		{"/server/preferences", "/api/v1/server/preferences"},
+		{"/server/preferences/sync", "/api/v1/server/preferences/sync"},
+		{"/server/preferences/sync/import", "/api/v1/server/preferences/sync/import"},
+		{"/server/preferences/tokens", "/api/v1/server/preferences/tokens"},
+		{"/server/dpo", "/api/v1/server/dpo"},
+		{"/server/terms", "/api/v1/server/terms"},
+		{"/server/contact", "/api/v1/server/contact"},
+		{"/server/security", "/api/v1/server/security"},
+		{"/server/security/policy", "/api/v1/server/security/policy"},
+		{"/server/security/thanks", "/api/v1/server/security/thanks"},
+		{"/server/docs/swagger", "/api/v1/server/swagger"},
+		{"/server/docs/graphql", "/api/v1/server/graphql"},
+	}
+	// /server/security/report/{tracking_id} deliberately has no API mirror: it
+	// is a one-shot emailed status page and its tracking ID is a bearer secret.
+	for _, pair := range pairs {
+		t.Run(strings.Trim(pair.page, "/"), func(t *testing.T) {
+			pageStatus, pageHeaders, pageBody := getPageAccept(t, pair.page, "application/json")
+			apiStatus, apiHeaders, apiBody := getPageAccept(t, pair.api, "application/json")
+			if pageStatus != apiStatus || !strings.Contains(pageHeaders.Get("Content-Type"), "application/json") || pageBody != apiBody {
+				t.Fatalf("frontend JSON does not match paired API byte-for-byte: page status/type=%d/%q API=%d/%q\npage: %s\nAPI: %s", pageStatus, pageHeaders.Get("Content-Type"), apiStatus, apiHeaders.Get("Content-Type"), pageBody, apiBody)
+			}
+		})
+	}
+}
+
+func TestNoJS_PWAContentAndNavigationRemainAvailable(t *testing.T) {
+	ctx := browserContext(t, true)
+	page := navigate(t, ctx, "/")
+	for _, marker := range []string{`rel="manifest"`, `name="theme-color"`, `offline-indicator`, `Search`, `Install on iPhone or iPad`, `Add to Home Screen`} {
+		if !strings.Contains(page, marker) {
+			t.Errorf("no-JS home page is missing %q", marker)
+		}
+	}
+	var navCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('nav a[href]').length`, &navCount)); err != nil {
+		t.Fatal(err)
+	}
+	if navCount == 0 {
+		t.Fatal("no-JS PWA page has no navigable application links")
+	}
+}
+
+func TestJS_PWAOfflineRecoveryAndUpdateApproval(t *testing.T) {
+	ctx := browserContext(t, false)
+	page := navigate(t, ctx, "/")
+	if !strings.Contains(page, `rel="manifest"`) {
+		t.Fatal("JavaScript page is missing its install manifest link")
+	}
+	var registered bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`'serviceWorker' in navigator`, &registered)); err != nil || !registered {
+		t.Fatalf("service workers unavailable for PWA: registered=%v err=%v", registered, err)
+	}
+	if err := chromedp.Run(ctx,
+		network.Enable(),
+		chromedp.Evaluate(`navigator.serviceWorker.ready.then(() => new Promise(resolve => { if (navigator.serviceWorker.controller) resolve(true); else navigator.serviceWorker.addEventListener('controllerchange', () => resolve(true), {once:true}); }))`, nil),
+	); err != nil {
+		t.Fatalf("wait for service worker control: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Navigate(baseURL(t)+"/"), chromedp.WaitReady("body")); err != nil {
+		t.Fatalf("prime the public page cache under service-worker control: %v", err)
+	}
+	if err := chromedp.Run(ctx, network.EmulateNetworkConditions(true, 0, 0, 0)); err != nil {
+		t.Fatalf("disable browser network: %v", err)
+	}
+	var cachedHTML string
+	if err := chromedp.Run(ctx, chromedp.Navigate(baseURL(t)+"/"), chromedp.OuterHTML("html", &cachedHTML)); err != nil {
+		t.Fatalf("load public home page while offline: %v", err)
+	}
+	if !strings.Contains(cachedHTML, "airport-search") && !strings.Contains(cachedHTML, "/airports/search") {
+		t.Fatal("offline public-page fallback did not return cached airport UI")
+	}
+	var apiUnavailable bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`fetch('/api/v1/airports/KJFK').then(() => false, () => true)`, &apiUnavailable)); err != nil || !apiUnavailable {
+		t.Fatalf("API response was not network-only while offline: unavailable=%v err=%v", apiUnavailable, err)
+	}
+	var offlineVisible bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`navigator.onLine === false`, &offlineVisible)); err != nil || !offlineVisible {
+		t.Fatalf("browser did not enter offline state: offline=%v err=%v", offlineVisible, err)
+	}
+	var statusBanner bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`!!document.querySelector('#connection-status-banner')`, &statusBanner)); err != nil || !statusBanner {
+		t.Fatalf("offline transition did not show its status banner: visible=%v err=%v", statusBanner, err)
+	}
+	if err := chromedp.Run(ctx, network.EmulateNetworkConditions(false, 1000, 500000, 500000)); err != nil {
+		t.Fatalf("restore browser network: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`window.dispatchEvent(new Event('online'))`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	var cleared bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`!document.querySelector('#connection-status-banner')`, &cleared)); err != nil || !cleared {
+		t.Fatalf("online recovery did not clear the status banner: cleared=%v err=%v", cleared, err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => {
+		window.__skipWaitingMessage = null;
+		const waiting = {postMessage(message) { window.__skipWaitingMessage = message; }};
+		Object.defineProperty(navigator.serviceWorker, 'ready', {configurable:true, value:Promise.resolve({waiting})});
+		showUpdateNotification();
+		return true;
+	})()`, nil)); err != nil {
+		t.Fatalf("prepare waiting service-worker fixture: %v", err)
+	}
+	var initialMessage string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`JSON.stringify(window.__skipWaitingMessage)`, &initialMessage)); err != nil || initialMessage != "null" {
+		t.Fatalf("waiting worker was activated without approval: message=%q err=%v", initialMessage, err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(`#app-update-banner .btn-primary`, chromedp.ByQuery), chromedp.Sleep(50*time.Millisecond)); err != nil {
+		t.Fatalf("approve service-worker update: %v", err)
+	}
+	var skipWaitingMessage string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`JSON.stringify(window.__skipWaitingMessage)`, &skipWaitingMessage)); err != nil || skipWaitingMessage != `{"type":"SKIP_WAITING"}` {
+		t.Fatalf("explicit approval did not request worker handover: message=%q err=%v", skipWaitingMessage, err)
+	}
+}
+
+func TestJS_PWAInstallInstructionsSupportDesktopModeIPad(t *testing.T) {
+	ctx := browserContext(t, false)
+	userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+	var instructionsVisible bool
+	if err := chromedp.Run(ctx,
+		emulation.SetUserAgentOverride(userAgent).WithPlatform("MacIntel"),
+		emulation.SetTouchEmulationEnabled(true).WithMaxTouchPoints(5),
+		chromedp.Navigate(baseURL(t)+"/"),
+		chromedp.Evaluate(`navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1 && !document.querySelector('#pwa-ios-install-instructions').hidden`, &instructionsVisible),
+	); err != nil || !instructionsVisible {
+		t.Fatalf("desktop-mode iPad did not show Add to Home Screen instructions: visible=%v err=%v", instructionsVisible, err)
+	}
+}
+
+func TestJS_PWAInstallPromptWaitsForUserChoice(t *testing.T) {
+	ctx := browserContext(t, false)
+	navigate(t, ctx, "/")
+	var dispatched bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`(() => { const e = new Event('beforeinstallprompt', {cancelable:true}); e.prompt = () => {}; e.userChoice = Promise.resolve({outcome:'accepted'}); window.dispatchEvent(e); return e.defaultPrevented; })()`, &dispatched)); err != nil || !dispatched {
+		t.Fatalf("install prompt event was not captured and deferred: prevented=%v err=%v", dispatched, err)
+	}
+	var visible bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`!document.querySelector('#pwa-install-button').hidden`, &visible)); err != nil || !visible {
+		t.Fatalf("install button did not appear after browser event: visible=%v err=%v", visible, err)
+	}
+	if err := chromedp.Run(ctx, chromedp.Click(`#pwa-install-button`, chromedp.ByQuery), chromedp.Sleep(50*time.Millisecond)); err != nil {
+		t.Fatalf("accept install prompt: %v", err)
+	}
+	var hidden bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('#pwa-install-button').hidden`, &hidden)); err != nil || !hidden {
+		t.Fatalf("install button remained visible after user choice: hidden=%v err=%v", hidden, err)
 	}
 }
 

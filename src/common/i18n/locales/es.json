@@ -17,6 +17,8 @@
     "now": "Actualizar ahora",
     "later": "Más tarde"
   },
+  "pwa": {"install": "Instalar aplicación", "ios_instructions": "Instalar en iPhone o iPad", "share": "Pulsa el botón Compartir", "home_screen": "Elige Añadir a pantalla de inicio y pulsa Añadir."},
+  "startup": {"server_started": "Servidor iniciado el", "setup_token": "Token de configuración inicial", "mode": "Modo", "listening": "Escuchando", "started": "Iniciado", "tor": "Tor", "i2p": "I2P", "smtp": "SMTP"},
   "connection": {
     "reconnecting": "Reconectando con el servidor…"
   },

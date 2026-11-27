@@ -910,13 +910,12 @@ type WebRobotsConfig struct {
 
 // WebSecurityConfig contains security.txt / contact settings
 type WebSecurityConfig struct {
-	Admin         string   `yaml:"admin"`
-	ReportURL     string   `yaml:"report_url"`
-	Contact       string   `yaml:"contact"`
-	Expires       string   `yaml:"expires"`
-	Policy        string   `yaml:"policy"`
-	Keyservers    []string `yaml:"keyservers"`
-	PublishPGPKey bool     `yaml:"publish_pgp_key"`
+	Admin      string   `yaml:"admin"`
+	ReportURL  string   `yaml:"report_url"`
+	Contact    string   `yaml:"contact"`
+	Expires    string   `yaml:"expires"`
+	Policy     string   `yaml:"policy"`
+	Keyservers []string `yaml:"keyservers"`
 }
 
 // PrivacyConfig controls cookie-consent and CCPA behavior. Dynamic messaging
@@ -3422,7 +3421,6 @@ web:
     policy: %q
     # OpenPGP keyservers used when publishing a project key
     keyservers: %s
-    publish_pgp_key: %t
     admin: "%s"
 data:
   cve:
@@ -3650,7 +3648,6 @@ data:
 		cfg.Web.Security.Expires,
 		cfg.Web.Security.Policy,
 		formatStringSlice(cfg.Web.Security.Keyservers),
-		cfg.Web.Security.PublishPGPKey,
 		cfg.Web.Security.Admin,
 		cfg.Data.CVE.APIKey,
 	)

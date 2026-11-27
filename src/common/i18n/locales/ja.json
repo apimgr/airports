@@ -17,6 +17,8 @@
     "now": "今すぐ更新",
     "later": "後で"
   },
+  "pwa": {"install": "アプリをインストール", "ios_instructions": "iPhone または iPad にインストール", "share": "共有ボタンをタップ", "home_screen": "「ホーム画面に追加」を選び、「追加」をタップしてください。"},
+  "startup": {"server_started": "サーバー起動日時", "setup_token": "初回セットアップトークン", "mode": "モード", "listening": "待受中", "started": "起動", "tor": "Tor", "i2p": "I2P", "smtp": "SMTP"},
   "connection": {
     "reconnecting": "サーバーに再接続しています…"
   },

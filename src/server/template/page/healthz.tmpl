@@ -63,7 +63,7 @@
                 {{if $h.Features.Tor.Enabled}}
                 <span class="badge">{{if eq $h.Features.Tor.Status "healthy"}}{{t "health.healthy"}}{{else if eq $h.Features.Tor.Status "starting"}}{{t "common.loading"}}{{else}}{{t "common.error"}}{{end}}</span>
                 {{if $h.Features.Tor.Hostname}}
-                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{tf "health.copy_onion_address" "address" $h.Features.Tor.Hostname}}">{{t "common.copy"}}</button>
+                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.Tor.Hostname}}" data-copied-label="{{t "common.copied"}}" aria-label="{{tf "health.copy_onion_address" "address" $h.Features.Tor.Hostname}}">{{t "common.copy"}}</button>
                 {{end}}
                 {{end}}
             </li>
@@ -72,7 +72,7 @@
                 {{if $h.Features.I2P.Enabled}}
                 <span class="badge">{{if eq $h.Features.I2P.Status "healthy"}}{{t "health.healthy"}}{{else if eq $h.Features.I2P.Status "starting"}}{{t "common.loading"}}{{else}}{{t "common.error"}}{{end}}</span>
                 {{if $h.Features.I2P.Hostname}}
-                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.I2P.Hostname}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+                <button type="button" class="copy-btn" data-action="copy-value" data-copy="{{$h.Features.I2P.Hostname}}" data-copied-label="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
                 {{end}}
                 {{end}}
             </li>

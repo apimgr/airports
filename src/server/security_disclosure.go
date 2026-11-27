@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -223,10 +224,45 @@ func constantHexEqual(left, right string) bool {
 }
 
 func (s *Server) pgpPublicKey() ([]byte, error) {
-	if !s.config.Web.Security.PublishPGPKey || s.configDir == "" {
+	if !s.hasPGPKeypair() {
 		return nil, os.ErrNotExist
 	}
-	return os.ReadFile(filepath.Join(s.configDir, "security", "pgp.pub.asc"))
+	path := filepath.Join(s.configDir, "security", "pgp.pub.asc")
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, os.ErrNotExist
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, os.ErrNotExist
+	}
+	data, readErr := io.ReadAll(file)
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return data, nil
+}
+
+func (s *Server) hasPGPKeypair() bool {
+	if s.configDir == "" {
+		return false
+	}
+	for _, name := range []string{"pgp.priv.asc.enc", "pgp.pub.asc"} {
+		info, err := os.Lstat(filepath.Join(s.configDir, "security", name))
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return false
+		}
+	}
+	return true
 }
 
 func openPGPV4Fingerprint(armored []byte) (string, error) {

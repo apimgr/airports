@@ -318,7 +318,7 @@
         "tags": [
           "server"
         ],
-        "x-mounted-when": "security.publish_pgp_key"
+        "x-mounted-when": "security keypair exists"
       }
     },
     "/.well-known/security.txt": {

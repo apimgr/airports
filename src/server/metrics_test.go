@@ -203,7 +203,7 @@ func TestDatabaseMetricsExposeConnectionPoolStats(t *testing.T) {
 		{kind: "linked", name: "expired-linked", expiresAt: time.Now().Add(-time.Hour).Unix()},
 		{kind: "linked", name: "revoked-linked", revokedAt: time.Now().Unix()},
 	} {
-		if _, err := database.Exec(`INSERT INTO api_tokens (owner_id, kind, name, token_hash, token_prefix, token_enc, expires_at, revoked_at) VALUES ('metrics-owner', ?, ?, ?, ?, 'encrypted', ?, ?)`, token.kind, token.name, token.name, token.name, token.expiresAt, token.revokedAt); err != nil {
+		if _, err := database.Exec(`INSERT INTO api_tokens (owner_id, kind, name, token_hash, token_prefix, token_last4, token_enc, expires_at, revoked_at) VALUES ('metrics-owner', ?, ?, ?, ?, 'ABCD', 'encrypted', ?, ?)`, token.kind, token.name, token.name, token.name, token.expiresAt, token.revokedAt); err != nil {
 			t.Fatalf("insert %s owner token: %v", token.name, err)
 		}
 	}

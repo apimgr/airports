@@ -106,7 +106,7 @@ func runMaintenancePGP(configDir, logsDir, rawArgs string) (resultErr error) {
 		if len(args) != 1 {
 			return errors.New("usage: --maintenance pgp generate")
 		}
-		return generatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, logs)
+		return generatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, logs)
 	case "rotate":
 		if len(args) != 1 {
 			return errors.New("usage: --maintenance pgp rotate")
@@ -114,7 +114,7 @@ func runMaintenancePGP(configDir, logsDir, rawArgs string) (resultErr error) {
 		if err := confirmPGPAction("ROTATE PGP KEY"); err != nil {
 			return err
 		}
-		return rotatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, logs)
+		return rotatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, logs)
 	case "publish":
 		if len(args) != 1 {
 			return errors.New("usage: --maintenance pgp publish")
@@ -157,7 +157,7 @@ func runMaintenancePGP(configDir, logsDir, rawArgs string) (resultErr error) {
 		if err := confirmPGPAction("IMPORT PRIVATE KEY"); err != nil {
 			return err
 		}
-		return importPrivatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, args[1], logs)
+		return importPrivatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, args[1], logs)
 	case "delete":
 		if len(args) != 1 {
 			return errors.New("usage: --maintenance pgp delete")
@@ -165,7 +165,7 @@ func runMaintenancePGP(configDir, logsDir, rawArgs string) (resultErr error) {
 		if err := confirmPGPAction("DELETE PGP KEY"); err != nil {
 			return err
 		}
-		return deletePGPKey(database, cfg, configPath, keyDir, logs)
+		return deletePGPKey(database, keyDir, logs)
 	default:
 		return fmt.Errorf("unknown PGP action %q; use generate, rotate, publish, export, import, or delete", args[0])
 	}
@@ -206,7 +206,7 @@ func loadInstallationSecret(database db.Handle) ([]byte, error) {
 	return secret, nil
 }
 
-func generatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath, keyDir, privatePath, publicPath string, secret []byte, logs *logging.LogManager) error {
+func generatePGPKey(database db.Handle, cfg *config.ApplicationConfig, keyDir, privatePath, publicPath string, secret []byte, logs *logging.LogManager) error {
 	if _, err := os.Stat(privatePath); err == nil {
 		return errors.New("an OpenPGP private key already exists; use --maintenance pgp rotate")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -230,10 +230,6 @@ func generatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPat
 	if err := savePGPMetadata(database, pgpMetadata{Fingerprint: key.Fingerprint, CreatedAt: time.Now().UTC().Format(time.RFC3339), ExpiresAt: key.ExpiresAt.Format(time.RFC3339), KeyserversPublished: map[string]string{}}); err != nil {
 		return err
 	}
-	cfg.Web.Security.PublishPGPKey = true
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		return fmt.Errorf("save public key publishing setting: %w", err)
-	}
 	if err := writePGPAudit(logs, "security.pgp_generated", key.Fingerprint); err != nil {
 		return err
 	}
@@ -243,7 +239,7 @@ func generatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPat
 	return nil
 }
 
-func rotatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath, keyDir, privatePath, publicPath string, secret []byte, logs *logging.LogManager) error {
+func rotatePGPKey(database db.Handle, cfg *config.ApplicationConfig, keyDir, privatePath, publicPath string, secret []byte, logs *logging.LogManager) error {
 	server.SecurityReportMu.Lock()
 	defer server.SecurityReportMu.Unlock()
 	oldCipher, err := os.ReadFile(privatePath)
@@ -672,7 +668,7 @@ func maintenanceOperatorIP() string {
 	return "127.0.0.1"
 }
 
-func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath, keyDir, privatePath, publicPath string, secret []byte, source string, logs *logging.LogManager) error {
+func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, keyDir, privatePath, publicPath string, secret []byte, source string, logs *logging.LogManager) error {
 	input, err := os.ReadFile(source)
 	if err != nil {
 		return err
@@ -711,7 +707,6 @@ func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, conf
 	if metaErr != nil && !errors.Is(metaErr, sql.ErrNoRows) {
 		return metaErr
 	}
-	oldConfig := *cfg
 	rotated := privateErr == nil
 	oldPath := filepath.Join(keyDir, "pgp.priv.old.asc.enc")
 	if rotated && len(oldPublic) == 0 {
@@ -731,19 +726,12 @@ func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, conf
 		if rotated {
 			_ = os.Remove(oldPath)
 		}
-		*cfg = oldConfig
-		_ = config.SaveApplicationConfig(configPath, cfg)
 		if metaErr == nil {
 			_ = savePGPMetadata(database, oldMeta)
 		}
 	}
 	newCipher, err := pgp.EncryptPrivate(secret, input)
 	if err != nil {
-		return err
-	}
-	cfg.Web.Security.PublishPGPKey = true
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		rollback()
 		return err
 	}
 	meta := pgpMetadata{Fingerprint: fingerprint, CreatedAt: entity.PrimaryKey.CreationTime.UTC().Format(time.RFC3339), ExpiresAt: entity.PrimaryKey.CreationTime.AddDate(2, 0, 0).UTC().Format(time.RFC3339), KeyserversPublished: map[string]string{}}
@@ -789,7 +777,7 @@ func importPrivatePGPKey(database db.Handle, cfg *config.ApplicationConfig, conf
 	return publishPGPKey(database, keyDir, publicPath, cfg.Web.Security.Keyservers, logs)
 }
 
-func deletePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath, keyDir string, logs *logging.LogManager) error {
+func deletePGPKey(database db.Handle, keyDir string, logs *logging.LogManager) error {
 	if _, err := os.Stat(filepath.Join(keyDir, "pgp.priv.asc.enc")); errors.Is(err, os.ErrNotExist) {
 		return errors.New("no PGP keypair exists")
 	}
@@ -797,7 +785,6 @@ func deletePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath,
 	if err != nil {
 		return err
 	}
-	originalConfig := *cfg
 	originalMeta := meta
 	originalMeta.KeyserversPublished = make(map[string]string, len(meta.KeyserversPublished))
 	for target, publishedAt := range meta.KeyserversPublished {
@@ -818,10 +805,6 @@ func deletePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath,
 			if err := os.Rename(filepath.Join(stagingDir, name), filepath.Join(keyDir, name)); err != nil {
 				rollbackErrs = append(rollbackErrs, err)
 			}
-		}
-		*cfg = originalConfig
-		if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-			rollbackErrs = append(rollbackErrs, err)
 		}
 		if metadataSaved {
 			if err := savePGPMetadata(database, originalMeta); err != nil {
@@ -844,10 +827,6 @@ func deletePGPKey(database db.Handle, cfg *config.ApplicationConfig, configPath,
 			return rollback(err, false)
 		}
 		staged = append(staged, name)
-	}
-	cfg.Web.Security.PublishPGPKey = false
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		return rollback(err, false)
 	}
 	meta.Revoked = true
 	meta.LastRotatedAt = time.Now().UTC().Format(time.RFC3339)

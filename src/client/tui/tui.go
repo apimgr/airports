@@ -448,7 +448,7 @@ func (m model) executeRequest(request TUIAPIRequest) (tea.Model, tea.Cmd) {
 		ctx, cancel := context.WithTimeout(context.Background(), actionTimeout)
 		defer cancel()
 		body, err := m.actions.Execute(ctx, m.config.ServerURL, m.config.Token, request)
-		return actionResult{title: operationLabel(m.operation), body: body, err: err}
+		return actionResult{title: m.operationLabel(), body: body, err: err}
 	}
 }
 

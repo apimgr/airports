@@ -46,7 +46,7 @@ TEST_NETWORK=""
 INSTANCES=()
 
 random_suffix() {
-  printf '%08x' "$(( (RANDOM << 15) | RANDOM ))"
+  head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8
 }
 
 case "$MODE" in
@@ -70,7 +70,7 @@ __cleanup() {
 trap __cleanup EXIT
 
 __require() {
-  command -v "$1" >/dev/null 2>&1 || { printf 'ERROR: %s not found in PATH\n' "$1" >&2; exit 1; }
+  command -v "$1" >/dev/null 2>&1 || { printf 'ERROR: %s not found in PATH\n' "$1" >&2; exit 69; }
 }
 
 __wait_boot() {
@@ -92,7 +92,7 @@ __wait_boot() {
     done
   fi
   for ((attempt = 0; attempt < 60; attempt++)); do
-    incus exec "$instance" -- sh -c 'ip route | grep -q "^default"' >/dev/null 2>&1 && break
+    incus exec "$instance" -- sh -c 'ip route | grep "^default" >/dev/null' >/dev/null 2>&1 && break
     sleep 1
   done
 }
@@ -109,7 +109,7 @@ FAILURES=0
 mkdir -p "${TMPDIR:-/tmp}/${INTERNAL_ORG}"
 REMOTE_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${INTERNAL_ORG}/${INTERNAL_NAME}-XXXXXX")"
 trap 'rm -rf -- "$REMOTE_TEMP_DIR"' EXIT
-fail() { printf 'FAIL: %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
+fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 pass() { printf 'OK: %s\n' "$*"; }
 check() { local description="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$description"; else fail "$description"; fi; }
 check_not() { local description="$1"; shift; if "$@" >/dev/null 2>&1; then fail "$description"; else pass "$description"; fi; }
@@ -130,11 +130,155 @@ port() {
     }
   ' "$CONFIG_FILE" 2>/dev/null
 }
-api_version() { curl -q -LSsf --max-time 10 "http://127.0.0.1:$(port)/api/autodiscover" | jq -r '.data.api.current_version'; }
+api_version() { curl -q -LSsf --max-time 10 -H 'Accept: application/json' "http://127.0.0.1:$(port)/api/autodiscover" | jq -r '.data.api.current_version'; }
 api() { printf 'http://127.0.0.1:%s/api/%s/server/healthz' "$(port)" "$(api_version)"; }
 healthz() { curl -q -LSsf --max-time 10 -H 'Accept: application/json' "$(api)"; }
 healthz_up() { healthz | jq -e '.status' >/dev/null; }
 overlay() { healthz | jq -r ".features.$1.$2"; }
+
+test_live_api_contract() {
+  local API_BASE="/api/$(api_version)" BASE_URL="http://127.0.0.1:$(port)"
+  local contract="$REMOTE_TEMP_DIR/openapi.json" method path auth_required request_path accept status param value
+  curl -q -LSsf --max-time 20 -H 'Accept: application/json' "$BASE_URL$API_BASE/server/swagger" -o "$contract" || return 1
+  jq -e '.paths | type == "object" and length > 0' "$contract" >/dev/null || return 1
+  while IFS=$'\t' read -r method path auth_required; do
+    [[ -z "$method" || -z "$path" ]] && continue
+    while [[ "$path" =~ \{([^}]+)\} ]]; do
+      param="${BASH_REMATCH[1]}"
+      case "$param" in
+        api_version) value="$(api_version)" ;;
+        ident) value=KJFK ;;
+        country) value=US ;;
+        ip) value=8.8.8.8 ;;
+        id) value=00000000-0000-7000-8000-000000000000 ;;
+        tracking_id) value=00000000-0000-7000-8000-000000000000 ;;
+        service) value=prometheus ;;
+        admin_path) value=status ;;
+        *) value=test ;;
+      esac
+      path="${path/\{$param\}/$value}"
+    done
+    if [[ "$path" == /api/* || "$path" == /mcp || "$path" == /.well-known/* || "$path" == /robots.txt || "$path" == /llms.txt ]]; then request_path="$path"; else request_path="$API_BASE$path"; fi
+    for accept in application/json text/plain; do
+      local -a request=(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -X "$method" -H "Accept: $accept")
+      status="$("${request[@]}" "$BASE_URL$request_path" || true)"
+      if [[ "$auth_required" == true ]]; then
+        [[ "$status" == 401 || "$status" == 403 ]] || { fail "$method $request_path missing bearer token returned HTTP $status"; return 1; }
+        local response owner_token linked_token
+        response="$(curl -q -LSs --max-time 20 -H 'Accept: application/json' -H 'Content-Type: application/json' --data '{}' "$BASE_URL$API_BASE/server/preferences/tokens/primary")" || return 1
+        owner_token="$(jq -er '.data.owner_token | strings | select(length > 0)' <<<"$response")" || return 1
+        if [[ "$path" == */server/mcp || "$path" == /mcp || "$path" == /api/mcp ]]; then
+          response="$(curl -q -LSs --max-time 20 -H 'Accept: application/json' -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" --data '{"name":"route-coverage"}' "$BASE_URL$API_BASE/server/preferences/tokens")" || return 1
+          linked_token="$(jq -er '.data.owner_token | strings | select(length > 0)' <<<"$response")" || return 1
+          request+=(-H "Authorization: Bearer $linked_token" --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"getAirport","arguments":{"ident":"KJFK"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}' -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: tools/call' -H 'Mcp-Name: getAirport')
+        else
+          request+=(-H "Authorization: Bearer $owner_token")
+          if [[ "$method" != GET && "$method" != HEAD ]]; then request+=(-H 'Content-Type: application/json' --data '{}'); fi
+        fi
+        status="$("${request[@]}" "$BASE_URL$request_path" || true)"
+        if [[ ! "$status" =~ ^(2|3)[0-9][0-9]$ && "$status" != 400 && "$status" != 422 ]]; then
+          fail "$method $request_path valid bearer token returned HTTP $status"; return 1
+        fi
+        if [[ "$path" == */server/mcp || "$path" == /mcp || "$path" == /api/mcp ]] && [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+          fail "$method $request_path valid linked token did not succeed (HTTP $status)"; return 1
+        fi
+      elif [[ ! "$status" =~ ^(2|3)[0-9][0-9]$ && "$status" != 400 && "$status" != 422 ]]; then
+        fail "$method $request_path Accept:$accept returned HTTP $status"; return 1
+      fi
+    done
+    if [[ "$method" == GET && "$request_path" == /.well-known/* ]]; then
+      status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -I "$BASE_URL$request_path" || true)"
+      [[ "$status" == 200 ]] || { fail "HEAD $request_path returned HTTP $status"; return 1; }
+    fi
+    pass "$method $request_path JSON/text contract"
+  done < <(jq -r '
+    . as $doc | .paths | to_entries[] as $path
+    | $path.value | to_entries[]
+    | select(.key == "get" or .key == "post" or .key == "put" or .key == "patch" or .key == "delete")
+    | [(.key | ascii_upcase), $path.key, ((.value.security // $doc.security // []) | length > 0)] | @tsv
+  ' "$contract")
+}
+
+test_frontend_routes() {
+  local path expected_status accept want status content_type
+  while IFS='|' read -r path expected_status; do
+    [[ -z "$path" ]] && continue
+    for accept in text/html text/plain; do
+      want="$accept"
+      status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -H "Accept: $accept" "$BASE_URL$path" || true)"
+      if [[ "$status" != "${expected_status:-200}" ]]; then
+        fail "GET $path Accept:$accept returned HTTP $status"; return 1
+      fi
+      content_type="$(curl -q -LSs --max-time 20 -o /dev/null -D - -H "Accept: $accept" "$BASE_URL$path" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
+      [[ "$content_type" == *"$want"* ]] || { fail "GET $path Accept:$accept returned Content-Type '$content_type'"; return 1; }
+    done
+    pass "GET $path frontend HTML/text negotiation"
+  done <<'ROUTES'
+/
+/airports
+/airports/search?q=JFK&limit=1
+/airports/nearby?lat=40.6413&lon=-73.7781&radius=25&limit=1
+/airports/nearby?minLat=40&maxLat=41&minLon=-74&maxLon=-73
+/airports/KJFK
+/stats
+/geoip?ip=8.8.8.8
+/server/about
+/server/help
+/server/help/mcp
+/server/healthz
+/server/privacy
+/server/preferences
+/server/preferences/sync
+/server/preferences/sync/import
+/server/preferences/tokens
+/server/dpo
+/server/terms
+/server/contact
+/server/security
+/server/security/policy
+/server/security/thanks
+/server/security/report/00000000-0000-7000-8000-000000000000|404
+/server/docs/swagger
+/server/docs/graphql
+ROUTES
+}
+
+test_fixed_resources() {
+  local path want optional status content_type head_status
+  while IFS='|' read -r path want optional; do
+    [[ -z "$path" ]] && continue
+    status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' "$BASE_URL$path" || true)"
+    if [[ "$optional" == true && "$status" == 404 ]]; then
+      head_status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -I "$BASE_URL$path" || true)"
+      [[ "$head_status" == 404 ]] || { fail "HEAD $path returned HTTP $head_status, want 404"; return 1; }
+      pass "GET $path absent while optional feature disabled"
+      continue
+    fi
+    [[ "$status" == 200 ]] || { fail "GET $path returned HTTP $status, want 200"; return 1; }
+    content_type="$(curl -q -LSs --max-time 20 -o /dev/null -D - "$BASE_URL$path" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
+    [[ "$content_type" == *"$want"* ]] || { fail "GET $path returned Content-Type '$content_type', want '$want'"; return 1; }
+    if [[ "$path" == /.well-known/* ]]; then
+      head_status="$(curl -q -LSs --max-time 20 -o /dev/null -w '%{http_code}' -I "$BASE_URL$path" || true)"
+      [[ "$head_status" == 200 ]] || { fail "HEAD $path returned HTTP $head_status"; return 1; }
+    fi
+    pass "GET/HEAD $path content type $want"
+  done <<'RESOURCES'
+/robots.txt|text/plain|false
+/.well-known/security.txt|text/plain|false
+/.well-known/llms.txt|text/plain|false
+/.well-known/pgp-key.asc|text/plain|true
+/llms.txt|text/plain|false
+/manifest.json|json|false
+/sw.js|javascript|false
+/sitemap.xml|xml|false
+/feed.xml|atom+xml|false
+/rss.xml|rss+xml|false
+/locales/en.json|json|false
+/static/css/accent.css|text/css|false
+/server/docs/swagger/theme.css|text/css|false
+/server/docs/graphql/theme.css|text/css|false
+RESOURCES
+}
 if [[ "$INIT_MODE" == systemd ]]; then
   UNIT_FILE="/etc/systemd/system/${INTERNAL_NAME}.service"
   svc_active() { systemctl is-active --quiet "$INTERNAL_NAME"; }
@@ -210,13 +354,40 @@ check "health responds after start" wait_for 60 healthz_up
 echo "=== API smoke and project endpoint checks ==="
 PORT="$(port)"
 API_VERSION="$(api_version)"
+cat >"$CONF_ROOT/yaml.d/40-endpoint-coverage.yml" <<'EOF'
+server:
+  rate_limit:
+    read:
+      requests: 100000
+      window: 60
+    write:
+      requests: 100000
+      window: 60
+    health:
+      requests: 100000
+      window: 60
+    strict:
+      requests: 100000
+      window: 60
+    auth_failures:
+      requests: 100000
+      window: 60
+    global_burst: 100000
+EOF
+chown "$INTERNAL_NAME:$INTERNAL_NAME" "$CONF_ROOT/yaml.d/40-endpoint-coverage.yml"
+chmod 0600 "$CONF_ROOT/yaml.d/40-endpoint-coverage.yml"
+"${PROJECT_NAME}" --service restart
+check "server restarts with endpoint-test rate limits" wait_for 60 healthz_up
+check "all live OpenAPI endpoints and methods answer without route/middleware errors" test_live_api_contract
+check "all public frontend routes negotiate HTML and text" test_frontend_routes
+check "fixed, discovery and .txt resources respond with expected types" test_fixed_resources
 for path in "/api/${API_VERSION}/server/healthz" "/api/${API_VERSION}/server/healthz.txt" "/server/healthz" "/server/about" "/api/${API_VERSION}/server/about" "/api/${API_VERSION}/airports/search?q=Tokyo&limit=1"; do
   code="$(curl -q -LSs -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}${path}" || true)"
   [[ "$code" == 2* ]] && pass "$path returns HTTP $code" || fail "$path returned HTTP $code"
 done
 for spec in "/server/about|text/html|text/html" "/server/about|text/plain|text/plain" "/api/${API_VERSION}/server/healthz|application/json|application/json" "/api/${API_VERSION}/server/healthz|text/plain|text/plain"; do
   IFS='|' read -r path accept want <<<"$spec"
-  content_type="$(curl -q -LSs -o /dev/null -D - -H "Accept: $accept" "http://127.0.0.1:${PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2; exit}')"
+  content_type="$(curl -q -LSs -o /dev/null -D - -H "Accept: $accept" "http://127.0.0.1:${PORT}${path}" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{value=$2} END{print value}')"
   [[ "$content_type" == *"$want"* ]] && pass "$path negotiates $want" || fail "$path returned content type $content_type"
 done
 for path in /robots.txt "/api/${API_VERSION}/airports/search.txt?q=Tokyo&limit=1"; do
@@ -254,7 +425,7 @@ if [[ "$(overlay tor status)" == healthy ]]; then
 elif [[ "$REQUIRE_OVERLAY" == 1 ]]; then
   fail "Tor did not become healthy within ${TOR_WAIT}s"
 else
-  echo "SKIP: Tor bootstrap did not finish within ${TOR_WAIT}s"
+  echo "SKIP: Tor bootstrap did not finish within ${TOR_WAIT}s" >&2
   case "$(overlay tor status)" in
     starting) check "starting Tor has an ok health check" test "$(healthz | jq -r '.checks.tor')" = ok ;;
     unavailable) check "unavailable Tor has a degraded health check" test "$(healthz | jq -r '.checks.tor')" = degraded ;;
@@ -299,7 +470,7 @@ if [[ "$(overlay i2p status)" == healthy ]]; then
 elif [[ "$REQUIRE_OVERLAY" == 1 ]]; then
   fail "I2P did not become healthy within ${I2P_WAIT}s"
 else
-  echo "SKIP: I2P bootstrap did not finish within ${I2P_WAIT}s"
+  echo "SKIP: I2P bootstrap did not finish within ${I2P_WAIT}s" >&2
 fi
 printf 'server:\n  i2p:\n    enabled: false\n' > "$CONF_ROOT/yaml.d/50-i2p.yml"
 "${PROJECT_NAME}" --service restart
@@ -356,10 +527,16 @@ __run_mode() {
 }
 
 __require incus
+__require curl
+__require jq
 __require docker
 if ! incus info >/dev/null 2>&1; then
   printf 'ERROR: Incus daemon is not reachable\n' >&2
-  exit 1
+  exit 69
+fi
+if ! docker info >/dev/null 2>&1; then
+  printf 'ERROR: Docker daemon is not reachable\n' >&2
+  exit 69
 fi
 
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"

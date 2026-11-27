@@ -30,8 +30,8 @@ func TestRunMaintenanceTokenListAndRevoke(t *testing.T) {
 	if _, err := database.Exec(`INSERT INTO owners(id) VALUES('owner-test')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_enc)
-		VALUES('owner-test', 'primary', 'hash-test', 'own_12345678', 'encrypted-token')`); err != nil {
+	if _, err := database.Exec(`INSERT INTO api_tokens(owner_id, kind, token_hash, token_prefix, token_last4, token_enc)
+		VALUES('owner-test', 'primary', 'hash-test', 'own_12345678', 'ABCD', 'encrypted-token')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.Close(); err != nil {

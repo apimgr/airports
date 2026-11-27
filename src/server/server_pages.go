@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -268,7 +267,7 @@ func (s *Server) handleOwnerTokensPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderOwnerTokensPage(w http.ResponseWriter, r *http.Request) {
-	revealID := int64(0)
+	revealID := ""
 	revealToken := ""
 	notice := ""
 	if noticeCookie, err := r.Cookie(ownerTokenNoticeCookieName); err == nil {
@@ -281,20 +280,19 @@ func (s *Server) renderOwnerTokensPage(w http.ResponseWriter, r *http.Request) {
 	if viewCookie, err := r.Cookie(ownerTokenViewCookieName); err == nil {
 		s.setOwnerTokenViewCookie(w, "", true)
 		revealToken = ""
-		revealID = 0
+		revealID = ""
 		if identity, _, ok := s.ownerTokenFromCookie(r); ok && identity.Kind == "primary" {
-			var id int64
+			var id string
 			var expectedKind string
 			switch viewCookie.Value {
 			case "primary":
 				id, expectedKind = identity.ID, "primary"
 			default:
-				parsed, parseErr := strconv.ParseInt(viewCookie.Value, 10, 64)
-				if parseErr == nil && parsed > 0 {
-					id, expectedKind = parsed, "linked"
+				if validOwnerTokenID(viewCookie.Value) {
+					id, expectedKind = viewCookie.Value, "linked"
 				}
 			}
-			if id > 0 {
+			if id != "" {
 				if token, revealErr := s.revealOwnerToken(identity.Owner, id, expectedKind); revealErr == nil {
 					revealID, revealToken = id, token
 				}
@@ -313,7 +311,7 @@ func (s *Server) renderOwnerTokensPage(w http.ResponseWriter, r *http.Request) {
 	}
 	items := []ownerTokenRecord{}
 	linkedCount := 0
-	primaryID := int64(0)
+	primaryID := ""
 	primaryLast4 := ""
 	resourceCount := int64(0)
 	if hasOwner && identity != nil {
@@ -987,13 +985,34 @@ func (s *Server) handleServerAboutAPI(w http.ResponseWriter, r *http.Request) {
 	format, content, ok := s.operatorContentSource(r, "about")
 	if !ok {
 		format = "markdown"
-		content = ""
+		content = defaultAboutMarkdown(i18n.FromContext(r.Context()))
 	}
 	s.respondItem(w, http.StatusOK, map[string]interface{}{
-		"title":   "Airports",
+		"title":   i18n.TranslateText(i18n.FromContext(r.Context()), "about.title"),
 		"content": content,
 		"format":  format,
 	})
+}
+
+func defaultAboutMarkdown(lang string) string {
+	features := []string{
+		i18n.TranslateText(lang, "about.feature_rest"),
+		i18n.TranslateText(lang, "about.feature_graphql"),
+		i18n.TranslateText(lang, "about.feature_swagger"),
+		i18n.TranslateText(lang, "about.feature_geoip"),
+		i18n.TranslateText(lang, "about.feature_geo_queries"),
+		i18n.TranslateText(lang, "about.feature_webui"),
+		i18n.TranslateText(lang, "about.feature_cli"),
+		i18n.TranslateText(lang, "about.feature_binary"),
+	}
+	var list strings.Builder
+	for _, feature := range features {
+		fmt.Fprintf(&list, "- %s\n", feature)
+	}
+	return fmt.Sprintf("# %s\n\n%s\n\n%s\n\n## %s\n\n%s\n\n## %s\n\n- [GitHub](https://github.com/apimgr/airports)\n- [Help and API documentation](/server/help)\n- [Swagger UI](/server/docs/swagger)\n- [GraphQL playground](/server/docs/graphql)\n",
+		i18n.TranslateText(lang, "about.title"), i18n.TranslateText(lang, "about.tagline"),
+		i18n.TranslateText(lang, "about.description"), i18n.TranslateText(lang, "about.features_heading"),
+		strings.TrimSpace(list.String()), i18n.TranslateText(lang, "about.links_heading"))
 }
 
 // handleServerHealthz is implemented in healthz.go per AI.md PART 13.

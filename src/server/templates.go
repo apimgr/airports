@@ -735,6 +735,28 @@ func seoVerificationTagViews(verification config.SEOVerificationConfig) []map[st
 // execute failure after headers are sent is logged and returns nil, since the
 // response can no longer be changed.
 func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, page string, status int, data interface{}) error {
+	if status == http.StatusOK && r.Method == http.MethodGet && commonhttp.GetFrontendResponseFormat(r) == "json" {
+		apiPath := s.APIBasePath() + r.URL.Path
+		switch page {
+		case "server_docs_swagger":
+			apiPath = s.APIBasePath() + "/server/swagger"
+		case "server_docs_graphql":
+			apiPath = s.APIBasePath() + "/server/graphql"
+		}
+		for _, route := range s.routeRegistry.Snapshot() {
+			if route.Method != http.MethodGet || route.Handler == nil || !route.Mounted || !routePathOrAliasMatches(route, apiPath) {
+				continue
+			}
+			apiRequest := r.Clone(r.Context())
+			apiURL := *r.URL
+			apiURL.Path = apiPath
+			apiURL.RawPath = ""
+			apiRequest.URL = &apiURL
+			route.Handler(w, apiRequest)
+			return nil
+		}
+		return fmt.Errorf("frontend page %q has no paired GET API route for JSON negotiation", page)
+	}
 	// AI.md PART 6: template caching is enabled in production and disabled
 	// (hot reload) in development. mode.ShouldCacheTemplates() is the
 	// production-side default (templates parsed once in initTemplates at
@@ -795,6 +817,7 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 				"graphql.editor_welcome", "graphql.editor_run_hint", "airport.map_unavailable",
 				"geoip.ip_label", "geoip.country_label", "geoip.city_label", "geoip.latitude_label",
 				"geoip.longitude_label", "geoip.asn_label", "geoip.isp_label",
+				"pwa.install", "pwa.ios_instructions", "pwa.share", "pwa.home_screen",
 			}
 			translations := make(map[string]string, len(keys))
 			for _, key := range keys {
@@ -902,6 +925,38 @@ func (s *Server) executeTemplateStatus(w http.ResponseWriter, r *http.Request, p
 		log.Printf("executeTemplateStatus: writing %q failed after headers sent: %v", page, err)
 	}
 	return nil
+}
+
+func routePathOrAliasMatches(route Route, path string) bool {
+	if routePathMatches(route.Path, path) {
+		return true
+	}
+	for _, alias := range route.Aliases {
+		if routePathMatches(alias, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func routePathMatches(pattern, path string) bool {
+	patternParts := strings.Split(strings.Trim(pattern, "/"), "/")
+	pathParts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(patternParts) != len(pathParts) {
+		return false
+	}
+	for i, segment := range patternParts {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			if pathParts[i] == "" {
+				return false
+			}
+			continue
+		}
+		if segment != pathParts[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // frontendJSONData removes layout and request-security values from the

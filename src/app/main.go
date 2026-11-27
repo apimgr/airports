@@ -133,6 +133,30 @@ type runConfig struct {
 	Ready                                                                       chan<- struct{}
 }
 
+type acceptReadyListener struct {
+	net.Listener
+	ready chan struct{}
+	once  sync.Once
+}
+
+func (listener *acceptReadyListener) Accept() (net.Conn, error) {
+	listener.once.Do(func() { close(listener.ready) })
+	return listener.Listener.Accept()
+}
+
+func waitForStartupAddress(readAddress func() string) string {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if address := strings.TrimSpace(readAddress()); address != "" {
+			return address
+		}
+		if time.Now().After(deadline) {
+			return ""
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // Main parses process commands and dispatches startup and maintenance operations.
 func Main() {
 	paths.SetStartedElevated(service.IsElevated())
@@ -1264,7 +1288,7 @@ func run(ctx context.Context, options runConfig) error {
 	previousSlogLogger := slog.Default()
 	defer slog.SetDefault(previousSlogLogger)
 	previousLogOutput := log.Writer()
-	log.SetOutput(io.MultiWriter(previousLogOutput, recentLogBuffer))
+	log.SetOutput(logging.NewSynchronizedWriter(io.MultiWriter(previousLogOutput, recentLogBuffer)))
 	defer log.SetOutput(previousLogOutput)
 
 	// Apply the TZ env var (AI.md PART 8 "Runtime Variables") as early as
@@ -1351,9 +1375,18 @@ func run(ctx context.Context, options runConfig) error {
 		}
 	}
 
+	// Reject configured symlink roots before generic directory setup can follow
+	// them, then create the top-level runtime directories.
+	if err := paths.ValidatePrivateRoots(configDir, dataDir); err != nil {
+		return err
+	}
 	// Ensure directories exist
 	if err := paths.EnsureDirs(configDir, dataDir, logsDir); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
+	}
+	// Repair every private path before reading server.yml or starting any child.
+	if err := paths.EnsurePrivatePaths(configDir, dataDir); err != nil {
+		return err
 	}
 	if err := paths.EnsureDir(cacheDir); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
@@ -1767,32 +1800,59 @@ func run(ctx context.Context, options runConfig) error {
 	for _, binding := range portBindings {
 		urls = append(urls, getServerAccessibleURL(binding.Port, cfg.Server.FQDN, binding.TLS))
 	}
+	for i, listener := range listeners {
+		if i < len(startupSwitchers) {
+			continue
+		}
+		serverConfig := httpServers[i]
+		binding := portBindings[i]
+		ready := make(chan struct{})
+		readyListener := &acceptReadyListener{Listener: listener, ready: ready}
+		go func(srv *http.Server, ln net.Listener, useTLS bool) {
+			if serveErr := serveHTTPServer(context.Background(), srv, ln, useTLS, nil); serveErr != nil {
+				fmt.Fprintf(os.Stderr, "Server error: %v\n", serveErr)
+				os.Exit(1)
+			}
+		}(serverConfig, readyListener, binding.TLS)
+		select {
+		case <-ready:
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("HTTP listener %s did not begin accepting connections", serverConfig.Addr)
+		}
+	}
+	forceColor := colorSetting == "yes"
+	var forceColorSetting *bool
+	if colorSetting != "auto" {
+		forceColorSetting = &forceColor
+	} else {
+		forceColorSetting = cfg.Output.Color
+	}
+	var setupToken string
+	for _, generated := range cfg.GeneratedSecretPaths() {
+		if generated == "server.token" {
+			setupToken = cfg.Server.Token
+			break
+		}
+	}
+	var onionAddress, i2pAddress, smtpAddress string
+	if schedDeps.torMgr != nil && schedDeps.torMgr.IsTorEnabled() {
+		onionAddress = waitForStartupAddress(schedDeps.torMgr.OnionAddress)
+	}
+	if cfg.Server.I2P.Enabled && cfg.Server.I2P.Expose && i2pMgr != nil && i2pMgr.IsI2PRunning() {
+		i2pAddress = waitForStartupAddress(i2pMgr.EepsiteAddress)
+	}
+	if cfg.Server.Notifications.Email.Enabled && cfg.Server.Notifications.Email.SMTP.Host != "" {
+		smtpAddress = net.JoinHostPort(cfg.Server.Notifications.Email.SMTP.Host, strconv.Itoa(cfg.Server.Notifications.Email.SMTP.Port))
+	}
+	appbanner.PrintServerStartupBanner(appbanner.ServerBannerInfo{
+		AppName: "airports", Version: Version, AppMode: mode.GetAppMode().String(),
+		StartupDatetime: time.Now().Format("January 02, 2006 at 15:04:05 MST"), URLs: urls,
+		OnionAddress: onionAddress, I2PAddress: i2pAddress, SMTPAddress: smtpAddress,
+		SetupToken: setupToken, ForceColor: forceColorSetting, Lang: lang,
+	})
 	for _, listenURL := range urls {
 		log.Printf("Server listening on %s", listenURL)
 	}
-	go func() {
-		forceColor := colorSetting == "yes"
-		var forceColorSetting *bool
-		if colorSetting != "auto" {
-			forceColorSetting = &forceColor
-		} else {
-			forceColorSetting = cfg.Output.Color
-		}
-		appbanner.PrintServerStartupBanner("Airports API Server", Version, mode.GetAppMode().String(), urls, forceColorSetting, lang)
-		for i, listener := range listeners {
-			if i < len(startupSwitchers) {
-				continue
-			}
-			serverConfig := httpServers[i]
-			binding := portBindings[i]
-			go func(srv *http.Server, ln net.Listener, useTLS bool) {
-				if serveErr := serveHTTPServer(context.Background(), srv, ln, useTLS, nil); serveErr != nil {
-					fmt.Fprintf(os.Stderr, "Server error: %v\n", serveErr)
-					os.Exit(1)
-				}
-			}(serverConfig, listener, binding.TLS)
-		}
-	}()
 	log.Printf("Server ready on %s", strings.Join(urls, ", "))
 	if options.Ready != nil {
 		close(options.Ready)
@@ -2985,7 +3045,7 @@ func registerSchedulerTasks(sched *scheduler.Scheduler, cfg *config.ApplicationC
 			return CleanupSecurityReports(deps.db, deps.configDir, time.Now().UTC(), cfg.Server.Security.Reports.RetentionDays)
 		})
 
-	mustRegister("pgp_keyserver_retry", "PGP keyserver retry", "@every 1m", true, true, "1m",
+	mustRegister("keyserver_retry", "PGP keyserver retry", "@every 15m", true, true, "15m",
 		func() error {
 			return retryPendingPGPKeyservers(deps.db, deps.configDir, cfg.Web.Security.Keyservers, deps.logMgr, time.Now().UTC())
 		})
@@ -5037,7 +5097,7 @@ func getOutboundIP() string {
 func applyTZEnv() {
 	tz := os.Getenv("TZ")
 	if tz == "" {
-		return
+		tz = "America/New_York"
 	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil {

@@ -338,11 +338,10 @@ func TestGeneratePGPKeyPersistsEncryptedKeypairAndMetadata(t *testing.T) {
 	keyDir := filepath.Join(root, "security")
 	privatePath := filepath.Join(keyDir, "pgp.priv.asc.enc")
 	publicPath := filepath.Join(keyDir, "pgp.pub.asc")
-	configPath := filepath.Join(root, "server.yml")
 	logs := logging.NewLogManager(filepath.Join(root, "logs"), logging.LogManagerConfig{})
 	closeTestResource(t, "log manager", logs.Close)
 	secret := bytes.Repeat([]byte{0x5a}, 32)
-	if err := generatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, logs); err != nil {
+	if err := generatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, logs); err != nil {
 		t.Fatal(err)
 	}
 	privateCiphertext, err := os.ReadFile(privatePath)
@@ -361,10 +360,10 @@ func TestGeneratePGPKeyPersistsEncryptedKeypairAndMetadata(t *testing.T) {
 	if err != nil || len(metadata.Fingerprint) != 40 || metadata.ExpiresAt == "" {
 		t.Fatalf("generated key metadata = %+v, err=%v", metadata, err)
 	}
-	if !cfg.Web.Security.PublishPGPKey {
-		t.Fatal("PGP generation did not enable public-key publishing")
+	if _, err := os.Stat(publicPath); err != nil {
+		t.Fatalf("generated PGP public key is not available for publication: %v", err)
 	}
-	if err := generatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, logs); err == nil {
+	if err := generatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, logs); err == nil {
 		t.Fatal("generation replaced an existing private key")
 	}
 }
@@ -407,13 +406,9 @@ func TestRotatePGPKeyReencryptsReportsAndKeepsRecoveryKey(t *testing.T) {
 	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Branding.Title = "Airports"
 	cfg.Server.Contact.Security.Email = "security@example.org"
-	configPath := filepath.Join(root, "server.yml")
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
 	logs := logging.NewLogManager(filepath.Join(root, "logs"), logging.LogManagerConfig{})
 	closeTestResource(t, "log manager", logs.Close)
-	if err := rotatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, logs); err != nil {
+	if err := rotatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, logs); err != nil {
 		t.Fatalf("rotate PGP key: %v", err)
 	}
 	newPrivate, err := pgp.ReadPrivate(privatePath, secret)
@@ -493,22 +488,13 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 	if err := exportPrivatePGPKey(database, secret, privatePath, filepath.Join(root, "second-export"), logs, "repeat export"); err == nil || !strings.Contains(err.Error(), "once per hour") {
 		t.Fatalf("second private export error = %v", err)
 	}
-	cfg := config.DefaultApplicationConfig()
-	cfg.Web.Security.PublishPGPKey = true
-	configPath := filepath.Join(root, "server.yml")
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
 	for _, name := range []string{"pgp.priv.old.asc.enc", "pgp.pub.asc.sig", "keyservers.state"} {
 		if err := atomicPGPWrite(filepath.Join(keyDir, name), []byte("recovery data"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := deletePGPKey(database, cfg, configPath, keyDir, logs); err != nil {
+	if err := deletePGPKey(database, keyDir, logs); err != nil {
 		t.Fatalf("delete PGP key: %v", err)
-	}
-	if cfg.Web.Security.PublishPGPKey {
-		t.Fatal("PGP deletion left public-key publishing enabled")
 	}
 	metadata, err := readPGPMetadata(database)
 	if err != nil || !metadata.Revoked || metadata.Fingerprint != key.Fingerprint {
@@ -521,7 +507,7 @@ func TestPGPPrivateExportRateLimitAndDelete(t *testing.T) {
 	}
 }
 
-func TestImportPGPPrivateKeyPersistsIdentityAndPublishingState(t *testing.T) {
+func TestImportPGPPrivateKeyPersistsIdentityAndPublicKey(t *testing.T) {
 	root := newMainTestDir(t)
 	database := openRecoveryTestDB(t, filepath.Join(root, "pgp-import.db"), false)
 	closeTestResource(t, "database", database.Close)
@@ -539,17 +525,13 @@ func TestImportPGPPrivateKeyPersistsIdentityAndPublishingState(t *testing.T) {
 	keyDir := filepath.Join(root, "security")
 	privatePath := filepath.Join(keyDir, "pgp.priv.asc.enc")
 	publicPath := filepath.Join(keyDir, "pgp.pub.asc")
-	configPath := filepath.Join(root, "server.yml")
 	cfg := config.DefaultApplicationConfig()
 	cfg.Server.Branding.Title = "Airports"
 	cfg.Server.Contact.Security.Email = "security@example.org"
-	if err := config.SaveApplicationConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
 	secret := bytes.Repeat([]byte{0x19}, 32)
 	logs := logging.NewLogManager(filepath.Join(root, "logs"), logging.LogManagerConfig{})
 	closeTestResource(t, "log manager", logs.Close)
-	if err := importPrivatePGPKey(database, cfg, configPath, keyDir, privatePath, publicPath, secret, inputPath, logs); err != nil {
+	if err := importPrivatePGPKey(database, cfg, keyDir, privatePath, publicPath, secret, inputPath, logs); err != nil {
 		t.Fatalf("import private key: %v", err)
 	}
 	storedPrivate, err := pgp.ReadPrivate(privatePath, secret)
@@ -568,8 +550,8 @@ func TestImportPGPPrivateKeyPersistsIdentityAndPublishingState(t *testing.T) {
 	if err != nil || metadata.Fingerprint != key.Fingerprint {
 		t.Fatalf("imported metadata = %+v, err=%v", metadata, err)
 	}
-	if !cfg.Web.Security.PublishPGPKey {
-		t.Fatal("import did not enable public-key publishing")
+	if _, err := os.Stat(publicPath); err != nil {
+		t.Fatalf("imported PGP public key is not available for publication: %v", err)
 	}
 }
 
@@ -838,7 +820,7 @@ func TestComplianceCountsAndAuditEvents(t *testing.T) {
 	if _, err := database.Exec(`INSERT INTO owners(id) VALUES('owner-a'),('owner-b')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`INSERT INTO api_tokens(owner_id,kind,token_hash,token_prefix,token_enc) VALUES('owner-a','primary','hash-a','own_12345678','encrypted')`); err != nil {
+	if _, err := database.Exec(`INSERT INTO api_tokens(owner_id,kind,token_hash,token_prefix,token_last4,token_enc) VALUES('owner-a','primary','hash-a','own_12345678','ABCD','encrypted')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`CREATE TABLE owned_resources(id TEXT PRIMARY KEY, owner_id TEXT NOT NULL)`); err != nil {

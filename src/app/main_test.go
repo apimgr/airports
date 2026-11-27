@@ -981,12 +981,12 @@ func TestApplyTZEnv(t *testing.T) {
 		}
 	})
 
-	t.Run("empty TZ leaves time.Local unchanged", func(t *testing.T) {
+	t.Run("empty TZ uses the configured default", func(t *testing.T) {
 		time.Local = original
 		t.Setenv("TZ", "")
 		applyTZEnv()
-		if time.Local != original {
-			t.Errorf("time.Local changed on empty TZ, want unchanged (%v)", original)
+		if time.Local.String() != "America/New_York" {
+			t.Errorf("time.Local = %q, want America/New_York", time.Local.String())
 		}
 	})
 }

@@ -47,6 +47,92 @@ func TestSystemOwnerIsCreatedAtSchemaInitializationAndExcludedFromIdlePurge(t *t
 	}
 }
 
+func TestFreshOwnerTokenIDsAreUUIDv7(t *testing.T) {
+	s := newTestServer(t)
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "uuid-token.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	s.db = database
+	s.config.Server.Security.EncryptionKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x51}, 32))
+	owner, token, err := s.issueOwnerToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := database.QueryRow(`SELECT id FROM api_tokens WHERE token_hash = ?`, tokenHash(token)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if !validOwnerTokenID(id) {
+		t.Fatalf("fresh token ID = %q, want canonical UUID v7", id)
+	}
+	records, err := s.ownerTokenRecords(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].ID != id {
+		t.Fatalf("owner token records = %#v, want public UUID ID %q", records, id)
+	}
+}
+
+func TestLegacyIntegerTokenIDsMigrateToPublicUUIDv7(t *testing.T) {
+	database, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy-token-id.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	_, err = database.Exec(`CREATE TABLE owners (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL DEFAULT 0, last_seen_at INTEGER NOT NULL DEFAULT 0);
+		INSERT INTO owners(id) VALUES ('legacy-owner');
+		CREATE TABLE api_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			owner_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			name TEXT,
+			token_hash TEXT NOT NULL UNIQUE,
+			token_prefix TEXT NOT NULL,
+			token_suffix TEXT NOT NULL DEFAULT '',
+			token_enc TEXT NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT 0,
+			rotated_at INTEGER,
+			expires_at INTEGER,
+			last_used_at INTEGER,
+			revoked_at INTEGER,
+			revoked_reason TEXT
+		);
+		INSERT INTO api_tokens(id, owner_id, kind, token_hash, token_prefix, token_suffix, token_enc) VALUES (73, 'legacy-owner', 'linked', 'legacy-hash', 'own_legacy', 'ABCD', 'cipher');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureOwnerTokenSchema(database); err != nil {
+		t.Fatal(err)
+	}
+	var internalID int64
+	var publicID, last4 string
+	if err := database.QueryRow(`SELECT id, public_id, token_last4 FROM api_tokens WHERE token_hash = 'legacy-hash'`).Scan(&internalID, &publicID, &last4); err != nil {
+		t.Fatal(err)
+	}
+	if internalID != 73 {
+		t.Fatalf("legacy internal id = %d, want preserved integer key 73", internalID)
+	}
+	if !validOwnerTokenID(publicID) {
+		t.Fatalf("legacy public id = %q, want UUID v7", publicID)
+	}
+	if last4 != "ABCD" {
+		t.Fatalf("migrated token_last4 = %q, want copied legacy suffix", last4)
+	}
+	if err := insertOwnerToken(database, "legacy-owner", "linked", "new client", "own_newtokenvalue0123456789ABCDEF", "cipher", nil); err != nil {
+		t.Fatal(err)
+	}
+	var newPublicID string
+	if err := database.QueryRow(`SELECT public_id FROM api_tokens WHERE name = 'new client'`).Scan(&newPublicID); err != nil {
+		t.Fatal(err)
+	}
+	if !validOwnerTokenID(newPublicID) || newPublicID == publicID {
+		t.Fatalf("new legacy-schema public id = %q, want unique UUID v7", newPublicID)
+	}
+}
+
 func (r *ownerTokenAuditRecorder) WriteAudit(_ logging.AuditCategory, line string) error {
 	r.events = append(r.events, line)
 	return nil

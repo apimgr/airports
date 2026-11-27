@@ -246,18 +246,18 @@ func reencryptEncryptionKeyRows(database db.Handle, oldKey, newKey []byte) error
 	if _, err := server.ListOwnerTokens(database); err != nil {
 		return err
 	}
-	rows, err := database.Query(`SELECT id, token_enc FROM api_tokens ORDER BY id`)
+	rows, err := database.Query(`SELECT token_hash, token_enc FROM api_tokens ORDER BY created_at, token_hash`)
 	if err != nil {
 		return err
 	}
 	type tokenCipher struct {
-		id    int64
+		hash  string
 		value string
 	}
 	var tokens []tokenCipher
 	for rows.Next() {
 		var row tokenCipher
-		if err := rows.Scan(&row.id, &row.value); err != nil {
+		if err := rows.Scan(&row.hash, &row.value); err != nil {
 			_ = rows.Close()
 			return err
 		}
@@ -277,7 +277,7 @@ func reencryptEncryptionKeyRows(database db.Handle, oldKey, newKey []byte) error
 			for _, row := range batch {
 				plain, usedPrevious, err := decryptWithKeyFallback(newKey, oldKey, []byte(row.value), true)
 				if err != nil {
-					return fmt.Errorf("security.decrypt_failed table=api_tokens row=%d", row.id)
+					return fmt.Errorf("security.decrypt_failed table=api_tokens")
 				}
 				if !usedPrevious {
 					continue
@@ -286,7 +286,7 @@ func reencryptEncryptionKeyRows(database db.Handle, oldKey, newKey []byte) error
 				if err != nil {
 					return err
 				}
-				if _, err := tx.Exec(`UPDATE api_tokens SET token_enc = ? WHERE id = ?`, base64.StdEncoding.EncodeToString(ciphertext), row.id); err != nil {
+				if _, err := tx.Exec(`UPDATE api_tokens SET token_enc = ? WHERE token_hash = ?`, base64.StdEncoding.EncodeToString(ciphertext), row.hash); err != nil {
 					return err
 				}
 			}

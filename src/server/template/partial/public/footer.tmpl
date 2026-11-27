@@ -34,6 +34,14 @@
         <p>{{t "footer.source_airports"}}</p>
         <p>{{t "footer.source_geoip"}}</p>
     </section>
+    <section class="footer-section" aria-labelledby="pwa-install-heading">
+        <h2 id="pwa-install-heading">{{t "pwa.install"}}</h2>
+        <button id="pwa-install-button" type="button" class="btn btn-secondary" hidden>{{t "pwa.install"}}</button>
+        <details id="pwa-ios-install-instructions">
+            <summary>{{t "pwa.ios_instructions"}}</summary>
+            <ol><li>{{t "pwa.share"}}</li><li>{{t "pwa.home_screen"}}</li></ol>
+        </details>
+    </section>
 </div>
 <div class="footer-bottom">
     <p>{{tf "footer.copyright" "year" .CurrentYear}}</p>

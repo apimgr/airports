@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +50,81 @@ func TestOpenPGPV4FingerprintRejectsInvalidPackets(t *testing.T) {
 			t.Errorf("openPGPV4Fingerprint(%x) succeeded; want an error", packet)
 		}
 	}
+}
+
+func TestPGPPublicationFollowsKeypairPresence(t *testing.T) {
+	s := newTestServer(t)
+	publicPath := filepath.Join(s.configDir, "security", "pgp.pub.asc")
+	request := httptest.NewRequest(http.MethodGet, "/.well-known/pgp-key.asc", nil)
+	missing := httptest.NewRecorder()
+	s.handleSecurityPGPKey(missing, request)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing public key status = %d, want 404", missing.Code)
+	}
+	if pgpRouteMounted(s) {
+		t.Fatal("PGP route is listed as mounted without a keypair")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(publicPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const publicKey = "-----BEGIN PGP PUBLIC KEY BLOCK-----\npublic\n"
+	if err := os.WriteFile(publicPath, []byte(publicKey), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicOnly := httptest.NewRecorder()
+	s.handleSecurityPGPKey(publicOnly, request)
+	if publicOnly.Code != http.StatusNotFound {
+		t.Fatalf("public-only key status = %d, want 404", publicOnly.Code)
+	}
+	if err := os.WriteFile(filepath.Join(s.configDir, "security", "pgp.priv.asc.enc"), []byte("encrypted private key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	available := httptest.NewRecorder()
+	s.handleSecurityPGPKey(available, request)
+	if available.Code != http.StatusOK || available.Body.String() != publicKey {
+		t.Fatalf("available public key response = %d %q", available.Code, available.Body.String())
+	}
+	if !pgpRouteMounted(s) {
+		t.Fatal("PGP route did not become mounted after keypair creation")
+	}
+
+	securityTxt := httptest.NewRecorder()
+	s.handleSecurityTxt(securityTxt, httptest.NewRequest(http.MethodGet, "/.well-known/security.txt", nil))
+	if !strings.Contains(securityTxt.Body.String(), "Encryption: ") || !strings.Contains(securityTxt.Body.String(), "/.well-known/pgp-key.asc") {
+		t.Fatalf("security.txt does not advertise the available public key: %q", securityTxt.Body.String())
+	}
+
+	if err := os.Remove(publicPath); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "unrelated.txt")
+	if err := os.WriteFile(target, []byte("must not be served"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, publicPath); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	if s.hasPGPKeypair() {
+		t.Fatal("PGP keypair accepted a symlinked public key")
+	}
+	if pgpRouteMounted(s) {
+		t.Fatal("PGP route remained mounted after the keypair became unsafe")
+	}
+	response := httptest.NewRecorder()
+	s.handleSecurityPGPKey(response, request)
+	if response.Code != http.StatusNotFound || strings.Contains(response.Body.String(), "must not be served") {
+		t.Fatalf("symlinked public key response = %d %q", response.Code, response.Body.String())
+	}
+}
+
+func pgpRouteMounted(s *Server) bool {
+	for _, route := range s.openAPIRoutes() {
+		if route.Path == "/.well-known/pgp-key.asc" && route.Method == http.MethodGet {
+			return route.Mounted
+		}
+	}
+	return false
 }
 
 func TestEnsureDisclosureSchemaMigratesLegacyRows(t *testing.T) {

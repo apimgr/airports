@@ -508,6 +508,42 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+let deferredInstallPrompt;
+const installButton = document.getElementById('pwa-install-button');
+const iosInstallInstructions = document.getElementById('pwa-ios-install-instructions');
+const isStandaloneInstall = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+if (isStandaloneInstall && iosInstallInstructions) iosInstallInstructions.hidden = true;
+const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIOSDevice && !isStandaloneInstall && iosInstallInstructions) {
+    iosInstallInstructions.hidden = false;
+} else if (iosInstallInstructions) {
+    iosInstallInstructions.hidden = true;
+}
+window.addEventListener('beforeinstallprompt', function(event) {
+    if (isStandaloneInstall) return;
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    if (installButton) installButton.hidden = false;
+});
+if (installButton) {
+    installButton.addEventListener('click', function() {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then(function() {
+            deferredInstallPrompt = null;
+            installButton.hidden = true;
+        }).catch(function() {
+            deferredInstallPrompt = null;
+            installButton.hidden = true;
+        });
+    });
+}
+window.addEventListener('appinstalled', function() {
+    deferredInstallPrompt = null;
+    if (installButton) installButton.hidden = true;
+    if (iosInstallInstructions) iosInstallInstructions.hidden = true;
+});
+
 // ── Home page ────────────────────────────────────────────────────────────────
 var searchTimeout;
 
@@ -601,13 +637,14 @@ function copyValue(target) {
     const value = target.getAttribute('data-copy');
     if (!value) return;
     navigator.clipboard.writeText(value).then(function() {
-        const copiedText = target.getAttribute('data-copied-text') || translate('common.copied');
+        const copiedText = target.getAttribute('data-copied-label') || translate('common.copied');
         const original = target.textContent;
-        target.textContent = copiedText;
-        target.disabled = true;
+        target.textContent = '✓ ' + copiedText;
+        target.setAttribute('aria-live', 'polite');
+        target.classList.add('copied');
         setTimeout(function() {
             target.textContent = original;
-            target.disabled = false;
+            target.classList.remove('copied');
         }, 2000);
     });
 }

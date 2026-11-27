@@ -39,7 +39,7 @@
                 {{if and $.RevealToken (eq $.RevealID .ID)}}
                 <p>{{t "owner_tokens.shown_once"}}</p>
                 <code class="copy-value">{{$.RevealToken}}</code>
-                <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{$.RevealToken}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+                <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{$.RevealToken}}" data-copied-label="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
                 <span class="copy-feedback" aria-live="polite"></span>
                 {{else}}
                 <code class="copy-value">{{.Masked}}</code>
@@ -115,7 +115,7 @@
                 {{if and $.RevealToken (eq $.RevealID .ID)}}
                 <p>{{t "owner_tokens.shown_once"}}</p>
                 <code class="copy-value">{{$.RevealToken}}</code>
-                <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{$.RevealToken}}" data-copied-text="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
+                <button class="copy-btn" type="button" data-action="copy-value" data-copy="{{$.RevealToken}}" data-copied-label="{{t "common.copied"}}" aria-label="{{t "common.copy_to_clipboard"}}">{{t "common.copy"}}</button>
                 <span class="copy-feedback" aria-live="polite"></span>
                 {{else}}
                 <code class="copy-value">{{.Masked}}</code>
@@ -126,12 +126,12 @@
                     <dt>{{t "owner_tokens.expires"}}</dt><dd>{{if .ExpiresLabel}}{{.ExpiresLabel}}{{else}}{{t "owner_tokens.expiry_never"}}{{end}}</dd>
                 </dl>
                 <div class="owner-token-actions">
-                    <form method="post" action="{{path (printf "/server/preferences/tokens/%d/reveal" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-secondary" type="submit">{{t "owner_tokens.reveal"}}</button></form>
+                    <form method="post" action="{{path (printf "/server/preferences/tokens/%s/reveal" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-secondary" type="submit">{{t "owner_tokens.reveal"}}</button></form>
                     <button class="btn btn-secondary" type="button" popovertarget="owner-linked-rotate-confirm-{{.ID}}">{{t "owner_tokens.rotate"}}</button>
-                    <div id="owner-linked-rotate-confirm-{{.ID}}" class="confirm-popover" popover><p>{{t "owner_tokens.rotate_confirmation"}}</p><form method="post" action="{{path (printf "/server/preferences/tokens/%d/rotate" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-danger" type="submit">{{t "owner_tokens.rotate"}}</button><button class="btn btn-secondary" type="button" popovertarget="owner-linked-rotate-confirm-{{.ID}}" popovertargetaction="hide">{{t "common.cancel"}}</button></form></div>
+                    <div id="owner-linked-rotate-confirm-{{.ID}}" class="confirm-popover" popover><p>{{t "owner_tokens.rotate_confirmation"}}</p><form method="post" action="{{path (printf "/server/preferences/tokens/%s/rotate" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-danger" type="submit">{{t "owner_tokens.rotate"}}</button><button class="btn btn-secondary" type="button" popovertarget="owner-linked-rotate-confirm-{{.ID}}" popovertargetaction="hide">{{t "common.cancel"}}</button></form></div>
                     <details>
                         <summary>{{t "common.edit"}}</summary>
-                        <form method="post" action="{{path (printf "/server/preferences/tokens/%d/update" .ID)}}">
+                        <form method="post" action="{{path (printf "/server/preferences/tokens/%s/update" .ID)}}">
                             <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                             <label for="owner-token-name-{{.ID}}">{{t "owner_tokens.name"}}</label>
                             <input class="form-input" id="owner-token-name-{{.ID}}" name="name" value="{{.Name}}" maxlength="64" required>
@@ -142,7 +142,7 @@
                         </form>
                     </details>
                     <button class="btn btn-danger" type="button" popovertarget="owner-linked-revoke-confirm-{{.ID}}">{{t "owner_tokens.revoke"}}</button>
-                    <div id="owner-linked-revoke-confirm-{{.ID}}" class="confirm-popover" popover><p>{{t "owner_tokens.revoke_confirmation"}}</p><form method="post" action="{{path (printf "/server/preferences/tokens/%d/revoke" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-danger" type="submit">{{t "owner_tokens.revoke"}}</button><button class="btn btn-secondary" type="button" popovertarget="owner-linked-revoke-confirm-{{.ID}}" popovertargetaction="hide">{{t "common.cancel"}}</button></form></div>
+                    <div id="owner-linked-revoke-confirm-{{.ID}}" class="confirm-popover" popover><p>{{t "owner_tokens.revoke_confirmation"}}</p><form method="post" action="{{path (printf "/server/preferences/tokens/%s/revoke" .ID)}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="btn btn-danger" type="submit">{{t "owner_tokens.revoke"}}</button><button class="btn btn-secondary" type="button" popovertarget="owner-linked-revoke-confirm-{{.ID}}" popovertargetaction="hide">{{t "common.cancel"}}</button></form></div>
                 </div>
             </li>
             {{end}}

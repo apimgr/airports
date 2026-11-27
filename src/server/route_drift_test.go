@@ -57,7 +57,7 @@ func TestAPIRouteDrift(t *testing.T) {
 		if route == "GET /healthz" && !server.config.Server.Healthz.Root.Enabled ||
 			strings.HasPrefix(route, "GET /metrics") && strings.HasPrefix(route, "GET /metrics/") && (!server.config.Server.Metrics.Enabled || !server.config.Server.Metrics.Root.Enabled) ||
 			route == "GET /metrics" && (!server.config.Server.Metrics.Enabled || !server.config.Server.Metrics.Root.Enabled) ||
-			route == "GET /.well-known/pgp-key.asc" && !server.config.Web.Security.PublishPGPKey {
+			route == "GET /.well-known/pgp-key.asc" && !server.hasPGPKeypair() {
 			continue
 		}
 		expected[route] = struct{}{}

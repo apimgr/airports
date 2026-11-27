@@ -135,6 +135,9 @@ func EnsureDir(path string) error {
 	if err := os.MkdirAll(path, permission); err != nil {
 		return err
 	}
+	if err := enforcePrivateACL(path); err != nil {
+		return err
+	}
 	if err := os.Chmod(path, permission); err != nil {
 		return err
 	}

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# @@License : WTFPL
 # On-demand, Docker-only browser E2E suite. This is intentionally outside make test.
 
 set -euo pipefail
@@ -17,7 +18,7 @@ CLEANED_UP=0
 KEEP_TEMP=0
 
 random_suffix() {
-    printf '%08x' "$(( (RANDOM << 15) | RANDOM ))"
+    head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-8
 }
 
 __cleanup() {
@@ -35,13 +36,15 @@ __cleanup() {
 }
 trap __cleanup EXIT INT TERM
 
-command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is required" >&2; exit 1; }
-docker info >/dev/null 2>&1 || { echo "ERROR: Docker daemon is not reachable" >&2; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is required" >&2; exit 69; }
+docker info >/dev/null 2>&1 || { echo "ERROR: Docker daemon is not reachable" >&2; exit 69; }
+docker compose version >/dev/null 2>&1 || { echo "ERROR: Docker Compose plugin is not available" >&2; exit 69; }
 
 COMPOSE_SRC="$REPO_ROOT/docker/docker-compose.test.yml"
 [[ -f "$COMPOSE_SRC" ]] || { echo "ERROR: $COMPOSE_SRC not found" >&2; exit 1; }
 COMPOSE_PROJECT_NAME="airports-e2e-$(random_suffix)"
-TEST_PORT="$((64000 + RANDOM % 1000))"
+port_seed="$(random_suffix)"
+TEST_PORT="$((64000 + 16#${port_seed:0:3} % 1000))"
 HOST_BIND_ADDRESS="127.0.0.1"
 export COMPOSE_PROJECT_NAME HOST_BIND_ADDRESS TEST_PORT
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"

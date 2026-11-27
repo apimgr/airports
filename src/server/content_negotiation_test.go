@@ -17,7 +17,7 @@ func TestRenderTemplateNegotiatesFrontendFormat(t *testing.T) {
 		omits       string
 	}{
 		{name: "browser", userAgent: "Mozilla/5.0", accept: "text/html", contentType: "text/html", contains: "<!doctype html"},
-		{name: "first party CLI", userAgent: "airports-cli/1.0", contentType: "application/json", contains: `"Title":"Global Airports Database"`, omits: "CSRFToken"},
+		{name: "first party CLI", userAgent: "airports-cli/1.0", contentType: "application/json", contains: `"name": "Airports API"`, omits: "CSRFToken"},
 		{name: "HTTP tool", userAgent: "curl/8.0", contentType: "text/plain", contains: "Airport"},
 		{name: "text browser", userAgent: "Lynx/2.9", contentType: "text/html", contains: "Airport"},
 	}

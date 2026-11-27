@@ -17,6 +17,8 @@
     "now": "Update Now",
     "later": "Later"
   },
+  "pwa": {"install": "Install app", "ios_instructions": "Install on iPhone or iPad", "share": "Tap the Share button", "home_screen": "Choose Add to Home Screen, then tap Add."},
+  "startup": {"server_started": "Server started on", "setup_token": "First-start setup token", "mode": "Mode", "listening": "Listening", "started": "Started", "tor": "Tor", "i2p": "I2P", "smtp": "SMTP"},
   "connection": {
     "reconnecting": "Reconnecting to the server…"
   },
@@ -463,7 +465,7 @@
     "attribution_heading": "Data Attribution",
     "license_version": "License: {license} · Version: {version}",
     "tagline": "Global airport reference data.",
-    "description": "Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,071+ airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, a GraphQL endpoint, and a server-side rendered web UI.",
+    "description": "Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,071 small, medium, and large airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, a GraphQL endpoint, and a server-side rendered web UI.",
     "feature_rest": "Read-only REST API with JSON, CSV, and GeoJSON exports",
     "feature_graphql": "GraphQL endpoint with interactive playground",
     "feature_swagger": "OpenAPI / Swagger documentation",

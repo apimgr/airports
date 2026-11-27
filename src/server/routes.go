@@ -113,7 +113,7 @@ func (s *Server) registerRoutes(r chi.Router, registerMetrics func(chi.Router, s
 	registry.Add(Route{Method: http.MethodGet, Path: "/.well-known/security.txt", OperationID: "getSecurityTxt", Summary: "GET /.well-known/security.txt", Auth: "none", Listed: true, Handler: s.handleSecurityTxt})
 	registry.Add(Route{
 		Method: http.MethodGet, Path: "/.well-known/pgp-key.asc", OperationID: "getPGPKey", Summary: "GET /.well-known/pgp-key.asc", Auth: "none", Listed: true, Handler: s.handleSecurityPGPKey,
-		MountedWhen: "security.publish_pgp_key", Mounted: s.config.Web.Security.PublishPGPKey,
+		MountedWhen: "security keypair exists", Mounted: true,
 	})
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
@@ -317,7 +317,22 @@ func (s *Server) openAPIRoutes() []swaggerpkg.OpenAPIRoute {
 	if s == nil || s.routeRegistry == nil {
 		return nil
 	}
-	return s.routeRegistry.OpenAPIRoutes(s.APIBasePath())
+	return s.currentRouteRegistry().OpenAPIRoutes(s.APIBasePath())
+}
+
+// currentRouteRegistry refreshes runtime-dependent mount state before deriving
+// OpenAPI and MCP surfaces from the shared route inventory.
+func (s *Server) currentRouteRegistry() *routeRegistry {
+	if s == nil || s.routeRegistry == nil {
+		return nil
+	}
+	routes := s.routeRegistry.Snapshot()
+	for i := range routes {
+		if routes[i].MountedWhen == "security keypair exists" {
+			routes[i].Mounted = s.hasPGPKeypair()
+		}
+	}
+	return &routeRegistry{routes: routes}
 }
 
 func apiResponseHeaders(apiVersion string, next http.HandlerFunc) http.HandlerFunc {

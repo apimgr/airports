@@ -917,10 +917,6 @@ func (s *Server) handleSecurityTxt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSecurityPGPKey(w http.ResponseWriter, r *http.Request) {
-	if !s.config.Web.Security.PublishPGPKey || s.configDir == "" {
-		http.NotFound(w, r)
-		return
-	}
 	content, err := s.pgpPublicKey()
 	if err != nil || len(content) == 0 {
 		http.NotFound(w, r)

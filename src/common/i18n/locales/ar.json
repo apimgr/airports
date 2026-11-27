@@ -17,6 +17,8 @@
     "now": "حدّث الآن",
     "later": "لاحقًا"
   },
+  "pwa": {"install": "تثبيت التطبيق", "ios_instructions": "التثبيت على iPhone أو iPad", "share": "اضغط زر المشاركة", "home_screen": "اختر إضافة إلى الشاشة الرئيسية، ثم اضغط إضافة."},
+  "startup": {"server_started": "بدأ الخادم في", "setup_token": "رمز الإعداد الأولي", "mode": "الوضع", "listening": "يستمع", "started": "بدأ", "tor": "Tor", "i2p": "I2P", "smtp": "SMTP"},
   "connection": {
     "reconnecting": "جارٍ إعادة الاتصال بالخادم…"
   },

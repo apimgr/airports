@@ -169,11 +169,12 @@ func (s *Server) mcpToolsForRequest(request *http.Request) []mcpTool {
 	}
 	apiPrefix := s.APIBasePath()
 	apiPrefix = strings.TrimSuffix(apiPrefix, "/")
-	openAPIRoutes := s.routeRegistry.MCPRoutes(s.APIBasePath())
+	registry := s.currentRouteRegistry()
+	openAPIRoutes := registry.MCPRoutes(s.APIBasePath())
 	openAPI := swagger.BuildEmbeddedSpecWithRoutes(Version, s.config.Server.APIVersion, "en", openAPIRoutes)
 	swagger.FilterMountedRoutes(openAPI, openAPIRoutes)
 	routesByOperation := make(map[string]Route)
-	for _, route := range s.routeRegistry.Snapshot() {
+	for _, route := range registry.Snapshot() {
 		if route.OperationID != "" {
 			routesByOperation[route.OperationID] = route
 		}

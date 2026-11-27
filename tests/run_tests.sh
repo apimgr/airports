@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
 # tests/run_tests.sh
+# @@License : WTFPL
 # Run the Docker-based basic test tier; full-app and browser tests are explicit.
 #
 # Usage:
