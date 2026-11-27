@@ -29,7 +29,7 @@
 - Use Go `html/template` (`.tmpl` files) for ALL HTML, embedded via `//go:embed`; structure as `layout/`, `partial/`, `page/`, `component/`
 - Apply `URLNormalizeMiddleware` first in the chain (strip trailing slash, 301 redirect, root `/` and file requests excepted)
 - Prioritize HTML5 → CSS → JavaScript in that order; every JS line must be justified (no JS for hover, simple toggles, collapsibles — use `<details>`, `:focus-within`, checkbox hack, native `<dialog>`)
-- Make ALL error pages, Swagger UI, GraphiQL, CLI, TUI, and GUI share ONE unified theme palette (dark/light/auto), sourced from `src/common/theme/colors.go`; default theme is dark; persist via server-readable `theme` cookie (no FOUC, no init JS)
+- Make ALL error pages, Swagger UI, GraphiQL, CLI, TUI, and GUI share ONE unified theme palette (dark/light/auto); `common.css` is authoritative for web colors, and `src/common/theme/colors.go` mirrors the shared roles with parity tests; default theme is dark; persist via server-readable `theme` cookie (no FOUC, no init JS)
 - Meet WCAG 2.1 AA: 4.5:1 contrast minimum, visible focus rings, `aria-label`/`aria-describedby`/`role`, alt text, labeled inputs, skip links, `prefers-reduced-motion` support
 - Build full PWA support: `manifest.json`, service worker (install/activate/fetch), offline fallback, all icon sizes incl. maskable, HTTPS-only
 - Keep `/server/docs/swagger` and `/server/docs/graphql` inside the shared page shell; self-host their scripts/styles and startup code, use the shared theme tokens, and provide `<noscript>` links to the plain API endpoints
@@ -42,6 +42,8 @@
 - Serve `/sitemap.xml` dynamically (homepage priority 1.0, public pages 0.8, never API routes or auth-gated pages)
 - Validate/sanitize any remote-fetched branding image (HTTPS only, block private/loopback/internal IPs, size + MIME-type limits, ≤5 redirects)
 - Keep shared and feature-component CSS tokenized. Use `--color-on-primary` for primary foregrounds and `--color-overlay` for overlays; component custom properties with documented fallbacks are allowed outside `:root`
+- Treat `src/server/static/css/common.css` as the authoritative web palette; mirror shared semantic roles in Go `ThemePalette` and verify palette parity with tests. Keep page-only web roles in `common.css`.
+- Put project CSS in cascade layers ordered `reset`, `tokens`, `base`, `components`, `pages`, `utilities`; the base layer permits the documented page-shell `body`/`main` flex rule only.
 - Put feature components (cookie banner, navigation drawer, status, code/copy, stats/lists, admin shell, form feedback, skip link) in `components.css` and include each in `/debug/components`
 - Keep class/token lint exemptions limited to third-party theme CSS, examples explicitly labelled `WRONG`, and component custom properties with fallbacks; never copy exempt examples into project stylesheets
 
@@ -52,7 +54,7 @@
 | Area | Rule |
 |------|------|
 | Templates | `html/template`, `.tmpl` ext, embedded via `//go:embed`; `layout/public.tmpl` is the only layout (no admin web UI) |
-| CSS | `common.css` → `components.css` → `public.css`; shared roles in `:root`, page-only web roles in `common.css`, mobile-first, logical properties, named breakpoints, shared tokens, no inline styles; `-sm` controls stay at `--size-md` below 768px |
+| CSS | `common.css` → `components.css` → `public.css`; ordered cascade layers (`reset`, `tokens`, `base`, `components`, `pages`, `utilities`); common.css is authoritative for the web palette, Go `ThemePalette` roles are parity-tested; page-only roles stay in common.css; only the page-shell body/main flex rule is allowed in base; mobile-first, logical properties, named breakpoints, no inline styles; `-sm` controls stay at `--size-md` below 768px |
 | JS | ONE file `static/js/app.js`; no frameworks/bundlers/transpilers/npm; bind via `data-action` + `addEventListener`, never inline |
 | Theme | 3 modes: dark (default) / light / auto; class on `<html>`, `theme` cookie (server-rendered, no FOUC); shared palette across Web/Swagger/GraphQL/CLI/TUI/GUI |
 | Mobile breakpoints | Base = mobile (<768px); `min-width:768px` tablet; `min-width:1024px` desktop; touch targets ≥44x44px |

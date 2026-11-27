@@ -47,6 +47,8 @@
 | Compose env | Hardcoded YAML map style; prod sets no `DEBUG`/`MODE`; dev/test set `DEBUG: 1`, `MODE: dev` |
 | Service naming | App `{project_name}`/`{project_name}-app`; cache `{project_name}-cache`; db `{project_name}-db`; proxy `{project_name}-proxy` |
 | Compose variants | `.yml` → `:latest` + persistent Valkey; `.dev.yml` → `:devel`, no cache; `.test.yml` → `:latest` + ephemeral tmpfs Valkey |
+| Local image build | `make docker` builds a single host-platform image and loads it locally; it does not publish or push |
+| Shipped image verification | Run the dedicated shipped-image check separately from the binary-only basic Alpine test tier |
 | Image tags | `:latest`, `:{version}`, `:{YYMM}`, `:{commit}` (release, pushed); `:dev`/`:test` (local only) |
 | Tor | Installed always, auto-enabled if `tor` binary present; binary owns config/data under `{project_name}/tor/` |
 

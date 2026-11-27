@@ -20,6 +20,7 @@
 - Keep `internal_name` frozen at its first-time value even if `project_name` is later renamed
 
 - Embed third-party datasets only with publisher, retrieval/version, checksum, license, and transformation provenance.
+- Keep the fixed directory exceptions `src/paths/` and `src/server/metrics/` when implementing the mandated project layout.
 - Keep Windows user-mode runtime paths under the user's profile; system-mode private paths under ProgramData receive only the service, SYSTEM, and Administrators ACL.
 
 ## Key Rules Summary
@@ -34,6 +35,7 @@
 | Windows paths | root: `%ProgramData%\{internal_org}\{internal_name}\`; user: `%AppData%`/`%LocalAppData%` |
 | Docker paths | `/config/{project_name}/`, `/data/{project_name}/` — container-only, never native OS |
 | Required dirs | `src/`, `docker/`, `docs/`, `tests/`, `scripts/`, `.github/workflows/` (or provider equivalent) |
+| Fixed directory exceptions | `src/paths/` and `src/server/metrics/` are retained as explicitly specified directory locations |
 | Required root files | `AI.md`, `IDEA.md`, `README.md`, `LICENSE.md`, `CLAUDE.md`, `.gitignore`, `release.txt` |
 | Team AI configuration | `.claude/rules/`, `.claude/memory/`, `.claude/CLAUDE.md`, `.cursor/rules/`, and `.windsurf/rules/` are committed; personal overrides, credentials, cache, and lock files are gitignored |
 

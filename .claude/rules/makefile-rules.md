@@ -38,7 +38,7 @@
 | Target: `release` | Runs `release-check` then `build`; strips binaries, tars source, writes SHA-256/SHA-512 sums, replaces the stable tag/release, and publishes with `gh` (manual/local only) |
 | Target: `beta` | Tags the current `main` commit `YYYYMMDDHHMMSS-beta` and pushes the tag for CI publishing |
 | Helper: `release-check` | First `release` prerequisite; rejects non-stable SemVer without building |
-| Target: `docker` | `docker buildx build --push` multi-arch (`linux/amd64,linux/arm64`) via `docker/Dockerfile` |
+| Target: `docker` | Build a local image for the host platform with `docker buildx build --load`; never push. Shipped-image validation is a separate check. |
 | Toolchain image | `casjaysdev/go:latest` for every build/test target |
 | Required env flags | `CGO_ENABLED=0`, `GOFLAGS=-buildvcs=false` on all Docker Go invocations |
 | Binary naming | Server: `{project_name}[-os-arch[.exe]]`; CLI: `{project_name}-cli[-os-arch[.exe]]` |

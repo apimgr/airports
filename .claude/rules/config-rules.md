@@ -30,6 +30,9 @@
 - Enter maintenance mode (read-only, 503 writes) only for the two truly critical errors (DB connection failure, cannot write files); self-heal continuously and auto-recover
 - Resolve `server.contact.*` role emails/webhooks through their documented fallback chains (security→admin, abuse→general→admin, general→admin)
 - Sign every outbound webhook POST with `X-Webhook-Signature`/`X-Webhook-Timestamp`/`X-Webhook-ID`/`X-Webhook-Event`
+- Treat configured trusted-proxy listen addresses as trusted only when they are in the same IPv4 `/24` or IPv6 `/64`; do not broaden trust to the entire private range by inference.
+- Use SafePath validation with lowercase `[a-z0-9_-]` for configured path/base identifiers; resource filenames may preserve case and dots, subject to traversal and containment checks.
+- Never put secrets, contact details, ciphertext, or full security report bodies in webhook payloads; security webhooks receive summaries only.
 
 - Before the first `server.yml` read or child-process start, enforce `0700` directories/`0600` files recursively on the private config/data trees, including `tor/site`; repair wrong permissions and reject symlinks.
 - Read the `DATABASE_DIR` runtime override on every startup and use it for the SQLite database directory.
@@ -44,11 +47,14 @@
 | Six operational states | Production, Production+Debug, Development, Development+Debug, Debug with diagnostics off, Debug with diagnostics on — see AI.md PART 6 behavior tables |
 | Config precedence | `--mode` > `MODE` > `server.mode` > default; `--debug` > `DEBUG` > debug-mode default > false |
 | Config validation | Invalid value → log warning, apply default, continue startup — never crash |
+| SafePath | Configured path/base identifiers: lowercase `[a-z0-9_-]`; resource filenames may include case and dots, with traversal/containment checks |
 | Base URL | `baseurl` resolved: `X-Forwarded-Prefix` > `X-Forwarded-Path` > `X-Script-Name` > config/CLI `server.baseurl`/`--baseurl` > default `/` |
 | Trusted proxies | Private ranges + loopback + link-local always trusted; `server.trusted_proxies.additional` adds public IP/CIDR/DNS; ungated direct deployments should leave `additional: []` |
+| Trusted proxy subnet | Configured proxy listen address must be in the same IPv4 `/24` or IPv6 `/64` |
 | Tor handling | `tor.onion_address` match = priority-0 Tor request; proto forced `http://`, port stripped, no clearnet leakage, no `Preferred-Languages` |
 | Rate limiting | Weighted two-window counters in `server.db` by default or the configured external cache; per-IP or per-token identity, process-local empty counters when external cache is unavailable; defaults: read 120/min, write 10/min, health 120/min, global burst 240/min; `429` + `Retry-After` header |
 | Contact roles | `server.contact.{admin,security,abuse,general}.email` + `webhooks{telegram,discord,slack,generic,...}`; canonical keys only, no aliases |
+| Security webhooks | Summary-only event payloads; ciphertext and contact details go only by email to the explicit security email |
 | Cache config | `server.cache.type`: none/memory (default)/valkey/redis; `url` takes precedence over host/port/password fields |
 | Privacy/consent | GDPR/CCPA cookie banner config under `server.privacy.*`; non-essential categories stay off until the visitor consents; essential cookies always on; policy version defaults to `1` and is recorded in consent audit events |
 | Request limits | `server.limits.{max_body_size,read_timeout,write_timeout,idle_timeout}`; defaults 10MB/30s/30s/120s |

@@ -22,9 +22,9 @@
 
 - Create/update the matching `*_test.go` in the same work pass whenever package logic is added or changed
 - Run `make test` (Phase 1, toolchain gate) before every commit; run binary validation scripts in `./tests/` manually before release. E2E is on demand and is not a commit gate
-- Keep the tiers distinct: `tests/run_tests.sh` is Docker-only basic smoke coverage; `tests/incus.sh` is the explicit full-app check (use `tests/docker.sh` explicitly when Incus is unavailable); E2E remains separate
+- Keep the tiers distinct: `tests/run_tests.sh` invokes `tests/docker.sh` for the binary-only basic Alpine tier; `tests/incus.sh` is the explicit full-app/init-system check; shipped-image verification is a separate check; E2E remains separate
 - Test every route with all applicable Accept headers (`text/html`+`text/plain` for frontend; `application/json`+`text/plain` for API) and every `.txt` endpoint
-- Maintain `tests/run_tests.sh`, `tests/docker.sh`, `tests/incus.sh` (executable, WTFPL header), auto-detecting Incus (preferred) then Docker (fallback)
+- Keep `tests/run_tests.sh` Docker-only; it runs `tests/docker.sh` and exits `69` when Docker is missing. `tests/incus.sh` is a separate, developer-invoked full-app check and must not be used as a fallback.
 - Keep `docs/` covering the full shipped surface (browser, CLI, API, config, well-known/discovery) with the 8 required pages (index, installation, configuration, api, cli, security, integrations, development)
 - Maintain WCAG AA contrast (4.5:1) and both dark/light themes if customizing MkDocs Material colors
 - Route every human-readable string through `t()`/`{{t .Lang key}}`; keep all locale files' keys identical to `en.json` (validated by the i18n tests in `make test`)
@@ -38,11 +38,12 @@
 
 | Area | Rule |
 |------|------|
-| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `tests/run_tests.sh` is the Docker-only basic tier and full-app checks are explicitly run with Incus/Docker; `./tests/e2e.sh` is on-demand and never part of the commit gate |
+| Test phases | Phase 1 `*_test.go` via `make test` (≥60% coverage, pre-commit gate); Phase 2 `tests/run_tests.sh` invokes `tests/docker.sh` for binary-only basic Alpine coverage; `tests/incus.sh` runs full-app/init-system checks; shipped-image verification and `./tests/e2e.sh` are separate/on-demand, never commit gates |
 | Test file naming | `config_test.go`, `server_test.go`, `*_handler_test.go`, `mode_test.go`, `ssl_test.go`, `paths_test.go` — colocated with source |
 | Coverage tooling | `go test -cover -coverprofile=coverage.out ./...` + `go tool cover -func=coverage.out`; CI fails build if `< 60` |
 | Unit-test container | Docker toolchain image `casjaysdev/go:latest` via `make test`; never `alpine:latest` |
-| Integration container | Incus `debian:latest` (preferred, systemd) or Docker `casjaysdev/go:latest` for Go integration tests |
+| Basic binary container | `tests/docker.sh` runs the compiled binary in `alpine:latest`; init-system and service lifecycle coverage belongs to `tests/incus.sh` |
+| Integration containers | Incus `debian/trixie` (systemd) and `alpine/{latest_stable}` (OpenRC); shipped-image verification is separate from binary-only smoke coverage |
 | Temp dir pattern | `/tmp/{project_org}/{internal_name}-XXXXXX/` — never bare `/tmp`, never in project dir |
 | docs/ required files | `index.md`, `installation.md`, `configuration.md`, `api.md`, `cli.md` (if applicable), `security.md`, `integrations.md`, `development.md`, `requirements.txt` |
 | RTD config | `mkdocs.yml` (Material theme, dark/light/auto) + `.readthedocs.yaml` (`os: ubuntu-24.04`, latest stable Python) |

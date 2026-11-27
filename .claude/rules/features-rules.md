@@ -42,6 +42,8 @@
   the database is empty (first-run)
 - Gate the `update_check` task by `defer_days`, but let manual `--update check`/`--update yes`
   always see and install the true latest — an explicit operator action overrides the defer window
+- Send security webhook notifications as summary-only payloads; never include ciphertext or contact details, which may be sent only by email to the explicit security email.
+- For an operator's own MCP tooling, `server.token` is accepted with an explicit full-operator-access warning; standing or third-party MCP clients use individually linked tokens and never the primary token.
 - Use platform-specific binary replacement for self-update (atomic rename on Unix, rename-to-.old
   + `MOVEFILE_DELAY_UNTIL_REBOOT` on Windows) and restart via the platform's service manager
 
@@ -56,10 +58,11 @@
 | SMTP | Auto-detect on first run (loopback → docker gateway → gateway IP → FQDN → global IPv4 → mail./smtp. subdomains); `SMTP_*` env vars override config; test connection every startup |
 | Email templates | `{variable}` syntax, `Subject: ...` then `---` then body; embedded defaults in `src/server/template/email/`, overrides in `{config_dir}/template/email/` |
 | Scheduler mechanism | Built-in only, Go `time.Ticker`, cron/`@every`/`@hourly` etc. syntax, state in `server.db`, catch-up window on restart, graceful shutdown (30s) |
-| Built-in tasks | `ssl_renewal`(daily 03:00) · `geoip_update`(weekly Sun 03:00) · `blocklist_update`(daily 04:00) · `cve_update`(daily 05:00) · `update_check`(daily 06:00) · `token_cleanup`(15m) · `log_rotation`(daily 00:00) · `backup_daily`(02:00) · `backup_hourly`(off) · `healthcheck_self`(5m) · `tor_health`(10m) |
+| Built-in tasks | `ssl_renewal`(daily 03:00 default, configurable via `server.scheduler.tasks.ssl_renewal.schedule`) · `geoip_update`(weekly Sun 03:00) · `blocklist_update`(daily 04:00) · `cve_update`(daily 05:00) · `update_check`(daily 06:00) · `token_cleanup`(15m) · `log_rotation`(daily 00:00) · `backup_daily`(02:00) · `backup_hourly`(off) · `healthcheck_self`(5m) · `tor_health`(10m) |
 | GeoIP source | `sapics/ip-location-db` MMDB files via CDN (jsdelivr), no API key; downloaded to `{data_dir}/security/geoip`, updated weekly by scheduler; never a sole access gate |
 | GeoIP databases | ASN, Country, City (IPv4+IPv6), WHOIS (derived join of ASN+Country, no separate file) |
 | Metrics format/endpoint | Prometheus text exposition via `github.com/prometheus/client_golang`, path `/metrics` (configurable), metrics prefixed `{project_name}_`, optional Bearer token auth |
+| Grafana dashboard | Grafana 12.0+ Classic dashboard JSON only; `schemaVersion: 42`, `timeseries` panels; older versions unsupported |
 | Metrics naming | snake_case, unit suffix (`_seconds`/`_bytes`), counters end `_total`; low-cardinality labels only (never user_id/request_id/IP) |
 | Backup format | `.tar.gz` or `.tar.gz.enc` (AES-256-GCM, Argon2id key derivation); `{project_name}_backup_YYYY-MM-DD[_HHMMSS].tar.gz[.enc]` full + `{project_name}-daily.tar.gz[.enc]` incremental + optional `-hourly` |
 | Backup schedule | `backup_daily` at 02:00 (full+daily incremental, default 2 files kept), `backup_hourly` disabled by default; retention by `max_backups`/`keep_weekly`/`keep_monthly`/`keep_yearly`/`max_total_size` |

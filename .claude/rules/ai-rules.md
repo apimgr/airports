@@ -32,6 +32,7 @@
 
 - During an explicit audit, walk every AI.md PART line by line before forming compliance findings; fix verified gaps directly and use `AUDIT.AI.md` only when more than five issues were found.
 - Keep all 13 `.claude/rules/*.md` files current whenever AI.md is newer, following PART 0's file-to-PART mapping and required section order.
+- Store assistant-wide COMMIT/NEVER/MUST memory in the assistant's session memory only; do not duplicate it in project `.claude/memory/`, which is reserved for project-specific discoveries.
 - Record only verified defects in AI.md itself in the parent template inbox; project implementation tasks belong in `TODO.AI.md`.
 
 ## Key Rules Summary
@@ -46,5 +47,6 @@
 | Naming | files `lowercase_snake.go`; public `PascalCase`; private `camelCase`; booleans `isX/hasX/canX` |
 | Commit workflow | `gitcommit --dir {dir} all` only; never plain `git commit`/`git push` |
 | TODO.AI.md | AI-owned, remove items only once resolved+committed; completion ritual on full clear |
+| Assistant memory | Global COMMIT/NEVER/MUST rules belong in assistant session memory; `.claude/memory/` holds project-specific discoveries only |
 
 For complete details, see AI.md PART 0, PART 1.

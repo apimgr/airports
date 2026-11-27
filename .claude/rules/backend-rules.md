@@ -54,12 +54,14 @@
 | Cache TTLs | tokens: none; rate counters: 1m; user profile: 5m; config: 1m; static hash: 24h; GeoIP: 7d; page cache: 5m |
 | HTTP cache headers | static: `public,max-age=31536000,immutable`; HTML/authenticated: `no-store`; public API: `public,max-age=60` |
 | DB engine | SQLite (default) or libsql/Turso remote; `CREATE TABLE IF NOT EXISTS` only, no migrations table |
+| Remote database cache | Remote libSQL/Turso uses a local SQLite replica as offline/read cache, tracks sync metadata, synchronizes when available, and serves cached reads in read-only maintenance mode when remote access fails |
 | Pool sizing | dev 5/2, small 25/5, medium 50/10, large 100/20 (max_open/max_idle) |
 | Transactions | Optimistic locking via `version` column; `sql.LevelSerializable` + retry-on-`SQLITE_BUSY` for high-contention paths |
 | Auth identity rules | constant-time compares; identical auth error msg+timing; opaque external IDs; never echo credentials |
 | Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `CSP`, `Permissions-Policy`, `Referrer-Policy`, HSTS (SSL only), `Reporting-Endpoints`/`Report-To`/`NEL` |
 | CSP default | `default-src 'self'`, `script-src 'self'` (no inline), `object-src 'none'`, report to `/api/{api_version}/server/reports/csp` |
 | Secrets | Generated HMAC secrets and rotation rows in `server.db` `app_secrets`; credentials, including `server.security.encryption_key`, at rest in `secrets.yml`; never logged/returned via API |
+| Security webhooks | Summary-only payloads; never transmit ciphertext or contact details; full encrypted report body may be emailed only to the explicitly configured security email |
 | Log files | `access.log`(apache), `server.log`(text), `error.log`(text), `audit.log`(json only, tamper-evident, append-only), `security.log`(fail2ban), `auth.log`(syslog) |
 | Log levels | `info` normal ops, `warn` failed/recoverable, `error` needs attention, `critical` security incidents/server failure |
 | Log rotation defaults | access.log monthly; audit.log daily; all others weekly,50MB; `keep: none` by default |
