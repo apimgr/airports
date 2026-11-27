@@ -76,12 +76,20 @@ live in `src/server/`.
 ## Testing
 
 ```bash
-make test                  # Go unit tests inside Docker
-./tests/run_tests.sh       # Docker-only basic test runner
+make test                  # Go quality gates, unit tests, coverage, and Docker basic tier
+./tests/run_tests.sh       # Standalone Docker-only basic test runner
 ./tests/docker.sh          # Build the current tree and test it in Docker
 ./tests/incus.sh [systemd|openrc|all] # Explicit Debian/systemd and Alpine/OpenRC suite
 ./tests/e2e.sh             # On-demand SSR, no-JS, and full-browser E2E suite in Docker
 ```
+
+The `make test` gate runs `go vet`, `staticcheck`, `govulncheck`, `shellcheck`,
+`shfmt`, and the Go test suite in the Docker toolchain image. The suite enforces
+the coverage floor and includes the CSS conformance test for every embedded
+stylesheet. It then runs `tests/run_tests.sh`, which builds the current tree
+and checks the server, CLI, routes, authentication, and read-only CLI behavior
+in the Alpine application container. CI runs the same quality gates and basic
+binary checks as separate workflow steps.
 
 The Go integration tests live under `tests/integration/` and end-to-end tests
 under `tests/e2e/`. The browser E2E suite is run separately on demand; it is
