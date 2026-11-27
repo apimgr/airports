@@ -417,7 +417,7 @@ not used by this project:
 
 ### Go Dependencies
 
-This inventory covers dependencies reported by `go-licenses csv ./...`. Linked upstream license files retain the complete copyright notices. `modernc.org/mathutil` v1.7.1 is the sole scanner exception: its module archive omits a license file, while the upstream project identifies BSD-3-Clause.
+This inventory covers dependencies reported by `go-licenses csv ./src/...`, matching the package scope used by the license workflow. Linked upstream license files retain the complete copyright notices. `modernc.org/mathutil` v1.7.1 is the sole scanner exception: its module archive omits a license file, while the upstream project identifies BSD-3-Clause.
 
 | Library/package | Version | License | Copyright/attribution | Upstream license |
 |---------|---------|---------|---------|---------|
