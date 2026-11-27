@@ -12,6 +12,7 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 - [Security model](security.md) — what's authenticated, what isn't, and why
 - [External integrations](integrations.md) — GeoIP, Tor, I2P, MCP, ACME, SMTP
 - [Airport maps](maps.md) — server-rendered coordinates and interactive map behavior
+- [Progressive web app](pwa.md) — installation, updates, and offline behavior
 - [Development](development.md) — contributing, build, test
 
 ## What you get
