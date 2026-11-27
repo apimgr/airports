@@ -86,7 +86,7 @@ fi
 mkdir -p "${TMPDIR:-/tmp}/${PROJECT_ORG}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_ORG}/${INTERNAL_NAME}-XXXXXX")"
 mkdir -p "$TEMP_DIR/volumes/config/airports/yaml.d" "$TEMP_DIR/volumes/data"
-cat >"$TEMP_DIR/volumes/config/yaml.d/40-endpoint-coverage.yml" <<'EOF'
+cat >"$TEMP_DIR/volumes/config/airports/yaml.d/40-endpoint-coverage.yml" <<'EOF'
 server:
   rate_limit:
     read:
