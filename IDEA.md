@@ -1,6 +1,6 @@
 ## Project description
 
-Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,071 small, medium, and large airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. The web UI renders airport locations on OpenStreetMap tiles (no API key required). All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary.
+Airports is a full-stack Go web application providing comprehensive global airport information. It serves data on 48,069 small, medium, and large airports worldwide — ICAO/IATA codes, names, city, country, coordinates, elevation, and type — through a versioned REST API, GraphQL endpoint, and a server-side rendered web UI. GeoIP integration detects the caller's location to surface nearby airports on the home page. The web UI renders airport locations on OpenStreetMap tiles (no API key required). All airport data is embedded in the binary at build time; GeoIP databases are downloaded on first run and auto-updated weekly. Deployed as a single self-contained static binary.
 
 ### Tagline
 
@@ -27,7 +27,7 @@ resource_label_plural: airports
 ### Product scope & non-goals
 
 **In scope:**
-- Serving 48,071 small, medium, and large airport records via REST API and web UI
+- Serving 48,069 small, medium, and large airport records via REST API and web UI
 - Providing an optional timezone identifier when the airport has a matching source record
 - GeoIP-based caller location detection to surface nearby airports
 - Search by ICAO/IATA code, name, city, country, or coordinates
@@ -184,4 +184,4 @@ The public airport UI uses the following project feature components. Their CSS b
 | Health statistics | `.health-stats-grid`, `.health-footer`, `.auto-refresh` | none | none |
 | Shared data lists and tables | `.info-list`, `.info-label`, `.info-value`, `.feature-list`, `.feature-list-item`, `.feature-enabled`, `.feature-disabled`, `.data-table`, `.data-table-heading`, `.data-table-cell`, `.breadcrumb`, `.breadcrumb-link` | none | selected list state |
 | Offline page | `.offline-page`, `.offline-card`, `.offline-icon`, `.offline-title`, `.offline-message` | none | offline |
-| Owner-token management | `.owner-token-page`, `.owner-token-layout`, `.owner-token-column`, `.owner-token-card`, `.owner-token-linked`, `.owner-linked-token-list`, `.owner-linked-token`, `.owner-token-actions`, `.owner-token-custom-expiry`, `.owner-token-reveal` | primary and linked token panels | hidden, revealed, confirmation popover |
+| Owner-token management | `.owner-token-page`, `.owner-token-layout`, `.owner-token-card`, `.owner-token-linked`, `.owner-linked-token-list`, `.owner-linked-token`, `.owner-token-actions`, `.owner-token-custom-expiry`, `.owner-token-reveal` | primary and linked token panels | hidden, revealed, confirmation popover |

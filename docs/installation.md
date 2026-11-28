@@ -1,6 +1,6 @@
 # Installation
 
-The Airports API ships as a single self-contained static binary with the airport dataset (48,071 records) embedded. It does not require a database server. Tor and I2P integrations use their local daemons when available.
+The Airports API ships as a single self-contained static binary with the airport dataset (48,069 records) embedded. It does not require a database server. Tor and I2P integrations use their local daemons when available.
 
 ## Docker (recommended)
 

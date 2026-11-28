@@ -1,6 +1,6 @@
 # Airports API
 
-Welcome to the documentation for the **Airports API** — a single static Go binary serving 48,071 airports via REST, GraphQL, and a server-side rendered web UI.
+Welcome to the documentation for the **Airports API** — a single static Go binary serving 48,069 airports via REST, GraphQL, and a server-side rendered web UI.
 
 ## Quick links
 
@@ -17,7 +17,7 @@ Welcome to the documentation for the **Airports API** — a single static Go bin
 
 ## What you get
 
-- 48,071 small, medium, and large airport records embedded in the binary at build time
+- 48,069 small, medium, and large airport records embedded in the binary at build time
 - ICAO/IATA lookup, free-text search, nearby-by-radius, bounding-box, nearest-N
 - GeoIP-based caller-location detection on the home page
 - JSON / CSV / GeoJSON output

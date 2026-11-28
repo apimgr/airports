@@ -74,8 +74,8 @@ All JSON API responses use the canonical envelope:
   "pagination": {
     "page": 1,
     "limit": 50,
-    "total": 48071,
-    "pages": 193
+    "total": 48069,
+    "pages": 962
   }
 }
 ```
@@ -127,7 +127,7 @@ GET /api/{api_version}/airports
   "pagination": {
     "page": 1,
     "limit": 250,
-    "total": 48071,
+    "total": 48069,
     "pages": 193
   }
 }
@@ -327,10 +327,10 @@ GET /api/{api_version}/stats.txt
 {
   "ok": true,
   "data": {
-    "total_airports": 48071,
+    "total_airports": 48069,
     "countries": 239,
-    "with_iata": 8799,
-    "with_icao": 48071
+    "with_iata": 8800,
+    "with_icao": 48069
   }
 }
 ```
@@ -488,6 +488,25 @@ older SQLite database with integer token keys preserves those keys internally
 and maps requests to migrated `public_id` UUID values.
 The API equivalents return the raw token in the JSON response body without a
 redirect.
+
+Primary tokens have `global` scope. Linked tokens accept `read` (GET, HEAD, and
+OPTIONS) or `read-write` scope; the default is `read-write`. A linked token with
+insufficient scope gets `403` and
+`WWW-Authenticate: Bearer error="insufficient_scope"`. Scope is fixed when a
+linked token is created. The linked-token API accepts
+`{"name":"ci","scope":"read","expires":"never"}` or
+`{"name":"ci","scope":"read-write","expires_on":"2027-01-31"}`.
+`expires` accepts `never`, `7d`, `30d`, `90d`, or `1y`; it cannot be sent with
+`expires_on`. A date is UTC and remains valid through that day, expiring at
+midnight at the start of the following UTC day.
+
+The token list returns a masked primary object, a `linked` array, and
+`max_linked`. Linked-token create, reveal, and rotate responses include the
+masked token metadata plus the raw value in `linked_token`; update returns
+masked metadata only. Token objects include `id`, `name`, `kind`, `scope`,
+`token_masked`, RFC 3339 UTC `created_at`, `last_used_at` and `expires_at`
+(`null` when absent), and `status`. Revoke returns only the ID and revoked
+status. List and update responses never contain a raw token.
 
 The one-shot security report status page is available at
 `GET /server/security/report/{tracking_id}` and has no API mirror. Contact

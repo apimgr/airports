@@ -29,8 +29,8 @@ SOFTWARE.
 #### Airport records
 
 Source: [OurAirports](https://ourairports.com/data/), distributed through the [ourairports-data repository](https://github.com/davidmegginson/ourairports-data)
-Version: commit `a537e082ac8c8fe6ab509df1f128cc6704fe73c1`
-Retrieved: 2026-11-26
+Version: commit `a9426f7711df70678dfb745ceaa3d8891bf98328`
+Retrieved: 2026-11-27
 License: Public Domain, as stated by OurAirports
 
 The embedded snapshot includes only OurAirports `small_airport`, `medium_airport`, and `large_airport` records. Heliports, seaplane bases, balloonports, and closed facilities are excluded. `airports.csv` supplies airport fields and `regions.csv` supplies region names. Fields are mapped to the project schema.
@@ -39,7 +39,7 @@ The embedded snapshot includes only OurAirports `small_airport`, `medium_airport
 
 Source: [mwgg/Airports](https://github.com/mwgg/Airports)
 Version: commit `a89e4e0dda9d9878337e2da190ebe1ef1d6af705`
-Retrieved: 2026-11-26
+Retrieved: 2026-11-27
 License: MIT
 
 Timezone identifiers are joined by OurAirports `ident`. The field is omitted when no match exists. The upstream README says timezone data was initially sourced from [TimeZoneDB](https://www.timezonedb.com/) and updated using [TimeAPI](https://timeapi.io/). TimeZoneDB states its database is licensed under CC BY 3.0; TimeAPI is recorded as upstream lineage, and no separate TimeAPI license is asserted here. The timezone values are redistributed from the pinned mwgg/Airports dataset under its MIT package license, with TimeZoneDB attribution retained.
