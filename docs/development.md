@@ -98,14 +98,15 @@ not part of `make test` or `tests/run_tests.sh`.
 The process entry point in `src/main.go` delegates to the testable application
 package under `src/app/`. Domain packages and app-level tests live below `src/`.
 
-The Docker integration and E2E scripts copy
-`docker/docker-compose.test.yml` into a project-scoped OS temp directory. Each
-run uses a unique Compose project and a test port in the 64000–64999 range,
-then removes its own containers, network, volumes, and temporary files after a
-successful run. The E2E script retains its temp directory and browser artifacts
-after a failure for diagnosis. Do not run the test compose file from the project
-directory or start it manually; use the scripts above so test resources remain
-isolated.
+The browser E2E script copies `docker/docker-compose.test.yml` into a
+project-scoped OS temp directory and uses a unique Compose project and test
+port in the 64000–64999 range. It removes its own containers, network, volumes,
+and temporary files after a successful run. After a failure, it retains the
+temporary directory and browser artifacts for diagnosis. The basic Docker
+integration script builds the host binaries and tests them in a disposable
+Alpine container; it does not use Compose. Do not run the test compose file
+from the project directory or start it manually; use `tests/e2e.sh` so its
+resources remain isolated.
 
 The Incus suite defaults to `all` and runs Debian/systemd and numbered
 Alpine/OpenRC cases sequentially. The suite creates uniquely named instances
